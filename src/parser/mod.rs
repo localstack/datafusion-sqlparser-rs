@@ -17215,11 +17215,20 @@ impl<'a> Parser<'a> {
     }
 
     /// Returns true if the immediate tokens look like the
-    /// beginning of a subquery. `(SELECT ...`
+    /// beginning of a subquery. `(SELECT ...` or `((SELECT ...` etc.
     fn peek_subquery_start(&mut self) -> bool {
-        let [maybe_lparen, maybe_select] = self.peek_tokens();
-        Token::LParen == maybe_lparen
-            && matches!(maybe_select, Token::Word(w) if w.keyword == Keyword::SELECT)
+        // Handle (SELECT, ((SELECT, (((SELECT, etc.
+        // This makes INSERT consistent with other contexts where nested
+        // parentheses around subqueries are handled by recursive descent.
+        let mut i = 0;
+        loop {
+            let token = self.peek_nth_token(i);
+            match token.token {
+                Token::LParen => i += 1,
+                Token::Word(w) if w.keyword == Keyword::SELECT => return i > 0,
+                _ => return false,
+            }
+        }
     }
 
     fn parse_conflict_clause(&mut self) -> Option<SqliteOnConflict> {
