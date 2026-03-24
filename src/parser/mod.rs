@@ -14017,8 +14017,35 @@ impl<'a> Parser<'a> {
                         _ => None,
                     };
 
+                // Snowflake-style: DESC <object_type> <name>
+                if self.dialect.describe_requires_table_keyword()
+                    && matches!(describe_alias, DescribeAlias::Desc | DescribeAlias::Describe)
+                {
+                    if let Some(kw) = self.parse_one_of_keywords(&[
+                        Keyword::TABLE,
+                        Keyword::VIEW,
+                        Keyword::DATABASE,
+                        Keyword::SCHEMA,
+                    ]) {
+                        let object_type = match kw {
+                            Keyword::TABLE => DescribeObjectType::Table,
+                            Keyword::VIEW => DescribeObjectType::View,
+                            Keyword::DATABASE => DescribeObjectType::Database,
+                            Keyword::SCHEMA => DescribeObjectType::Schema,
+                            _ => unreachable!(),
+                        };
+                        let object_name = self.parse_object_name(false)?;
+                        return Ok(Statement::DescribeObject {
+                            describe_alias,
+                            object_type,
+                            object_name,
+                        });
+                    }
+                }
+
                 let has_table_keyword = if self.dialect.describe_requires_table_keyword() {
-                    // only allow to use TABLE keyword for DESC|DESCRIBE statement
+                    // This branch is now only reached if none of the above keywords matched
+                    // (e.g., EXPLAIN TABLE in ClickHouse)
                     self.parse_keyword(Keyword::TABLE)
                 } else {
                     false

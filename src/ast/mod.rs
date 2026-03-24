@@ -4625,6 +4625,19 @@ pub enum Statement {
         table_name: ObjectName,
     },
     /// ```sql
+    /// DESC | DESCRIBE <object_type> <object_name>
+    /// ```
+    /// Snowflake-style DESCRIBE for tables, views, databases, schemas.
+    DescribeObject {
+        /// `DESC` or `DESCRIBE`
+        describe_alias: DescribeAlias,
+        /// The object type keyword: TABLE, VIEW, DATABASE, SCHEMA
+        object_type: DescribeObjectType,
+        /// The object name (may be qualified: db.schema.table)
+        #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+        object_name: ObjectName,
+    },
+    /// ```sql
     /// [EXPLAIN | DESC | DESCRIBE]  <statement>
     /// ```
     Explain {
@@ -5117,6 +5130,13 @@ impl fmt::Display for Statement {
                 }
 
                 write!(f, "{table_name}")
+            }
+            Statement::DescribeObject {
+                describe_alias,
+                object_type,
+                object_name,
+            } => {
+                write!(f, "{describe_alias} {object_type} {object_name}")
             }
             Statement::Explain {
                 describe_alias,
@@ -8694,6 +8714,32 @@ impl fmt::Display for HiveDescribeFormat {
         f.write_str(match self {
             Extended => "EXTENDED",
             Formatted => "FORMATTED",
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// Object type keyword used in Snowflake-style DESCRIBE statements.
+pub enum DescribeObjectType {
+    /// `TABLE`
+    Table,
+    /// `VIEW`
+    View,
+    /// `DATABASE`
+    Database,
+    /// `SCHEMA`
+    Schema,
+}
+
+impl fmt::Display for DescribeObjectType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            DescribeObjectType::Table => "TABLE",
+            DescribeObjectType::View => "VIEW",
+            DescribeObjectType::Database => "DATABASE",
+            DescribeObjectType::Schema => "SCHEMA",
         })
     }
 }
