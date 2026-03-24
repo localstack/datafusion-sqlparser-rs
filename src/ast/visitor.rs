@@ -17,7 +17,7 @@
 
 //! Recursive visitors for ast Nodes. See [`Visitor`] for more details.
 
-use crate::ast::{Expr, ObjectName, Query, Select, Statement, TableFactor, ValueWithSpan};
+use crate::ast::{Expr, Ident, ObjectName, Query, Select, Statement, TableFactor, ValueWithSpan};
 use core::ops::ControlFlow;
 
 /// A type that can be visited by a [`Visitor`]. See [`Visitor`] for
@@ -266,6 +266,16 @@ pub trait Visitor {
     fn post_visit_value(&mut self, _value: &ValueWithSpan) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
+
+    /// Invoked for any identifiers that appear in the AST before visiting children
+    fn pre_visit_ident(&mut self, _ident: &Ident) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any identifiers that appear in the AST after visiting children
+    fn post_visit_ident(&mut self, _ident: &Ident) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
 }
 
 /// A visitor that can be used to mutate an AST tree.
@@ -392,6 +402,16 @@ pub trait VisitorMut {
 
     /// Invoked for any statements that appear in the AST after visiting children
     fn post_visit_value(&mut self, _value: &mut ValueWithSpan) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any identifiers that appear in the AST before visiting children
+    fn pre_visit_ident(&mut self, _ident: &mut Ident) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any identifiers that appear in the AST after visiting children
+    fn post_visit_ident(&mut self, _ident: &mut Ident) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 }
