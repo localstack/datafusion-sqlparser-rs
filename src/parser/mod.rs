@@ -5172,9 +5172,11 @@ impl<'a> Parser<'a> {
             self.parse_create_secret(or_replace, temporary, persistent)
         } else if self.parse_keyword(Keyword::USER) {
             self.parse_create_user(or_replace).map(Into::into)
+        } else if self.parse_keyword(Keyword::WAREHOUSE) {
+            self.parse_create_warehouse(or_replace)
         } else if or_replace {
             self.expected_ref(
-                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION after CREATE OR REPLACE",
+                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE after CREATE OR REPLACE",
                 self.peek_token_ref(),
             )
         } else if self.parse_keyword(Keyword::EXTENSION) {
@@ -5242,6 +5244,25 @@ impl<'a> Parser<'a> {
                 options: tags,
                 delimiter: KeyValueOptionsDelimiter::Comma,
             },
+        })
+    }
+
+    fn parse_create_warehouse(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        // Skip any warehouse parameters (SIZE, MAX_CLUSTER_COUNT, etc.)
+        loop {
+            match self.peek_token().token {
+                Token::SemiColon | Token::EOF => break,
+                _ => {
+                    self.next_token();
+                }
+            }
+        }
+        Ok(Statement::CreateWarehouse {
+            or_replace,
+            if_not_exists,
+            name,
         })
     }
 
@@ -7383,6 +7404,8 @@ impl<'a> Parser<'a> {
             ObjectType::User
         } else if self.parse_keyword(Keyword::STREAM) {
             ObjectType::Stream
+        } else if self.parse_keyword(Keyword::WAREHOUSE) {
+            ObjectType::Warehouse
         } else if self.parse_keyword(Keyword::FUNCTION) {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
@@ -7410,7 +7433,7 @@ impl<'a> Parser<'a> {
             };
         } else {
             return self.expected_ref(
-                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FUNCTION, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW or USER after DROP",
+                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FUNCTION, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
                 self.peek_token_ref(),
             );
         };
