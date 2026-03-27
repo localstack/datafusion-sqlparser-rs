@@ -586,6 +586,7 @@ define_keywords!(
     LEAST,
     LEFT,
     LEFTARG,
+    LET,
     LEVEL,
     LIFECYCLE,
     LIKE,
