@@ -568,6 +568,7 @@ define_keywords!(
     LEAST,
     LEFT,
     LEFTARG,
+    LET,
     LEVEL,
     LIKE,
     LIKE_REGEX,

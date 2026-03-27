@@ -4773,6 +4773,34 @@ pub enum Statement {
     /// ```
     /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-reset.html)
     Reset(ResetStatement),
+    /// Bare assignment statement inside a Snowflake Scripting `BEGIN...END` block.
+    ///
+    /// ```sql
+    /// result := 'hello';
+    /// counter := counter + 1;
+    /// ```
+    /// [Snowflake](https://docs.snowflake.com/en/developer-guide/snowflake-scripting/variables)
+    Assignment {
+        /// Variable name being assigned.
+        target: Ident,
+        /// Expression being assigned.
+        value: Expr,
+    },
+    /// `LET` declaration/assignment statement inside a Snowflake Scripting `BEGIN...END` block.
+    ///
+    /// ```sql
+    /// LET x := 42;
+    /// LET name VARCHAR := 'hello';
+    /// ```
+    /// [Snowflake](https://docs.snowflake.com/en/developer-guide/snowflake-scripting/variables)
+    Let {
+        /// Variable name being declared and assigned.
+        name: Ident,
+        /// Optional data type for the variable.
+        data_type: Option<DataType>,
+        /// Assignment expression.
+        value: Expr,
+    },
 }
 
 impl From<Analyze> for Statement {
@@ -6208,6 +6236,18 @@ impl fmt::Display for Statement {
             Statement::Vacuum(s) => write!(f, "{s}"),
             Statement::AlterUser(s) => write!(f, "{s}"),
             Statement::Reset(s) => write!(f, "{s}"),
+            Statement::Assignment { target, value } => write!(f, "{target} := {value}"),
+            Statement::Let {
+                name,
+                data_type,
+                value,
+            } => {
+                write!(f, "LET {name}")?;
+                if let Some(dt) = data_type {
+                    write!(f, " {dt}")?;
+                }
+                write!(f, " := {value}")
+            }
         }
     }
 }
