@@ -5611,7 +5611,7 @@ impl<'a> Parser<'a> {
         if dialect_of!(self is HiveDialect) {
             self.parse_hive_create_function(or_replace, temporary)
                 .map(Into::into)
-        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect) {
+        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect | SnowflakeDialect) {
             self.parse_postgres_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
@@ -12211,7 +12211,8 @@ impl<'a> Parser<'a> {
             let peek_token = parser.peek_token();
             let span = peek_token.span;
             match peek_token.token {
-                Token::DollarQuotedString(s) if dialect_of!(parser is PostgreSqlDialect | GenericDialect) =>
+                Token::DollarQuotedString(s)
+                    if dialect_of!(parser is PostgreSqlDialect | GenericDialect | SnowflakeDialect) =>
                 {
                     parser.next_token();
                     Ok(Expr::Value(Value::DollarQuotedString(s).with_span(span)))
@@ -19861,7 +19862,19 @@ impl<'a> Parser<'a> {
 
         self.expect_keyword_is(Keyword::AS)?;
 
-        let body = self.parse_conditional_statements(&[Keyword::END])?;
+        // Snowflake encloses the procedure body in a dollar-quoted string
+        // (e.g. `AS $$ BEGIN … END $$`). Re-parse its content as a
+        // conditional-statements block so the body is always typed as
+        // `ConditionalStatements` regardless of how it was written.
+        let body = match self.peek_token().token.clone() {
+            Token::DollarQuotedString(dqs) => {
+                self.next_token(); // consume the dollar-quoted string token
+                Parser::new(self.dialect)
+                    .try_with_sql(&dqs.value)?
+                    .parse_conditional_statements(&[Keyword::END])?
+            }
+            _ => self.parse_conditional_statements(&[Keyword::END])?,
+        };
 
         Ok(Statement::CreateProcedure {
             name,
