@@ -5031,9 +5031,11 @@ impl<'a> Parser<'a> {
             self.parse_create_user(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
             self.parse_create_warehouse(or_replace)
+        } else if self.parse_keyword(Keyword::PROCEDURE) {
+            self.parse_create_procedure(or_alter, or_replace)
         } else if or_replace {
             self.expected(
-                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE after CREATE OR REPLACE",
+                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or PROCEDURE after CREATE OR REPLACE",
                 self.peek_token(),
             )
         } else if self.parse_keyword(Keyword::EXTENSION) {
@@ -5054,8 +5056,6 @@ impl<'a> Parser<'a> {
             self.parse_create_sequence(temporary)
         } else if self.parse_keyword(Keyword::TYPE) {
             self.parse_create_type()
-        } else if self.parse_keyword(Keyword::PROCEDURE) {
-            self.parse_create_procedure(or_alter)
         } else if self.parse_keyword(Keyword::CONNECTOR) {
             self.parse_create_connector().map(Into::into)
         } else if self.parse_keyword(Keyword::OPERATOR) {
@@ -18724,9 +18724,20 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse `CREATE PROCEDURE` statement.
-    pub fn parse_create_procedure(&mut self, or_alter: bool) -> Result<Statement, ParserError> {
+    pub fn parse_create_procedure(
+        &mut self,
+        or_alter: bool,
+        or_replace: bool,
+    ) -> Result<Statement, ParserError> {
         let name = self.parse_object_name(false)?;
         let params = self.parse_optional_procedure_parameters()?;
+
+        // Snowflake: RETURNS <type> appears before LANGUAGE SQL
+        let returns = if self.parse_keyword(Keyword::RETURNS) {
+            Some(self.parse_data_type()?)
+        } else {
+            None
+        };
 
         let language = if self.parse_keyword(Keyword::LANGUAGE) {
             Some(self.parse_identifier()?)
@@ -18741,7 +18752,9 @@ impl<'a> Parser<'a> {
         Ok(Statement::CreateProcedure {
             name,
             or_alter,
+            or_replace,
             params,
+            returns,
             language,
             body,
         })
