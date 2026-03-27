@@ -4456,12 +4456,18 @@ pub enum Statement {
     /// CREATE PROCEDURE
     /// ```
     CreateProcedure {
-        /// `OR ALTER` flag.
+        /// `OR ALTER` flag (SQL Server).
         or_alter: bool,
+        /// `OR REPLACE` flag (Snowflake / PostgreSQL).
+        or_replace: bool,
         /// Procedure name.
         name: ObjectName,
         /// Optional procedure parameters.
         params: Option<Vec<ProcedureParam>>,
+        /// Optional return type (e.g. `RETURNS VARCHAR`).
+        ///
+        /// Present in Snowflake (`CREATE PROCEDURE … RETURNS <type> LANGUAGE SQL`).
+        returns: Option<DataType>,
         /// Optional language identifier.
         language: Option<Ident>,
         /// Procedure body statements.
@@ -5445,21 +5451,29 @@ impl fmt::Display for Statement {
             Statement::CreateProcedure {
                 name,
                 or_alter,
+                or_replace,
                 params,
+                returns,
                 language,
                 body,
             } => {
-                write!(
-                    f,
-                    "CREATE {or_alter}PROCEDURE {name}",
-                    or_alter = if *or_alter { "OR ALTER " } else { "" },
-                    name = name
-                )?;
+                let modifier = if *or_alter {
+                    "OR ALTER "
+                } else if *or_replace {
+                    "OR REPLACE "
+                } else {
+                    ""
+                };
+                write!(f, "CREATE {modifier}PROCEDURE {name}")?;
 
                 if let Some(p) = params {
                     if !p.is_empty() {
                         write!(f, " ({})", display_comma_separated(p))?;
                     }
+                }
+
+                if let Some(ret) = returns {
+                    write!(f, " RETURNS {ret}")?;
                 }
 
                 if let Some(language) = language {
