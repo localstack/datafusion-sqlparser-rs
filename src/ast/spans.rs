@@ -520,6 +520,8 @@ impl Spanned for Statement {
             Statement::AlterUser(..) => Span::empty(),
             Statement::Reset(..) => Span::empty(),
             Statement::CreateWarehouse { .. } => Span::empty(),
+            Statement::Assignment { .. } => Span::empty(),
+            Statement::Let { .. } => Span::empty(),
         }
     }
 }

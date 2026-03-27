@@ -861,7 +861,7 @@ impl<'a> Parser<'a> {
     ) -> Result<ConditionalStatements, ParserError> {
         let conditional_statements = if self.peek_keyword(Keyword::BEGIN) {
             let begin_token = self.expect_keyword(Keyword::BEGIN)?;
-            let statements = self.parse_statement_list(terminal_keywords)?;
+            let statements = self.parse_scripting_statement_list(terminal_keywords)?;
             let end_token = self.expect_keyword(Keyword::END)?;
 
             ConditionalStatements::BeginEnd(BeginEndStatements {
@@ -875,6 +875,60 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(conditional_statements)
+    }
+
+    /// Parse a list of statements inside a `BEGIN...END` scripting block.
+    ///
+    /// Extends [`parse_statement_list`] with Snowflake-scripting-specific forms:
+    /// - Bare assignment: `var := expr`
+    /// - `LET` declaration: `LET var [data_type] := expr`
+    pub(crate) fn parse_scripting_statement_list(
+        &mut self,
+        terminal_keywords: &[Keyword],
+    ) -> Result<Vec<Statement>, ParserError> {
+        let mut values = vec![];
+        loop {
+            match &self.peek_nth_token_ref(0).token {
+                Token::EOF => break,
+                Token::Word(w) => {
+                    if w.quote_style.is_none() && terminal_keywords.contains(&w.keyword) {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+
+            let stmt = if self.peek_keyword(Keyword::LET) {
+                // LET var [data_type] := expr
+                self.next_token(); // consume LET
+                let name = self.parse_identifier()?;
+                let data_type = match self.peek_token().token {
+                    Token::Assignment => None,
+                    _ => Some(self.parse_data_type()?),
+                };
+                self.expect_token(&Token::Assignment)?;
+                let value = self.parse_expr()?;
+                Statement::Let {
+                    name,
+                    data_type,
+                    value,
+                }
+            } else if matches!(self.peek_nth_token_ref(0).token, Token::Word(_))
+                && self.peek_nth_token_ref(1).token == Token::Assignment
+            {
+                // bare assignment: var := expr
+                let target = self.parse_identifier()?;
+                self.expect_token(&Token::Assignment)?;
+                let value = self.parse_expr()?;
+                Statement::Assignment { target, value }
+            } else {
+                self.parse_statement()?
+            };
+
+            values.push(stmt);
+            self.expect_token(&Token::SemiColon)?;
+        }
+        Ok(values)
     }
 
     /// Parse a `RAISE` statement.
@@ -19212,7 +19266,8 @@ impl<'a> Parser<'a> {
 
     /// Parse a 'BEGIN ... EXCEPTION ... END' block
     pub fn parse_begin_exception_end(&mut self) -> Result<Statement, ParserError> {
-        let statements = self.parse_statement_list(&[Keyword::EXCEPTION, Keyword::END])?;
+        let statements =
+            self.parse_scripting_statement_list(&[Keyword::EXCEPTION, Keyword::END])?;
 
         let exception = if self.parse_keyword(Keyword::EXCEPTION) {
             let mut when = Vec::new();

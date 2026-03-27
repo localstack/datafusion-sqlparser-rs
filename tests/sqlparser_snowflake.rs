@@ -5010,3 +5010,145 @@ fn test_select_dollar_column_from_stage() {
     // With table function args, without alias
     snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1(file_format => 'myformat')");
 }
+
+/// Bare assignment `var := expr` inside `BEGIN...END` scripting blocks.
+#[test]
+fn test_scripting_bare_assignment() {
+    // Bare assignment directly inside BEGIN...END.
+    let sql = r#"CREATE PROCEDURE p() RETURNS TEXT LANGUAGE SQL AS $$
+BEGIN
+  result := 'hello';
+  RETURN result;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("bare assignment should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    // First statement inside BEGIN...END is the bare assignment.
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Assignment { target, value: _ }
+                if target.value == "result"
+        ),
+        "expected bare assignment statement, got {:?}",
+        begin_stmts[0]
+    );
+    // Display round-trips correctly.
+    assert_eq!(
+        begin_stmts[0].to_string(),
+        "result := 'hello'",
+        "bare assignment Display should render `var := expr`"
+    );
+
+    // Bare assignment with DECLARE at top level (END must be followed by `;`
+    // since it is a statement in a Sequence context).
+    let sql_with_declare = r#"CREATE PROCEDURE p() RETURNS TEXT LANGUAGE SQL AS $$
+DECLARE result VARCHAR;
+BEGIN
+  result := 'hello';
+  RETURN result;
+END; $$"#;
+    let stmts2 = snowflake()
+        .parse_sql_statements(sql_with_declare)
+        .expect("bare assignment with DECLARE should parse");
+    let body2 = match &stmts2[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let seq = match body2 {
+        ConditionalStatements::Sequence { statements } => statements,
+        other => panic!("expected Sequence body, got {other:?}"),
+    };
+    assert_eq!(2, seq.len(), "expected DECLARE + BEGIN block");
+    let begin_stmts2 = match &seq[1] {
+        Statement::StartTransaction { statements, .. } => statements,
+        other => panic!("expected StartTransaction for BEGIN block, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts2[0],
+            Statement::Assignment { target, value: _ }
+                if target.value == "result"
+        ),
+        "expected bare assignment inside DECLARE+BEGIN block, got {:?}",
+        begin_stmts2[0]
+    );
+}
+
+/// `LET var := expr` (without data type) inside `BEGIN...END`.
+#[test]
+fn test_scripting_let_without_type() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS INT LANGUAGE SQL AS $$
+BEGIN
+  LET x := 42;
+  RETURN x;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET without type should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Let { name, data_type: None, value: _ }
+                if name.value == "x"
+        ),
+        "expected Let statement without type, got {:?}",
+        begin_stmts[0]
+    );
+    assert_eq!(
+        begin_stmts[0].to_string(),
+        "LET x := 42",
+        "LET without type Display"
+    );
+}
+
+/// `LET var TYPE := expr` (with data type) inside `BEGIN...END`.
+#[test]
+fn test_scripting_let_with_type() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET name VARCHAR := 'hello';
+  RETURN name;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET with type should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Let { name, data_type: Some(_), value: _ }
+                if name.value == "name"
+        ),
+        "expected Let statement with type, got {:?}",
+        begin_stmts[0]
+    );
+    assert_eq!(
+        begin_stmts[0].to_string(),
+        "LET name VARCHAR := 'hello'",
+        "LET with type Display"
+    );
+}
