@@ -43,7 +43,7 @@ use crate::ast::{
     },
 };
 use crate::dialect::*;
-use crate::keywords::{Keyword, ALL_KEYWORDS};
+use crate::keywords::Keyword;
 use crate::tokenizer::*;
 use sqlparser::parser::ParserState::ColumnDefinition;
 
@@ -7874,19 +7874,36 @@ impl<'a> Parser<'a> {
 
             stmts.push(stmt);
             if self.consume_token(&Token::SemiColon) {
-                match &self.peek_token_ref().token {
-                    Token::Word(w)
-                        if ALL_KEYWORDS
-                            .binary_search(&w.value.to_uppercase().as_str())
-                            .is_err() =>
-                    {
-                        // Not a keyword - start of a new declaration.
-                        continue;
+                // Determine if the tokens after `;` look like another variable
+                // declaration.  A declaration starts with an identifier (which may be a
+                // keyword such as `result` or `counter`), followed by a type, `:=`,
+                // `DEFAULT`, or `;`.  The `BEGIN` and `END` keywords always terminate
+                // the DECLARE block.
+                let next_is_declaration = {
+                    let tok0 = &self.peek_nth_token_ref(0).token;
+                    let tok1 = &self.peek_nth_token_ref(1).token;
+                    match tok0 {
+                        Token::Word(w)
+                            if w.keyword != Keyword::BEGIN && w.keyword != Keyword::END =>
+                        {
+                            // The word could be a variable name.  Check that the token
+                            // after it looks like the rest of a declaration (type, `:=`,
+                            // `DEFAULT`, or `;` for a bare declaration with no type/init).
+                            matches!(
+                                tok1,
+                                Token::Assignment
+                                    | Token::Word(_)
+                                    | Token::SemiColon
+                            )
+                        }
+                        _ => false,
                     }
-                    _ => {
-                        // Put back the semicolon, this is the end of the DECLARE statement.
-                        self.prev_token();
-                    }
+                };
+                if next_is_declaration {
+                    continue;
+                } else {
+                    // Put back the semicolon, this is the end of the DECLARE statement.
+                    self.prev_token();
                 }
             }
 
