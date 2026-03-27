@@ -5507,6 +5507,10 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // Snowflake allows `RETURNS <type> NOT NULL` as a nullability annotation
+        // on the return type.  Consume it here so the body loop does not choke.
+        let return_not_null = self.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+
         #[derive(Default)]
         struct Body {
             language: Option<Ident>,
@@ -5517,6 +5521,11 @@ impl<'a> Parser<'a> {
             security: Option<FunctionSecurity>,
         }
         let mut body = Body::default();
+        // Map `RETURNS <type> NOT NULL` to STRICT (closest equivalent: function
+        // guarantees it does not return NULL).
+        if return_not_null {
+            body.called_on_null = Some(FunctionCalledOnNull::Strict);
+        }
         let mut set_params: Vec<FunctionDefinitionSetParam> = Vec::new();
         loop {
             fn ensure_not_set<T>(field: &Option<T>, name: &str) -> Result<(), ParserError> {
