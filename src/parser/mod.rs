@@ -6150,7 +6150,7 @@ impl<'a> Parser<'a> {
         if dialect_of!(self is HiveDialect) {
             self.parse_hive_create_function(or_replace, temporary)
                 .map(Into::into)
-        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect) {
+        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect | SnowflakeDialect) {
             self.parse_postgres_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
@@ -13796,7 +13796,7 @@ impl<'a> Parser<'a> {
             let peek_token = parser.peek_token();
             let span = peek_token.span;
             match peek_token.token {
-                Token::DollarQuotedString(s) if dialect_of!(parser is PostgreSqlDialect | GenericDialect) =>
+                Token::DollarQuotedString(s) if dialect_of!(parser is PostgreSqlDialect | GenericDialect | SnowflakeDialect) =>
                 {
                     parser.next_token();
                     Ok(Expr::Value(Value::DollarQuotedString(s).with_span(span)))
@@ -15841,7 +15841,10 @@ impl<'a> Parser<'a> {
 
                 // Snowflake-style: DESC <object_type> <name>
                 if self.dialect.describe_requires_table_keyword()
-                    && matches!(describe_alias, DescribeAlias::Desc | DescribeAlias::Describe)
+                    && matches!(
+                        describe_alias,
+                        DescribeAlias::Desc | DescribeAlias::Describe
+                    )
                 {
                     if let Some(kw) = self.parse_one_of_keywords(&[
                         Keyword::TABLE,
@@ -22348,20 +22351,31 @@ impl<'a> Parser<'a> {
             Some(statements) => CreateProcedureBody::BeginAtomic(statements),
             None => {
                 self.expect_keyword_is(Keyword::AS)?;
-                if matches!(
-                    self.peek_token_ref().token,
-                    Token::SingleQuotedString(_)
-                        | Token::DollarQuotedString(_)
-                        | Token::EscapedStringLiteral(_)
-                        | Token::UnicodeStringLiteral(_)
-                ) {
+                if !dialect_of!(self is SnowflakeDialect)
+                    && matches!(
+                        self.peek_token_ref().token,
+                        Token::SingleQuotedString(_)
+                            | Token::DollarQuotedString(_)
+                            | Token::EscapedStringLiteral(_)
+                            | Token::UnicodeStringLiteral(_)
+                    )
+                {
                     let (body, link_symbol) = self.parse_definition_string()?;
                     if language.is_none() && self.parse_keyword(Keyword::LANGUAGE) {
                         language = Some(self.parse_identifier()?);
                     }
                     CreateProcedureBody::AsString { body, link_symbol }
                 } else {
-                    CreateProcedureBody::As(self.parse_conditional_statements(&[Keyword::END])?)
+                    let statements = match self.peek_token().token.clone() {
+                        Token::DollarQuotedString(quoted) => {
+                            self.next_token();
+                            Parser::new(self.dialect)
+                                .try_with_sql(&quoted.value)?
+                                .parse_conditional_statements(&[Keyword::END])?
+                        }
+                        _ => self.parse_conditional_statements(&[Keyword::END])?,
+                    };
+                    CreateProcedureBody::As(statements)
                 }
             }
         };
