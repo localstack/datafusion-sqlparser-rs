@@ -530,6 +530,8 @@ impl Spanned for Statement {
             Statement::AlterUser(..) => Span::empty(),
             Statement::Reset(..) => Span::empty(),
             Statement::CreateAggregate(create_aggregate) => create_aggregate.span(),
+            Statement::Assignment { .. } => Span::empty(),
+            Statement::Let { .. } => Span::empty(),
         }
     }
 }
