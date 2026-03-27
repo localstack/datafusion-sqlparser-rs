@@ -6083,7 +6083,7 @@ impl<'a> Parser<'a> {
         if dialect_of!(self is HiveDialect) {
             self.parse_hive_create_function(or_replace, temporary)
                 .map(Into::into)
-        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect) {
+        } else if dialect_of!(self is PostgreSqlDialect | GenericDialect | SnowflakeDialect) {
             self.parse_postgres_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
@@ -13519,7 +13519,8 @@ impl<'a> Parser<'a> {
             let peek_token = parser.peek_token();
             let span = peek_token.span;
             match peek_token.token {
-                Token::DollarQuotedString(s) if dialect_of!(parser is PostgreSqlDialect | GenericDialect) =>
+                Token::DollarQuotedString(s)
+                    if dialect_of!(parser is PostgreSqlDialect | GenericDialect | SnowflakeDialect) =>
                 {
                     parser.next_token();
                     Ok(Expr::Value(Value::DollarQuotedString(s).with_span(span)))
@@ -22023,7 +22024,16 @@ impl<'a> Parser<'a> {
             Some(statements) => CreateProcedureBody::BeginAtomic(statements),
             None => {
                 self.expect_keyword_is(Keyword::AS)?;
-                CreateProcedureBody::As(self.parse_conditional_statements(&[Keyword::END])?)
+                let statements = match self.peek_token().token.clone() {
+                    Token::DollarQuotedString(quoted) => {
+                        self.next_token();
+                        Parser::new(self.dialect)
+                            .try_with_sql(&quoted.value)?
+                            .parse_conditional_statements(&[Keyword::END])?
+                    }
+                    _ => self.parse_conditional_statements(&[Keyword::END])?,
+                };
+                CreateProcedureBody::As(statements)
             }
         };
 
