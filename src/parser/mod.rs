@@ -5093,6 +5093,13 @@ impl<'a> Parser<'a> {
             }
 
             values.push(self.parse_statement()?);
+            // A statement is normally terminated by `;`.  Inside a
+            // dollar-quoted procedure body the final statement (e.g. `END`)
+            // may not be followed by `;` before the closing `$$`.  Allow
+            // EOF to substitute so that both `END;` and `END` are accepted.
+            if matches!(self.peek_nth_token_ref(0).token, Token::EOF) {
+                break;
+            }
             self.expect_token(&Token::SemiColon)?;
         }
         Ok(values)
