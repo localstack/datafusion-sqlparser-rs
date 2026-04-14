@@ -520,6 +520,11 @@ impl Spanned for Statement {
             Statement::AlterUser(..) => Span::empty(),
             Statement::Reset(..) => Span::empty(),
             Statement::CreateWarehouse { .. } => Span::empty(),
+            Statement::CreateExternalVolume { .. } => Span::empty(),
+            Statement::AlterExternalVolume { .. } => Span::empty(),
+            Statement::DropExternalVolume { .. } => Span::empty(),
+            Statement::DescribeExternalVolume { .. } => Span::empty(),
+            Statement::ShowExternalVolumes { .. } => Span::empty(),
             Statement::Assignment { .. } => Span::empty(),
             Statement::Let { .. } => Span::empty(),
         }
