@@ -5042,3 +5042,46 @@ fn test_show_external_volumes_like() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_desc_external_volume() {
+    let sql = "DESC EXTERNAL VOLUME my_vol";
+    let canonical = "DESCRIBE EXTERNAL VOLUME my_vol";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::DescribeExternalVolume { name } => {
+            assert_eq!("my_vol", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_comma_separated_fields() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1', STORAGE_PROVIDER = 'S3', STORAGE_BASE_URL = 's3://bucket/', ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    let canonical = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            assert_eq!(1, storage_locations.len());
+            assert_eq!("loc1", storage_locations[0].name);
+            assert_eq!("S3", storage_locations[0].storage_provider);
+            assert_eq!("s3://bucket/", storage_locations[0].storage_base_url);
+            assert_eq!(
+                Some("arn:aws:iam::role/r".to_string()),
+                storage_locations[0].storage_aws_role_arn
+            );
+        }
+        _ => unreachable!(),
+    }
+}
