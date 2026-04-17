@@ -5085,3 +5085,246 @@ fn test_create_external_volume_comma_separated_fields() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_create_catalog_integration_minimal_iceberg_rest_oauth() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'secret' OAUTH_ALLOWED_SCOPES = ('PRINCIPAL_ROLE:ALL')) ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            or_replace,
+            if_not_exists,
+            name,
+            catalog_source,
+            table_format,
+            catalog_namespace,
+            rest_config,
+            rest_authentication,
+            enabled,
+            refresh_interval_seconds,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("my_cat", name.to_string());
+            assert_eq!(CatalogSource::IcebergRest, catalog_source);
+            assert_eq!(CatalogTableFormat::Iceberg, table_format);
+            assert!(catalog_namespace.is_none());
+            let cfg = rest_config.expect("rest_config");
+            assert_eq!("https://rest.example.com", cfg.catalog_uri);
+            assert!(cfg.catalog_name.is_none());
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!("OAUTH", auth.auth_type);
+            assert_eq!(Some("cid".to_string()), auth.oauth_client_id);
+            assert_eq!(Some("secret".to_string()), auth.oauth_client_secret);
+            assert_eq!(
+                vec!["PRINCIPAL_ROLE:ALL".to_string()],
+                auth.oauth_allowed_scopes
+            );
+            assert!(enabled);
+            assert!(refresh_interval_seconds.is_none());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_full_rest_config() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "CATALOG_NAMESPACE = 'ns1' ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com' ",
+        "CATALOG_NAME = 'catname' CATALOG_API_TYPE = AWS_GLUE ",
+        "WAREHOUSE = 'my_wh' ACCESS_DELEGATION_MODE = VENDED_CREDENTIALS) ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'sec' ",
+        "OAUTH_ALLOWED_SCOPES = ('read', 'write')) ",
+        "ENABLED = TRUE REFRESH_INTERVAL_SECONDS = 3600 COMMENT = 'my comment'",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            catalog_namespace,
+            rest_config,
+            rest_authentication,
+            refresh_interval_seconds,
+            comment,
+            ..
+        } => {
+            assert_eq!(Some("ns1".to_string()), catalog_namespace);
+            let cfg = rest_config.expect("rest_config");
+            assert_eq!("https://rest.example.com", cfg.catalog_uri);
+            assert_eq!(Some("catname".to_string()), cfg.catalog_name);
+            assert_eq!(Some("AWS_GLUE".to_string()), cfg.catalog_api_type);
+            assert_eq!(Some("my_wh".to_string()), cfg.warehouse);
+            assert_eq!(
+                Some("VENDED_CREDENTIALS".to_string()),
+                cfg.access_delegation_mode
+            );
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!(
+                vec!["read".to_string(), "write".to_string()],
+                auth.oauth_allowed_scopes
+            );
+            assert_eq!(Some(3600_u64), refresh_interval_seconds);
+            assert_eq!(Some("my comment".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_or_replace_if_not_exists() {
+    let sql = concat!(
+        "CREATE OR REPLACE CATALOG INTEGRATION IF NOT EXISTS my_cat ",
+        "CATALOG_SOURCE = SNOWFLAKE TABLE_FORMAT = ICEBERG ",
+        "ENABLED = FALSE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            or_replace,
+            if_not_exists,
+            catalog_source,
+            enabled,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(if_not_exists);
+            assert_eq!(CatalogSource::Snowflake, catalog_source);
+            assert!(!enabled);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_aws_sigv4_auth() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = GLUE TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://glue.amazonaws.com') ",
+        "REST_AUTHENTICATION = (TYPE = AWS_SIGV4 ",
+        "AWS_ACCESS_KEY_ID = 'AKIA...' AWS_SECRET_ACCESS_KEY = 'secret' ",
+        "AWS_REGION = 'us-east-1' AWS_SERVICE = 'glue') ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            catalog_source,
+            rest_authentication,
+            ..
+        } => {
+            assert_eq!(CatalogSource::Glue, catalog_source);
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!("AWS_SIGV4", auth.auth_type);
+            assert_eq!(Some("AKIA...".to_string()), auth.aws_access_key_id);
+            assert_eq!(Some("secret".to_string()), auth.aws_secret_access_key);
+            assert_eq!(Some("us-east-1".to_string()), auth.aws_region);
+            assert_eq!(Some("glue".to_string()), auth.aws_service);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_polaris() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = POLARIS TABLE_FORMAT = ICEBERG ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration { catalog_source, .. } => {
+            assert_eq!(CatalogSource::Polaris, catalog_source);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_catalog_integration() {
+    let sql = "DROP CATALOG INTEGRATION my_cat";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropCatalogIntegration { name, if_exists } => {
+            assert_eq!("my_cat", name.to_string());
+            assert!(!if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_catalog_integration_if_exists() {
+    let sql = "DROP CATALOG INTEGRATION IF EXISTS my_cat";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropCatalogIntegration { if_exists, .. } => {
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_catalog_integrations() {
+    let sql = "SHOW CATALOG INTEGRATIONS";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowCatalogIntegrations { filter } => {
+            assert!(filter.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_catalog_integrations_like() {
+    let sql = "SHOW CATALOG INTEGRATIONS LIKE 'my_%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowCatalogIntegrations { filter } => {
+            let f = filter.expect("filter");
+            match f {
+                ShowStatementFilter::Like(pattern) => assert_eq!("my_%", pattern),
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_option_order_agnostic() {
+    // Options in reverse order — parser must accept any order.
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "COMMENT = 'c' ENABLED = TRUE ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH) ",
+        "REST_CONFIG = (CATALOG_URI = 'u') ",
+        "CATALOG_NAMESPACE = 'ns' ",
+        "TABLE_FORMAT = ICEBERG CATALOG_SOURCE = ICEBERG_REST",
+    );
+    let canonical = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "CATALOG_NAMESPACE = 'ns' ",
+        "REST_CONFIG = (CATALOG_URI = 'u') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH) ",
+        "ENABLED = TRUE COMMENT = 'c'",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateCatalogIntegration {
+            catalog_source,
+            catalog_namespace,
+            ..
+        } => {
+            assert_eq!(CatalogSource::IcebergRest, catalog_source);
+            assert_eq!(Some("ns".to_string()), catalog_namespace);
+        }
+        _ => unreachable!(),
+    }
+}
