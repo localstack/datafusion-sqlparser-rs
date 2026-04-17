@@ -28,7 +28,8 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterTable, AlterTableOperation, AlterTableType,
-    CatalogSyncNamespaceMode, ColumnOption, ColumnPolicy, ColumnPolicyProperty, ContactEntry,
+    CatalogRestAuthentication, CatalogRestConfig, CatalogSource, CatalogSyncNamespaceMode,
+    CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty, ContactEntry,
     CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
     ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident, IdentityParameters,
     IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder,
@@ -278,6 +279,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_external_volume(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::CATALOG, Keyword::INTEGRATION]) {
+            // DROP CATALOG INTEGRATION
+            return Some(parse_drop_catalog_integration(parser));
+        }
+
         if parser.parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE]).is_some() {
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
                 // DESC[RIBE] EXTERNAL VOLUME
@@ -295,6 +301,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] EXTERNAL VOLUME
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
                 return Some(parse_create_external_volume(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] CATALOG INTEGRATION
+            if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATION]) {
+                return Some(parse_create_catalog_integration(or_replace, parser));
             }
 
             // LOCAL | GLOBAL
@@ -369,6 +380,9 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keyword(Keyword::SHOW) {
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUMES]) {
                 return Some(parse_show_external_volumes(parser));
+            }
+            if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_catalog_integrations(parser));
             }
             let terse = parser.parse_keyword(Keyword::TERSE);
             if parser.parse_keyword(Keyword::OBJECTS) {
@@ -1884,4 +1898,238 @@ fn parse_describe_external_volume(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_external_volumes(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowExternalVolumes { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...`
+fn parse_create_catalog_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    // Option order is flexible — accumulate each possibility in a loop.
+    let mut catalog_source: Option<CatalogSource> = None;
+    let mut table_format: Option<CatalogTableFormat> = None;
+    let mut catalog_namespace: Option<String> = None;
+    let mut rest_config: Option<CatalogRestConfig> = None;
+    let mut rest_authentication: Option<CatalogRestAuthentication> = None;
+    let mut enabled: Option<bool> = None;
+    let mut refresh_interval_seconds: Option<u64> = None;
+    let mut comment: Option<String> = None;
+
+    loop {
+        if parser.parse_keyword(Keyword::CATALOG_SOURCE) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_source = Some(parse_catalog_source(parser)?);
+        } else if parser.parse_keyword(Keyword::TABLE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            table_format = Some(parse_catalog_table_format(parser)?);
+        } else if parser.parse_keyword(Keyword::CATALOG_NAMESPACE) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_namespace = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::REST_CONFIG) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            rest_config = Some(parse_catalog_rest_config(parser)?);
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::REST_AUTHENTICATION) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            rest_authentication = Some(parse_catalog_rest_authentication(parser)?);
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::ENABLED) {
+            parser.expect_token(&Token::Eq)?;
+            enabled = Some(parse_bool_literal(parser)?);
+        } else if parser.parse_keyword(Keyword::REFRESH_INTERVAL_SECONDS) {
+            parser.expect_token(&Token::Eq)?;
+            refresh_interval_seconds = Some(parser.parse_literal_uint()?);
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else {
+            break;
+        }
+    }
+
+    let catalog_source = catalog_source.ok_or_else(|| {
+        ParserError::ParserError("CATALOG_SOURCE is required in CREATE CATALOG INTEGRATION".into())
+    })?;
+    let table_format = table_format.ok_or_else(|| {
+        ParserError::ParserError("TABLE_FORMAT is required in CREATE CATALOG INTEGRATION".into())
+    })?;
+    let enabled = enabled.ok_or_else(|| {
+        ParserError::ParserError("ENABLED is required in CREATE CATALOG INTEGRATION".into())
+    })?;
+
+    Ok(Statement::CreateCatalogIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        catalog_source,
+        table_format,
+        catalog_namespace,
+        rest_config,
+        rest_authentication,
+        enabled,
+        refresh_interval_seconds,
+        comment,
+    })
+}
+
+/// Parse a `CATALOG_SOURCE` identifier. Known values map to enum variants;
+/// unknown identifiers are kept as-is to stay forward-compatible.
+fn parse_catalog_source(parser: &mut Parser) -> Result<CatalogSource, ParserError> {
+    let ident = parser.parse_identifier()?;
+    let upper = ident.value.to_uppercase();
+    Ok(match upper.as_str() {
+        "ICEBERG_REST" => CatalogSource::IcebergRest,
+        "SNOWFLAKE" => CatalogSource::Snowflake,
+        "GLUE" => CatalogSource::Glue,
+        "POLARIS" => CatalogSource::Polaris,
+        _ => CatalogSource::Other(ident.value),
+    })
+}
+
+/// Parse a `TABLE_FORMAT` identifier. Only `ICEBERG` is currently supported.
+fn parse_catalog_table_format(parser: &mut Parser) -> Result<CatalogTableFormat, ParserError> {
+    let ident = parser.parse_identifier()?;
+    if ident.value.eq_ignore_ascii_case("ICEBERG") {
+        Ok(CatalogTableFormat::Iceberg)
+    } else {
+        parser.expected("ICEBERG", parser.peek_token())
+    }
+}
+
+/// Parse the body of `REST_CONFIG = ( … )`.
+fn parse_catalog_rest_config(parser: &mut Parser) -> Result<CatalogRestConfig, ParserError> {
+    let mut catalog_uri: Option<String> = None;
+    let mut catalog_name: Option<String> = None;
+    let mut catalog_api_type: Option<String> = None;
+    let mut warehouse: Option<String> = None;
+    let mut access_delegation_mode: Option<String> = None;
+
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if parser.parse_keyword(Keyword::CATALOG_URI) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_uri = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::CATALOG_NAME) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_name = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::CATALOG_API_TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_api_type = Some(parser.parse_identifier()?.value);
+        } else if parser.parse_keyword(Keyword::WAREHOUSE) {
+            parser.expect_token(&Token::Eq)?;
+            warehouse = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::ACCESS_DELEGATION_MODE) {
+            parser.expect_token(&Token::Eq)?;
+            access_delegation_mode = Some(parser.parse_identifier()?.value);
+        } else {
+            break;
+        }
+    }
+
+    let catalog_uri = catalog_uri
+        .ok_or_else(|| ParserError::ParserError("CATALOG_URI is required in REST_CONFIG".into()))?;
+
+    Ok(CatalogRestConfig {
+        catalog_uri,
+        catalog_name,
+        catalog_api_type,
+        warehouse,
+        access_delegation_mode,
+    })
+}
+
+/// Parse the body of `REST_AUTHENTICATION = ( … )`.
+fn parse_catalog_rest_authentication(
+    parser: &mut Parser,
+) -> Result<CatalogRestAuthentication, ParserError> {
+    let mut auth_type: Option<String> = None;
+    let mut oauth_client_id: Option<String> = None;
+    let mut oauth_client_secret: Option<String> = None;
+    let mut oauth_allowed_scopes: Vec<String> = vec![];
+    let mut aws_access_key_id: Option<String> = None;
+    let mut aws_secret_access_key: Option<String> = None;
+    let mut aws_region: Option<String> = None;
+    let mut aws_service: Option<String> = None;
+
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if parser.parse_keyword(Keyword::TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            auth_type = Some(parser.parse_identifier()?.value);
+        } else if parser.parse_keyword(Keyword::OAUTH_CLIENT_ID) {
+            parser.expect_token(&Token::Eq)?;
+            oauth_client_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::OAUTH_CLIENT_SECRET) {
+            parser.expect_token(&Token::Eq)?;
+            oauth_client_secret = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::OAUTH_ALLOWED_SCOPES) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            loop {
+                oauth_allowed_scopes.push(parser.parse_literal_string()?);
+                if !parser.consume_token(&Token::Comma) {
+                    break;
+                }
+            }
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::AWS_ACCESS_KEY_ID) {
+            parser.expect_token(&Token::Eq)?;
+            aws_access_key_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_SECRET_ACCESS_KEY) {
+            parser.expect_token(&Token::Eq)?;
+            aws_secret_access_key = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_REGION) {
+            parser.expect_token(&Token::Eq)?;
+            aws_region = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_SERVICE) {
+            parser.expect_token(&Token::Eq)?;
+            aws_service = Some(parser.parse_literal_string()?);
+        } else {
+            break;
+        }
+    }
+
+    let auth_type = auth_type.ok_or_else(|| {
+        ParserError::ParserError("TYPE is required in REST_AUTHENTICATION".into())
+    })?;
+
+    Ok(CatalogRestAuthentication {
+        auth_type,
+        oauth_client_id,
+        oauth_client_secret,
+        oauth_allowed_scopes,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_region,
+        aws_service,
+    })
+}
+
+/// Parse `TRUE` or `FALSE`.
+fn parse_bool_literal(parser: &mut Parser) -> Result<bool, ParserError> {
+    if parser.parse_keyword(Keyword::TRUE) {
+        Ok(true)
+    } else if parser.parse_keyword(Keyword::FALSE) {
+        Ok(false)
+    } else {
+        parser.expected("TRUE or FALSE", parser.peek_token())
+    }
+}
+
+/// Parse `DROP CATALOG INTEGRATION [IF EXISTS] <name>`
+fn parse_drop_catalog_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropCatalogIntegration { name, if_exists })
+}
+
+/// Parse `SHOW CATALOG INTEGRATIONS [LIKE '<pattern>']`
+fn parse_show_catalog_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowCatalogIntegrations { filter })
 }
