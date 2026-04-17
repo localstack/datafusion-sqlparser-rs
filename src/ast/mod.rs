@@ -4579,6 +4579,50 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration>
+    CreateCatalogIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Catalog integration name.
+        name: ObjectName,
+        /// `CATALOG_SOURCE = { ICEBERG_REST | SNOWFLAKE | GLUE | POLARIS }`.
+        catalog_source: CatalogSource,
+        /// `TABLE_FORMAT = ICEBERG`.
+        table_format: CatalogTableFormat,
+        /// Optional `CATALOG_NAMESPACE = '…'`.
+        catalog_namespace: Option<String>,
+        /// Optional `REST_CONFIG = ( … )`.
+        rest_config: Option<CatalogRestConfig>,
+        /// Optional `REST_AUTHENTICATION = ( … )`.
+        rest_authentication: Option<CatalogRestAuthentication>,
+        /// `ENABLED = { TRUE | FALSE }`.
+        enabled: bool,
+        /// Optional `REFRESH_INTERVAL_SECONDS = <int>`.
+        refresh_interval_seconds: Option<u64>,
+        /// Optional `COMMENT = '…'`.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// DROP CATALOG INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropCatalogIntegration {
+        /// Catalog integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// SHOW CATALOG INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowCatalogIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// ASSERT <condition> [AS <message>]
     /// ```
     Assert {
@@ -6391,6 +6435,70 @@ impl fmt::Display for Statement {
             }
             Statement::ShowExternalVolumes { filter } => {
                 write!(f, "SHOW EXTERNAL VOLUMES")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateCatalogIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                catalog_source,
+                table_format,
+                catalog_namespace,
+                rest_config,
+                rest_authentication,
+                enabled,
+                refresh_interval_seconds,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}CATALOG INTEGRATION {if_not_exists}{name} \
+                     CATALOG_SOURCE = {catalog_source} TABLE_FORMAT = {table_format}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(ref ns) = catalog_namespace {
+                    write!(
+                        f,
+                        " CATALOG_NAMESPACE = '{}'",
+                        value::escape_single_quote_string(ns)
+                    )?;
+                }
+                if let Some(ref cfg) = rest_config {
+                    write!(f, " REST_CONFIG = ({cfg})")?;
+                }
+                if let Some(ref auth) = rest_authentication {
+                    write!(f, " REST_AUTHENTICATION = ({auth})")?;
+                }
+                write!(
+                    f,
+                    " ENABLED = {}",
+                    if *enabled { "TRUE" } else { "FALSE" }
+                )?;
+                if let Some(secs) = refresh_interval_seconds {
+                    write!(f, " REFRESH_INTERVAL_SECONDS = {secs}")?;
+                }
+                if let Some(ref c) = comment {
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        value::escape_single_quote_string(c)
+                    )?;
+                }
+                Ok(())
+            }
+            Statement::DropCatalogIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP CATALOG INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::ShowCatalogIntegrations { filter } => {
+                write!(f, "SHOW CATALOG INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }
@@ -11299,6 +11407,182 @@ impl fmt::Display for AlterExternalVolumeOperation {
                 )
             }
         }
+    }
+}
+
+/// The `CATALOG_SOURCE` of a `CATALOG INTEGRATION`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CatalogSource {
+    /// `ICEBERG_REST`
+    IcebergRest,
+    /// `SNOWFLAKE`
+    Snowflake,
+    /// `GLUE`
+    Glue,
+    /// `POLARIS`
+    Polaris,
+    /// Forward-compatible: any other identifier.
+    Other(String),
+}
+
+impl fmt::Display for CatalogSource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CatalogSource::IcebergRest => f.write_str("ICEBERG_REST"),
+            CatalogSource::Snowflake => f.write_str("SNOWFLAKE"),
+            CatalogSource::Glue => f.write_str("GLUE"),
+            CatalogSource::Polaris => f.write_str("POLARIS"),
+            CatalogSource::Other(s) => f.write_str(s),
+        }
+    }
+}
+
+/// The `TABLE_FORMAT` of a `CATALOG INTEGRATION`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CatalogTableFormat {
+    /// `ICEBERG`
+    Iceberg,
+}
+
+impl fmt::Display for CatalogTableFormat {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CatalogTableFormat::Iceberg => f.write_str("ICEBERG"),
+        }
+    }
+}
+
+/// `REST_CONFIG = ( … )` options for a `CATALOG INTEGRATION`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CatalogRestConfig {
+    /// `CATALOG_URI = '…'` (required).
+    pub catalog_uri: String,
+    /// Optional `CATALOG_NAME = '…'`.
+    pub catalog_name: Option<String>,
+    /// Optional `CATALOG_API_TYPE = { AWS_GLUE | … }` — raw identifier.
+    pub catalog_api_type: Option<String>,
+    /// Optional `WAREHOUSE = '…'`.
+    pub warehouse: Option<String>,
+    /// Optional `ACCESS_DELEGATION_MODE = { VENDED_CREDENTIALS | … }` — raw identifier.
+    pub access_delegation_mode: Option<String>,
+}
+
+impl fmt::Display for CatalogRestConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "CATALOG_URI = '{}'",
+            value::escape_single_quote_string(&self.catalog_uri)
+        )?;
+        if let Some(ref n) = self.catalog_name {
+            write!(
+                f,
+                " CATALOG_NAME = '{}'",
+                value::escape_single_quote_string(n)
+            )?;
+        }
+        if let Some(ref t) = self.catalog_api_type {
+            write!(f, " CATALOG_API_TYPE = {t}")?;
+        }
+        if let Some(ref w) = self.warehouse {
+            write!(
+                f,
+                " WAREHOUSE = '{}'",
+                value::escape_single_quote_string(w)
+            )?;
+        }
+        if let Some(ref m) = self.access_delegation_mode {
+            write!(f, " ACCESS_DELEGATION_MODE = {m}")?;
+        }
+        Ok(())
+    }
+}
+
+/// `REST_AUTHENTICATION = ( … )` options for a `CATALOG INTEGRATION`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CatalogRestAuthentication {
+    /// `TYPE = { OAUTH | AWS_SIGV4 | … }` — raw identifier.
+    pub auth_type: String,
+    /// Optional `OAUTH_CLIENT_ID = '…'`.
+    pub oauth_client_id: Option<String>,
+    /// Optional `OAUTH_CLIENT_SECRET = '…'`.
+    pub oauth_client_secret: Option<String>,
+    /// Optional `OAUTH_ALLOWED_SCOPES = ('…' [, '…' …])`.
+    pub oauth_allowed_scopes: Vec<String>,
+    /// Optional `AWS_ACCESS_KEY_ID = '…'`.
+    pub aws_access_key_id: Option<String>,
+    /// Optional `AWS_SECRET_ACCESS_KEY = '…'`.
+    pub aws_secret_access_key: Option<String>,
+    /// Optional `AWS_REGION = '…'`.
+    pub aws_region: Option<String>,
+    /// Optional `AWS_SERVICE = '…'`.
+    pub aws_service: Option<String>,
+}
+
+impl fmt::Display for CatalogRestAuthentication {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "TYPE = {}", self.auth_type)?;
+        if let Some(ref v) = self.oauth_client_id {
+            write!(
+                f,
+                " OAUTH_CLIENT_ID = '{}'",
+                value::escape_single_quote_string(v)
+            )?;
+        }
+        if let Some(ref v) = self.oauth_client_secret {
+            write!(
+                f,
+                " OAUTH_CLIENT_SECRET = '{}'",
+                value::escape_single_quote_string(v)
+            )?;
+        }
+        if !self.oauth_allowed_scopes.is_empty() {
+            write!(f, " OAUTH_ALLOWED_SCOPES = (")?;
+            for (i, s) in self.oauth_allowed_scopes.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "'{}'", value::escape_single_quote_string(s))?;
+            }
+            write!(f, ")")?;
+        }
+        if let Some(ref v) = self.aws_access_key_id {
+            write!(
+                f,
+                " AWS_ACCESS_KEY_ID = '{}'",
+                value::escape_single_quote_string(v)
+            )?;
+        }
+        if let Some(ref v) = self.aws_secret_access_key {
+            write!(
+                f,
+                " AWS_SECRET_ACCESS_KEY = '{}'",
+                value::escape_single_quote_string(v)
+            )?;
+        }
+        if let Some(ref v) = self.aws_region {
+            write!(
+                f,
+                " AWS_REGION = '{}'",
+                value::escape_single_quote_string(v)
+            )?;
+        }
+        if let Some(ref v) = self.aws_service {
+            write!(
+                f,
+                " AWS_SERVICE = '{}'",
+                value::escape_single_quote_string(v)
+            )?;
+        }
+        Ok(())
     }
 }
 

@@ -525,6 +525,9 @@ impl Spanned for Statement {
             Statement::DropExternalVolume { .. } => Span::empty(),
             Statement::DescribeExternalVolume { .. } => Span::empty(),
             Statement::ShowExternalVolumes { .. } => Span::empty(),
+            Statement::CreateCatalogIntegration { .. } => Span::empty(),
+            Statement::DropCatalogIntegration { .. } => Span::empty(),
+            Statement::ShowCatalogIntegrations { .. } => Span::empty(),
             Statement::Assignment { .. } => Span::empty(),
             Statement::Let { .. } => Span::empty(),
         }
