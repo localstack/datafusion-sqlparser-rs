@@ -5540,6 +5540,75 @@ fn test_create_external_volume_comma_separated_fields() {
 }
 
 #[test]
+fn test_create_external_volume_flexible_field_ordering() {
+    // Real Snowflake accepts STORAGE_BASE_URL anywhere after STORAGE_PROVIDER.
+    // Here STORAGE_AWS_ROLE_ARN appears before STORAGE_BASE_URL.
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r' ",
+        "STORAGE_BASE_URL = 's3://bucket/'))",
+    );
+    let canonical = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            assert_eq!(1, storage_locations.len());
+            assert_eq!("loc1", storage_locations[0].name);
+            assert_eq!("S3", storage_locations[0].storage_provider);
+            assert_eq!("s3://bucket/", storage_locations[0].storage_base_url);
+            assert_eq!(
+                Some("arn:aws:iam::role/r".to_string()),
+                storage_locations[0].storage_aws_role_arn
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_missing_storage_base_url() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    let err = snowflake()
+        .parse_sql_statements(sql)
+        .expect_err("parser must reject STORAGE_LOCATION without STORAGE_BASE_URL");
+    assert!(
+        err.to_string().contains("STORAGE_BASE_URL"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_create_external_volume_duplicate_storage_base_url() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' ",
+        "STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_BASE_URL = 's3://other/'))",
+    );
+    let err = snowflake()
+        .parse_sql_statements(sql)
+        .expect_err("parser must reject duplicate STORAGE_BASE_URL");
+    assert!(
+        err.to_string().contains("duplicate STORAGE_BASE_URL"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn test_create_catalog_integration_minimal_iceberg_rest_oauth() {
     let sql = concat!(
         "CREATE CATALOG INTEGRATION my_cat ",

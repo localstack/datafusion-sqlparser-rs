@@ -2019,6 +2019,14 @@ fn parse_create_external_volume(
 }
 
 /// Parse a single storage location: `NAME = '...' STORAGE_PROVIDER = '...' ...`
+///
+/// `NAME` and `STORAGE_PROVIDER` must appear first (in that order). After
+/// those two, `STORAGE_BASE_URL` (required) and the optional fields
+/// (`STORAGE_AWS_ROLE_ARN`, `STORAGE_AWS_EXTERNAL_ID`, `ENCRYPTION`) may
+/// appear in any order, separated by commas or whitespace. Real Snowflake
+/// accepts the flexible ordering — mirror that here so fixtures like
+/// `NAME = '…' STORAGE_PROVIDER = '…' STORAGE_AWS_ROLE_ARN = '…'
+///  STORAGE_BASE_URL = '…'` parse correctly.
 fn parse_external_volume_storage_location(
     parser: &mut Parser,
 ) -> Result<ExternalVolumeStorageLocation, ParserError> {
@@ -2033,26 +2041,45 @@ fn parse_external_volume_storage_location(
     parser.expect_token(&Token::Eq)?;
     let storage_provider = parser.parse_literal_string()?;
 
-    let _ = parser.consume_token(&Token::Comma);
-
-    parser.expect_keyword(Keyword::STORAGE_BASE_URL)?;
-    parser.expect_token(&Token::Eq)?;
-    let storage_base_url = parser.parse_literal_string()?;
-
+    let mut storage_base_url: Option<String> = None;
     let mut storage_aws_role_arn = None;
     let mut storage_aws_external_id = None;
     let mut encryption = None;
 
-    // Parse optional fields in any order (comma-or-whitespace separated)
+    // Parse the remaining fields (STORAGE_BASE_URL + optionals) in any order
+    // (comma-or-whitespace separated). Duplicates are rejected.
     loop {
         let _ = parser.consume_token(&Token::Comma);
-        if parser.parse_keyword(Keyword::STORAGE_AWS_ROLE_ARN) {
+        if parser.parse_keyword(Keyword::STORAGE_BASE_URL) {
+            if storage_base_url.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate STORAGE_BASE_URL in STORAGE_LOCATION".to_string(),
+                ));
+            }
+            parser.expect_token(&Token::Eq)?;
+            storage_base_url = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::STORAGE_AWS_ROLE_ARN) {
+            if storage_aws_role_arn.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate STORAGE_AWS_ROLE_ARN in STORAGE_LOCATION".to_string(),
+                ));
+            }
             parser.expect_token(&Token::Eq)?;
             storage_aws_role_arn = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::STORAGE_AWS_EXTERNAL_ID) {
+            if storage_aws_external_id.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate STORAGE_AWS_EXTERNAL_ID in STORAGE_LOCATION".to_string(),
+                ));
+            }
             parser.expect_token(&Token::Eq)?;
             storage_aws_external_id = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::ENCRYPTION) {
+            if encryption.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate ENCRYPTION in STORAGE_LOCATION".to_string(),
+                ));
+            }
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
             encryption = Some(parse_external_volume_encryption(parser)?);
@@ -2061,6 +2088,12 @@ fn parse_external_volume_storage_location(
             break;
         }
     }
+
+    let storage_base_url = storage_base_url.ok_or_else(|| {
+        ParserError::ParserError(
+            "STORAGE_BASE_URL is required in STORAGE_LOCATION".to_string(),
+        )
+    })?;
 
     Ok(ExternalVolumeStorageLocation {
         name,
