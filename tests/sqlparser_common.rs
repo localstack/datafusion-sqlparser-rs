@@ -4410,6 +4410,39 @@ fn parse_create_schema() {
 }
 
 #[test]
+fn parse_create_or_replace_schema() {
+    let sql = "CREATE OR REPLACE SCHEMA X";
+    match verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            or_replace,
+            if_not_exists,
+            ..
+        } => {
+            assert_eq!(schema_name.to_string(), "X".to_owned());
+            assert!(or_replace);
+            assert!(!if_not_exists);
+        }
+        _ => unreachable!(),
+    }
+
+    let sql = "CREATE OR REPLACE SCHEMA IF NOT EXISTS X";
+    match verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            or_replace,
+            if_not_exists,
+            ..
+        } => {
+            assert_eq!(schema_name.to_string(), "X".to_owned());
+            assert!(or_replace);
+            assert!(if_not_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn parse_create_schema_with_authorization() {
     let sql = "CREATE SCHEMA AUTHORIZATION Y";
 
