@@ -289,7 +289,11 @@ impl Dialect for SnowflakeDialect {
                 // DESC[RIBE] EXTERNAL VOLUME
                 return Some(parse_describe_external_volume(parser));
             }
-            // not EXTERNAL VOLUME — put back DESC/DESCRIBE
+            if parser.parse_keyword(Keyword::WAREHOUSE) {
+                // DESC[RIBE] WAREHOUSE
+                return Some(parse_describe_warehouse(parser));
+            }
+            // not handled — put back DESC/DESCRIBE
             parser.prev_token();
         }
 
@@ -383,6 +387,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_catalog_integrations(parser));
+            }
+            if parser.parse_keyword(Keyword::WAREHOUSES) {
+                return Some(parse_show_warehouses(parser));
             }
             let terse = parser.parse_keyword(Keyword::TERSE);
             if parser.parse_keyword(Keyword::OBJECTS) {
@@ -1931,6 +1938,18 @@ fn parse_describe_external_volume(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_external_volumes(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowExternalVolumes { filter })
+}
+
+/// Parse `DESC[RIBE] WAREHOUSE <name>`
+fn parse_describe_warehouse(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeWarehouse { name })
+}
+
+/// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`
+fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowWarehouses { filter })
 }
 
 /// Parse `CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...`
