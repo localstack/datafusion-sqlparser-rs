@@ -11914,10 +11914,11 @@ impl<'a> Parser<'a> {
                 self.parse_alter_role()
             }
             Keyword::USER => self.parse_alter_user().map(Into::into),
+            Keyword::WAREHOUSE => self.parse_alter_warehouse(),
             _ => {
                 self.index = index;
                 self.expected_ref(
-                    "one of VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or SCHEMA or USER or OPERATOR",
+                    "one of VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or SCHEMA or USER or OPERATOR or WAREHOUSE",
                     self.peek_token_ref(),
                 )
             }
@@ -12135,6 +12136,67 @@ impl<'a> Parser<'a> {
             aggregate_star,
             operation,
         }))
+    }
+
+    /// Parse `ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>`.
+    pub fn parse_alter_warehouse(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+
+        // The name is optional — bare `ALTER WAREHOUSE SET ...` targets the
+        // session's current warehouse. The operation keywords (SET, UNSET,
+        // SUSPEND, RESUME, RENAME, ABORT) are reserved enough that we can use
+        // them as the indicator that no name was provided.
+        let starts_with_op = matches!(
+            self.peek_token().token,
+            Token::Word(ref w) if matches!(
+                w.keyword,
+                Keyword::SET
+                    | Keyword::UNSET
+                    | Keyword::SUSPEND
+                    | Keyword::RESUME
+                    | Keyword::RENAME
+                    | Keyword::ABORT
+            )
+        );
+        let name = if starts_with_op {
+            None
+        } else {
+            Some(self.parse_object_name(false)?)
+        };
+
+        let operation = if self.parse_keyword(Keyword::SUSPEND) {
+            AlterWarehouseOperation::Suspend
+        } else if self.parse_keyword(Keyword::RESUME) {
+            let if_suspended = self.parse_keywords(&[Keyword::IF, Keyword::SUSPENDED]);
+            AlterWarehouseOperation::Resume { if_suspended }
+        } else if self.parse_keywords(&[Keyword::ABORT, Keyword::ALL, Keyword::QUERIES]) {
+            AlterWarehouseOperation::AbortAllQueries
+        } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+            let new_name = self.parse_object_name(false)?;
+            AlterWarehouseOperation::RenameTo { new_name }
+        } else if self.parse_keyword(Keyword::UNSET) {
+            let params = self.parse_comma_separated(Parser::parse_identifier)?;
+            AlterWarehouseOperation::Unset { params }
+        } else if self.parse_keyword(Keyword::SET) {
+            let params = self.parse_comma_separated(|p| {
+                let name = p.parse_identifier()?;
+                p.expect_token(&Token::Eq)?;
+                let value = p.parse_expr()?;
+                Ok::<WarehouseParam, ParserError>(WarehouseParam { name, value })
+            })?;
+            AlterWarehouseOperation::Set { params }
+        } else {
+            return self.expected(
+                "SET, UNSET, SUSPEND, RESUME, RENAME TO, or ABORT ALL QUERIES after ALTER WAREHOUSE",
+                self.peek_token(),
+            );
+        };
+
+        Ok(Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        })
     }
 
     /// Parse a [Statement::AlterTable]
