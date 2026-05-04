@@ -4529,6 +4529,34 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
+    /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse>
+    AlterWarehouse {
+        /// Optional warehouse name (omitted to target the session's current warehouse).
+        name: Option<ObjectName>,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The alter operation.
+        operation: AlterWarehouseOperation,
+    },
+    /// ```sql
+    /// {DESCRIBE | DESC} WAREHOUSE <name>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/desc-warehouse>
+    DescribeWarehouse {
+        /// Warehouse name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW WAREHOUSES [LIKE '<pattern>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-warehouses>
+    ShowWarehouses {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] EXTERNAL VOLUME [IF NOT EXISTS] <name>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-external-volume>
@@ -6378,6 +6406,30 @@ impl fmt::Display for Statement {
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )
+            }
+            Statement::AlterWarehouse {
+                name,
+                if_exists,
+                operation,
+            } => {
+                write!(f, "ALTER WAREHOUSE")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                if let Some(name) = name {
+                    write!(f, " {name}")?;
+                }
+                write!(f, " {operation}")
+            }
+            Statement::DescribeWarehouse { name } => {
+                write!(f, "DESCRIBE WAREHOUSE {name}")
+            }
+            Statement::ShowWarehouses { filter } => {
+                write!(f, "SHOW WAREHOUSES")?;
+                if let Some(filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
             }
             Statement::CreateExternalVolume {
                 or_replace,
@@ -11410,6 +11462,96 @@ impl fmt::Display for AlterExternalVolumeOperation {
                     value::escape_single_quote_string(name)
                 )
             }
+        }
+    }
+}
+
+/// A `<key> = <value>` pair inside `ALTER WAREHOUSE … SET …`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct WarehouseParam {
+    /// Property name (e.g. `WAREHOUSE_SIZE`).
+    pub name: Ident,
+    /// Property value expression (e.g. `MEDIUM`, `60`, `'small'`).
+    pub value: Expr,
+}
+
+impl fmt::Display for WarehouseParam {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", self.name, self.value)
+    }
+}
+
+/// Operations for `ALTER WAREHOUSE`.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterWarehouseOperation {
+    /// `SET <param> = <value> [, ...]`
+    Set {
+        /// Raw `key = value` pairs; not validated against the Snowflake property
+        /// catalogue because the executor doesn't read them.
+        params: Vec<WarehouseParam>,
+    },
+    /// `UNSET <param> [, ...]`
+    Unset {
+        /// Property names to unset.
+        params: Vec<Ident>,
+    },
+    /// `SUSPEND`
+    Suspend,
+    /// `RESUME [IF SUSPENDED]`
+    Resume {
+        /// `IF SUSPENDED` flag.
+        if_suspended: bool,
+    },
+    /// `RENAME TO <new_name>`
+    RenameTo {
+        /// New warehouse name.
+        new_name: ObjectName,
+    },
+    /// `ABORT ALL QUERIES`
+    AbortAllQueries,
+}
+
+impl fmt::Display for AlterWarehouseOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterWarehouseOperation::Set { params } => {
+                write!(f, "SET ")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                Ok(())
+            }
+            AlterWarehouseOperation::Unset { params } => {
+                write!(f, "UNSET ")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                Ok(())
+            }
+            AlterWarehouseOperation::Suspend => write!(f, "SUSPEND"),
+            AlterWarehouseOperation::Resume { if_suspended } => {
+                write!(f, "RESUME")?;
+                if *if_suspended {
+                    write!(f, " IF SUSPENDED")?;
+                }
+                Ok(())
+            }
+            AlterWarehouseOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+            AlterWarehouseOperation::AbortAllQueries => write!(f, "ABORT ALL QUERIES"),
         }
     }
 }

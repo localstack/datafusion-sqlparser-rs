@@ -5850,3 +5850,203 @@ fn test_create_catalog_integration_option_order_agnostic() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_show_warehouses() {
+    let sql = "SHOW WAREHOUSES";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowWarehouses { filter } => {
+            assert!(filter.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_warehouses_like() {
+    let sql = "SHOW WAREHOUSES LIKE 'pat%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowWarehouses { filter } => match filter.unwrap() {
+            ShowStatementFilter::Like(p) => assert_eq!("pat%", p),
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_warehouse() {
+    let sql = "DESCRIBE WAREHOUSE foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeWarehouse { name } => {
+            assert_eq!("foo", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_warehouse() {
+    let sql = "DESC WAREHOUSE foo";
+    let canonical = "DESCRIBE WAREHOUSE foo";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::DescribeWarehouse { name } => {
+            assert_eq!("foo", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_set_named() {
+    let sql = "ALTER WAREHOUSE foo SET WAREHOUSE_SIZE = MEDIUM";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("foo", name.unwrap().to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterWarehouseOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+                    assert_eq!("MEDIUM", params[0].value.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_set_no_name() {
+    let sql = "ALTER WAREHOUSE SET WAREHOUSE_SIZE = MEDIUM";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert!(name.is_none());
+            assert!(!if_exists);
+            match operation {
+                AlterWarehouseOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_if_exists_suspend() {
+    let sql = "ALTER WAREHOUSE IF EXISTS foo SUSPEND";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("foo", name.unwrap().to_string());
+            assert!(if_exists);
+            assert_eq!(AlterWarehouseOperation::Suspend, operation);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_resume_if_suspended() {
+    let sql = "ALTER WAREHOUSE foo RESUME IF SUSPENDED";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            operation,
+            ..
+        } => {
+            assert_eq!("foo", name.unwrap().to_string());
+            assert_eq!(
+                AlterWarehouseOperation::Resume { if_suspended: true },
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_resume_plain() {
+    let sql = "ALTER WAREHOUSE foo RESUME";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => {
+            assert_eq!(
+                AlterWarehouseOperation::Resume { if_suspended: false },
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_rename_to() {
+    let sql = "ALTER WAREHOUSE foo RENAME TO bar";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => match operation {
+            AlterWarehouseOperation::RenameTo { new_name } => {
+                assert_eq!("bar", new_name.to_string());
+            }
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_abort_all_queries() {
+    let sql = "ALTER WAREHOUSE foo ABORT ALL QUERIES";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => {
+            assert_eq!(AlterWarehouseOperation::AbortAllQueries, operation);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_unset_multi() {
+    let sql = "ALTER WAREHOUSE foo UNSET COMMENT, AUTO_SUSPEND";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => match operation {
+            AlterWarehouseOperation::Unset { params } => {
+                assert_eq!(2, params.len());
+                assert_eq!("COMMENT", params[0].to_string());
+                assert_eq!("AUTO_SUSPEND", params[1].to_string());
+            }
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_set_multi_params() {
+    let sql = "ALTER WAREHOUSE foo SET WAREHOUSE_SIZE = LARGE, AUTO_SUSPEND = 60";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => match operation {
+            AlterWarehouseOperation::Set { params } => {
+                assert_eq!(2, params.len());
+                assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+                assert_eq!("AUTO_SUSPEND", params[1].name.to_string());
+            }
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
