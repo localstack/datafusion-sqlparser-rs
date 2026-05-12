@@ -4915,9 +4915,11 @@ fn parse_alter_table() {
     let rename_column = "ALTER TABLE tab RENAME COLUMN foo TO new_foo";
     match alter_table_op(verified_stmt(rename_column)) {
         AlterTableOperation::RenameColumn {
+            if_exists,
             old_column_name,
             new_column_name,
         } => {
+            assert!(!if_exists);
             assert_eq!(old_column_name.to_string(), "foo");
             assert_eq!(new_column_name.to_string(), "new_foo");
         }
