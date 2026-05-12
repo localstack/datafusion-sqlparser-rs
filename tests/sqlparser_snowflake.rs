@@ -1649,6 +1649,47 @@ fn test_alter_table_clustering() {
 }
 
 #[test]
+fn test_alter_table_rename_column_if_exists() {
+    // Without IF EXISTS — round-trips via Display.
+    let sql = "ALTER TABLE tab RENAME COLUMN c1 TO c2";
+    match alter_table_op(snowflake_and_generic().verified_stmt(sql)) {
+        AlterTableOperation::RenameColumn {
+            if_exists,
+            old_column_name,
+            new_column_name,
+        } => {
+            assert!(!if_exists);
+            assert_eq!(old_column_name.to_string(), "c1");
+            assert_eq!(new_column_name.to_string(), "c2");
+        }
+        _ => unreachable!(),
+    }
+
+    // With inner IF EXISTS, plus outer IF EXISTS on ALTER TABLE — round-trips
+    // via Display.
+    let sql = "ALTER TABLE IF EXISTS tab RENAME COLUMN IF EXISTS c1 TO c2";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::AlterTable(alter_table) => {
+            assert!(alter_table.if_exists);
+            assert_eq!(alter_table.name.to_string(), "tab");
+            match alter_table.operations.as_slice() {
+                [AlterTableOperation::RenameColumn {
+                    if_exists,
+                    old_column_name,
+                    new_column_name,
+                }] => {
+                    assert!(*if_exists);
+                    assert_eq!(old_column_name.to_string(), "c1");
+                    assert_eq!(new_column_name.to_string(), "c2");
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_alter_iceberg_table() {
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl DROP CLUSTERING KEY");
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl SUSPEND RECLUSTER");
