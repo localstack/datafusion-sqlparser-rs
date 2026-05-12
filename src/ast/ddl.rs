@@ -374,8 +374,10 @@ pub enum AlterTableOperation {
         /// Whether `IF EXISTS` was specified for dropping partitions.
         if_exists: bool,
     },
-    /// `RENAME [ COLUMN ] <old_column_name> TO <new_column_name>`
+    /// `RENAME [ COLUMN ] [ IF EXISTS ] <old_column_name> TO <new_column_name>`
     RenameColumn {
+        /// Whether `IF EXISTS` was specified.
+        if_exists: bool,
         /// Existing column name to rename.
         old_column_name: Ident,
         /// New column name.
@@ -910,9 +912,16 @@ impl fmt::Display for AlterTableOperation {
                 display_comma_separated(new_partitions)
             ),
             AlterTableOperation::RenameColumn {
+                if_exists,
                 old_column_name,
                 new_column_name,
-            } => write!(f, "RENAME COLUMN {old_column_name} TO {new_column_name}"),
+            } => {
+                write!(f, "RENAME COLUMN ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{old_column_name} TO {new_column_name}")
+            }
             AlterTableOperation::RenameTable { table_name } => {
                 write!(f, "RENAME {table_name}")
             }

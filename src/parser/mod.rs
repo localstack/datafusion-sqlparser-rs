@@ -9951,10 +9951,12 @@ impl<'a> Parser<'a> {
                 }
             } else {
                 let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
+                let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let old_column_name = self.parse_identifier()?;
                 self.expect_keyword_is(Keyword::TO)?;
                 let new_column_name = self.parse_identifier()?;
                 AlterTableOperation::RenameColumn {
+                    if_exists,
                     old_column_name,
                     new_column_name,
                 }
