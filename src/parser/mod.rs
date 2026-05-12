@@ -9913,7 +9913,7 @@ impl<'a> Parser<'a> {
                 } else {
                     let column_keyword = self.parse_keyword(Keyword::COLUMN);
 
-                    let if_not_exists = if dialect_of!(self is PostgreSqlDialect | BigQueryDialect | DuckDbDialect | GenericDialect)
+                    let if_not_exists = if dialect_of!(self is PostgreSqlDialect | BigQueryDialect | DuckDbDialect | GenericDialect | SnowflakeDialect)
                     {
                         self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS])
                             || if_not_exists

@@ -1690,6 +1690,43 @@ fn test_alter_table_rename_column_if_exists() {
 }
 
 #[test]
+fn test_alter_table_add_column_if_not_exists() {
+    // Post-COLUMN `IF NOT EXISTS` form — round-trips via Display.
+    let sql = "ALTER TABLE tab ADD COLUMN IF NOT EXISTS c TEXT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumn {
+            column_keyword,
+            if_not_exists,
+            column_def,
+            ..
+        } => {
+            assert!(column_keyword);
+            assert!(if_not_exists);
+            assert_eq!(column_def.name.to_string(), "c");
+        }
+        _ => unreachable!(),
+    }
+
+    // Pre-COLUMN `IF NOT EXISTS` form — Display canonicalises to the
+    // post-COLUMN form, so use `one_statement_parses_to`.
+    let sql = "ALTER TABLE tab ADD IF NOT EXISTS COLUMN c TEXT";
+    let canonical = "ALTER TABLE tab ADD COLUMN IF NOT EXISTS c TEXT";
+    match alter_table_op(snowflake().one_statement_parses_to(sql, canonical)) {
+        AlterTableOperation::AddColumn {
+            column_keyword,
+            if_not_exists,
+            column_def,
+            ..
+        } => {
+            assert!(column_keyword);
+            assert!(if_not_exists);
+            assert_eq!(column_def.name.to_string(), "c");
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_alter_iceberg_table() {
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl DROP CLUSTERING KEY");
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl SUSPEND RECLUSTER");
