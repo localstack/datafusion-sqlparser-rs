@@ -3268,6 +3268,7 @@ fn parse_alter_table_with_algorithm() {
                         algorithm: AlterTableAlgorithm::Copy,
                     },
                     AlterTableOperation::RenameColumn {
+                        if_exists: false,
                         old_column_name: Ident::new("name"),
                         new_column_name: Ident::new("username")
                     },
@@ -3316,6 +3317,7 @@ fn parse_alter_table_with_lock() {
                         lock: AlterTableLock::Exclusive,
                     },
                     AlterTableOperation::RenameColumn {
+                        if_exists: false,
                         old_column_name: Ident::new("name"),
                         new_column_name: Ident::new("username")
                     },
