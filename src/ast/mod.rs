@@ -4434,6 +4434,10 @@ pub enum Statement {
         exception: Option<Vec<ExceptionWhen>>,
         /// TRUE if the statement has an `END` keyword.
         has_end_keyword: bool,
+        /// Optional transaction name (Snowflake: `BEGIN [TRANSACTION] NAME <id>`,
+        /// `START TRANSACTION NAME <id>`).
+        /// See <https://docs.snowflake.com/en/sql-reference/sql/begin>.
+        name: Option<Ident>,
     },
     /// ```sql
     /// COMMENT ON ...
@@ -6295,6 +6299,7 @@ impl fmt::Display for Statement {
                 statements,
                 exception,
                 has_end_keyword,
+                name,
             } => {
                 if *syntax_begin {
                     if let Some(modifier) = *modifier {
@@ -6310,6 +6315,9 @@ impl fmt::Display for Statement {
                 }
                 if !modes.is_empty() {
                     write!(f, " {}", display_comma_separated(modes))?;
+                }
+                if let Some(name) = name {
+                    write!(f, " NAME {name}")?;
                 }
                 if !statements.is_empty() {
                     write!(f, " ")?;
