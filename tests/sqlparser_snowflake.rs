@@ -4791,6 +4791,89 @@ fn test_begin_transaction() {
     snowflake().verified_stmt("BEGIN");
 }
 
+/// Snowflake allows an optional `NAME <id>` clause on `BEGIN`/`START
+/// TRANSACTION`.  See <https://docs.snowflake.com/en/sql-reference/sql/begin>.
+#[test]
+fn test_begin_transaction_name_clause() {
+    // BEGIN NAME <id>
+    let stmt = snowflake().verified_stmt("BEGIN NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            name,
+            ..
+        } => {
+            assert!(begin);
+            assert!(transaction.is_none());
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // BEGIN TRANSACTION NAME <id>
+    let stmt = snowflake().verified_stmt("BEGIN TRANSACTION NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            name,
+            ..
+        } => {
+            assert!(begin);
+            assert_eq!(transaction, Some(BeginTransactionKind::Transaction));
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // BEGIN WORK NAME <id>
+    let stmt = snowflake().verified_stmt("BEGIN WORK NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            transaction, name, ..
+        } => {
+            assert_eq!(transaction, Some(BeginTransactionKind::Work));
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // START TRANSACTION NAME <id>
+    let stmt = snowflake().verified_stmt("START TRANSACTION NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            name,
+            ..
+        } => {
+            assert!(!begin);
+            assert_eq!(transaction, Some(BeginTransactionKind::Transaction));
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // Quoted identifier name round-trips with quotes preserved.
+    let stmt = snowflake().verified_stmt("BEGIN TRANSACTION NAME \"My Txn\"");
+    match stmt {
+        Statement::StartTransaction { name, .. } => {
+            let name = name.unwrap();
+            assert_eq!(name.value, "My Txn");
+            assert_eq!(name.quote_style, Some('"'));
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // No NAME clause → name is None.
+    let stmt = snowflake().verified_stmt("BEGIN TRANSACTION");
+    match stmt {
+        Statement::StartTransaction { name, .. } => assert!(name.is_none()),
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+}
+
 #[test]
 fn test_snowflake_fetch_clause_syntax() {
     let canonical = "SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS ONLY";

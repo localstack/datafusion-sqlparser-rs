@@ -19302,14 +19302,21 @@ impl<'a> Parser<'a> {
     /// Parse a 'START TRANSACTION' statement
     pub fn parse_start_transaction(&mut self) -> Result<Statement, ParserError> {
         self.expect_keyword_is(Keyword::TRANSACTION)?;
+        let modes = self.parse_transaction_modes()?;
+        let name = if self.parse_keyword(Keyword::NAME) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
         Ok(Statement::StartTransaction {
-            modes: self.parse_transaction_modes()?,
+            modes,
             begin: false,
             transaction: Some(BeginTransactionKind::Transaction),
             modifier: None,
             statements: vec![],
             exception: None,
             has_end_keyword: false,
+            name,
         })
     }
 
@@ -19343,14 +19350,21 @@ impl<'a> Parser<'a> {
                 Some(Keyword::TRAN) => Some(BeginTransactionKind::Tran),
                 _ => None,
             };
+        let modes = self.parse_transaction_modes()?;
+        let name = if self.parse_keyword(Keyword::NAME) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
         Ok(Statement::StartTransaction {
-            modes: self.parse_transaction_modes()?,
+            modes,
             begin: true,
             transaction,
             modifier,
             statements: vec![],
             exception: None,
             has_end_keyword: false,
+            name,
         })
     }
 
@@ -19398,6 +19412,7 @@ impl<'a> Parser<'a> {
             transaction: None,
             modifier: None,
             modes: Default::default(),
+            name: None,
         })
     }
 
