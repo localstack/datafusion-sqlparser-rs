@@ -5235,13 +5235,15 @@ impl<'a> Parser<'a> {
             self.parse_create_user(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
             self.parse_create_warehouse(or_replace)
+        } else if self.parse_keyword(Keyword::TASK) {
+            self.parse_create_task(or_replace)
         } else if self.parse_keyword(Keyword::PROCEDURE) {
             self.parse_create_procedure(or_alter, or_replace)
         } else if self.parse_keyword(Keyword::SCHEMA) {
             self.parse_create_schema(or_replace)
         } else if or_replace {
             self.expected_ref(
-                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or PROCEDURE or SCHEMA after CREATE OR REPLACE",
+                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA after CREATE OR REPLACE",
                 self.peek_token_ref(),
             )
         } else if self.parse_keyword(Keyword::EXTENSION) {
@@ -5325,6 +5327,58 @@ impl<'a> Parser<'a> {
             if_not_exists,
             name,
         })
+    }
+
+    /// Parse `CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name> ... AS <statement>`.
+    fn parse_create_task(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let mut warehouse: Option<Ident> = None;
+        let mut schedule: Option<String> = None;
+        let mut after: Vec<ObjectName> = Vec::new();
+        let mut when_condition: Option<Expr> = None;
+        let mut suspend_task_after_num_failures: Option<u64> = None;
+        let mut comment: Option<String> = None;
+
+        loop {
+            if self.parse_keyword(Keyword::AS) {
+                let sql_body = Box::new(self.parse_statement()?);
+                return Ok(Statement::CreateTask {
+                    or_replace,
+                    if_not_exists,
+                    name,
+                    warehouse,
+                    schedule,
+                    after,
+                    when_condition,
+                    suspend_task_after_num_failures,
+                    comment,
+                    sql_body,
+                });
+            }
+            if self.parse_keyword(Keyword::WAREHOUSE) {
+                self.expect_token(&Token::Eq)?;
+                warehouse = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::SCHEDULE) {
+                self.expect_token(&Token::Eq)?;
+                schedule = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::AFTER) {
+                after = self.parse_comma_separated(|p| p.parse_object_name(false))?;
+            } else if self.parse_keyword(Keyword::WHEN) {
+                when_condition = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES) {
+                self.expect_token(&Token::Eq)?;
+                suspend_task_after_num_failures = Some(self.parse_literal_uint()?);
+            } else if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                comment = Some(self.parse_literal_string()?);
+            } else {
+                return self.expected(
+                    "WAREHOUSE, SCHEDULE, AFTER, WHEN, SUSPEND_TASK_AFTER_NUM_FAILURES, COMMENT, or AS in CREATE TASK",
+                    self.peek_token(),
+                );
+            }
+        }
     }
 
     /// See [DuckDB Docs](https://duckdb.org/docs/sql/statements/create_secret.html) for more details.
@@ -7477,6 +7531,8 @@ impl<'a> Parser<'a> {
             ObjectType::Stream
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
             ObjectType::Warehouse
+        } else if self.parse_keyword(Keyword::TASK) {
+            ObjectType::Task
         } else if self.parse_keyword(Keyword::FUNCTION) {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
@@ -7504,7 +7560,7 @@ impl<'a> Parser<'a> {
             };
         } else {
             return self.expected_ref(
-                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FUNCTION, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
+                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FUNCTION, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TASK, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
                 self.peek_token_ref(),
             );
         };
@@ -10845,6 +10901,7 @@ impl<'a> Parser<'a> {
             Keyword::USER,
             Keyword::OPERATOR,
             Keyword::WAREHOUSE,
+            Keyword::TASK,
         ])?;
         match object_type {
             Keyword::SCHEMA => {
@@ -10894,9 +10951,10 @@ impl<'a> Parser<'a> {
             Keyword::CONNECTOR => self.parse_alter_connector(),
             Keyword::USER => self.parse_alter_user().map(Into::into),
             Keyword::WAREHOUSE => self.parse_alter_warehouse(),
+            Keyword::TASK => self.parse_alter_task(),
             // unreachable because expect_one_of_keywords used above
             unexpected_keyword => Err(ParserError::ParserError(
-                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE}}, got {unexpected_keyword:?}"),
+                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, TASK}}, got {unexpected_keyword:?}"),
             )),
         }
     }
@@ -11180,6 +11238,24 @@ impl<'a> Parser<'a> {
             name,
             if_exists,
             operation,
+        })
+    }
+
+    /// Parse `ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND }`.
+    pub fn parse_alter_task(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let action = if self.parse_keyword(Keyword::RESUME) {
+            AlterTaskAction::Resume
+        } else if self.parse_keyword(Keyword::SUSPEND) {
+            AlterTaskAction::Suspend
+        } else {
+            return self.expected("RESUME or SUSPEND after ALTER TASK", self.peek_token());
+        };
+        Ok(Statement::AlterTask {
+            if_exists,
+            name,
+            action,
         })
     }
 
@@ -14180,12 +14256,14 @@ impl<'a> Parser<'a> {
                         Keyword::VIEW,
                         Keyword::DATABASE,
                         Keyword::SCHEMA,
+                        Keyword::TASK,
                     ]) {
                         let object_type = match kw {
                             Keyword::TABLE => DescribeObjectType::Table,
                             Keyword::VIEW => DescribeObjectType::View,
                             Keyword::DATABASE => DescribeObjectType::Database,
                             Keyword::SCHEMA => DescribeObjectType::Schema,
+                            Keyword::TASK => DescribeObjectType::Task,
                             _ => unreachable!(),
                         };
                         let object_name = self.parse_object_name(false)?;
@@ -15678,6 +15756,8 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_columns(extended, full)?)
         } else if self.parse_keyword(Keyword::TABLES) {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
+        } else if self.parse_keyword(Keyword::TASKS) {
+            Ok(self.parse_show_tasks(terse)?)
         } else if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEWS]) {
             Ok(self.parse_show_views(terse, true)?)
         } else if self.parse_keyword(Keyword::VIEWS) {
@@ -15820,6 +15900,14 @@ impl<'a> Parser<'a> {
             extended,
             full,
             external,
+            show_options,
+        })
+    }
+
+    fn parse_show_tasks(&mut self, terse: bool) -> Result<Statement, ParserError> {
+        let show_options = self.parse_show_stmt_options()?;
+        Ok(Statement::ShowTasks {
+            terse,
             show_options,
         })
     }
@@ -19588,6 +19676,14 @@ impl<'a> Parser<'a> {
 
     /// Parse a SQL `EXECUTE` statement
     pub fn parse_execute(&mut self) -> Result<Statement, ParserError> {
+        // Snowflake `EXECUTE TASK <name>` — check before `EXECUTE IMMEDIATE`
+        // and the generic `EXECUTE <procedure>` paths so the bare identifier
+        // path can't accidentally consume `TASK`.
+        if self.parse_keyword(Keyword::TASK) {
+            let name = self.parse_object_name(false)?;
+            return Ok(Statement::ExecuteTask { name });
+        }
+
         let immediate =
             self.dialect.supports_execute_immediate() && self.parse_keyword(Keyword::IMMEDIATE);
 

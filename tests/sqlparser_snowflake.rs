@@ -6211,3 +6211,242 @@ fn test_alter_warehouse_set_multi_params() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_create_task_warehouse_schedule() {
+    let sql = "CREATE TASK foo WAREHOUSE = wh SCHEDULE = '1 MINUTE' AS SELECT 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            or_replace,
+            if_not_exists,
+            name,
+            warehouse,
+            schedule,
+            after,
+            when_condition,
+            suspend_task_after_num_failures,
+            comment,
+            sql_body,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("foo", name.to_string());
+            assert_eq!("wh", warehouse.unwrap().to_string());
+            assert_eq!("1 MINUTE", schedule.unwrap());
+            assert!(after.is_empty());
+            assert!(when_condition.is_none());
+            assert!(suspend_task_after_num_failures.is_none());
+            assert!(comment.is_none());
+            assert_eq!("SELECT 1", sql_body.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_or_replace_task() {
+    let sql = "CREATE OR REPLACE TASK foo SCHEDULE = '10 SECOND' AS SELECT 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            or_replace,
+            if_not_exists,
+            schedule,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("10 SECOND", schedule.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_task_if_not_exists() {
+    let sql = "CREATE TASK IF NOT EXISTS foo AS SELECT 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            or_replace,
+            if_not_exists,
+            warehouse,
+            schedule,
+            ..
+        } => {
+            assert!(!or_replace);
+            assert!(if_not_exists);
+            assert!(warehouse.is_none());
+            assert!(schedule.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_task_with_cron_and_insert_body() {
+    let sql = "CREATE TASK foo WAREHOUSE = wh SCHEDULE = 'USING CRON * * * * * UTC' AS INSERT INTO t (id) VALUES (123)";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            warehouse,
+            schedule,
+            sql_body,
+            ..
+        } => {
+            assert_eq!("wh", warehouse.unwrap().to_string());
+            assert_eq!("USING CRON * * * * * UTC", schedule.unwrap());
+            assert!(matches!(*sql_body, Statement::Insert(_)));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_task() {
+    let sql = "DROP TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => {
+            assert_eq!(ObjectType::Task, object_type);
+            assert!(!if_exists);
+            assert_eq!(1, names.len());
+            assert_eq!("foo", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_task_if_exists() {
+    let sql = "DROP TASK IF EXISTS foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            ..
+        } => {
+            assert_eq!(ObjectType::Task, object_type);
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_task_resume() {
+    let sql = "ALTER TASK foo RESUME";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterTask {
+            if_exists,
+            name,
+            action,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("foo", name.to_string());
+            assert_eq!(AlterTaskAction::Resume, action);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_task_if_exists_suspend() {
+    let sql = "ALTER TASK IF EXISTS foo SUSPEND";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterTask {
+            if_exists,
+            name,
+            action,
+        } => {
+            assert!(if_exists);
+            assert_eq!("foo", name.to_string());
+            assert_eq!(AlterTaskAction::Suspend, action);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_execute_task() {
+    let sql = "EXECUTE TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::ExecuteTask { name } => {
+            assert_eq!("foo", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_task() {
+    let sql = "DESCRIBE TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeObject {
+            object_type, object_name, ..
+        } => {
+            assert_eq!(DescribeObjectType::Task, object_type);
+            assert_eq!("foo", object_name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_task() {
+    // `DESC` is preserved verbatim by `DescribeObject`'s `describe_alias`.
+    let sql = "DESC TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeObject {
+            describe_alias,
+            object_type,
+            object_name,
+            ..
+        } => {
+            assert_eq!(DescribeAlias::Desc, describe_alias);
+            assert_eq!(DescribeObjectType::Task, object_type);
+            assert_eq!("foo", object_name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_tasks() {
+    let sql = "SHOW TASKS";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowTasks { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_tasks_like() {
+    let sql = "SHOW TASKS LIKE 'foo%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowTasks {
+            terse,
+            show_options,
+        } => {
+            assert!(!terse);
+            // The presence of LIKE is captured by ShowStatementOptions; rely on
+            // Display round-trip via verified_stmt for content correctness.
+            assert!(show_options.to_string().contains("LIKE 'foo%'"));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_terse_tasks_like() {
+    let sql = "SHOW TERSE TASKS LIKE 'foo%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowTasks { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}

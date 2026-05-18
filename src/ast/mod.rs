@@ -4561,6 +4561,69 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>
+    ///   [WAREHOUSE = <ident>]
+    ///   [SCHEDULE = '<string>']
+    ///   [AFTER <task>[, <task>, ...]]
+    ///   [WHEN <expr>]
+    ///   [SUSPEND_TASK_AFTER_NUM_FAILURES = <num>]
+    ///   [COMMENT = '<string>']
+    ///   AS <statement>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-task>
+    CreateTask {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Task name.
+        name: ObjectName,
+        /// Optional `WAREHOUSE = <ident>` clause.
+        warehouse: Option<Ident>,
+        /// Optional `SCHEDULE = '<string>'` clause (raw inner string).
+        schedule: Option<String>,
+        /// Optional `AFTER <task>[, <task>, ...]` clause.
+        after: Vec<ObjectName>,
+        /// Optional `WHEN <expr>` clause.
+        when_condition: Option<Expr>,
+        /// Optional `SUSPEND_TASK_AFTER_NUM_FAILURES = <num>` clause.
+        suspend_task_after_num_failures: Option<u64>,
+        /// Optional `COMMENT = '<string>'` clause.
+        comment: Option<String>,
+        /// Body executed by the task.
+        sql_body: Box<Statement>,
+    },
+    /// ```sql
+    /// ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-task>
+    AlterTask {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Task name.
+        name: ObjectName,
+        /// The alter action.
+        action: AlterTaskAction,
+    },
+    /// ```sql
+    /// EXECUTE TASK <name>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-task>
+    ExecuteTask {
+        /// Task name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW [TERSE] TASKS [LIKE '<pattern>'] [IN { DATABASE <db> | SCHEMA <schema> }]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-tasks>
+    ShowTasks {
+        /// `true` when terse output format was requested.
+        terse: bool,
+        /// Additional options for `SHOW` statements.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] EXTERNAL VOLUME [IF NOT EXISTS] <name>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-external-volume>
@@ -6437,6 +6500,75 @@ impl fmt::Display for Statement {
                 if let Some(filter) = filter {
                     write!(f, " {filter}")?;
                 }
+                Ok(())
+            }
+            Statement::CreateTask {
+                or_replace,
+                if_not_exists,
+                name,
+                warehouse,
+                schedule,
+                after,
+                when_condition,
+                suspend_task_after_num_failures,
+                comment,
+                sql_body,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}TASK {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(wh) = warehouse {
+                    write!(f, " WAREHOUSE = {wh}")?;
+                }
+                if let Some(s) = schedule {
+                    write!(f, " SCHEDULE = '{s}'")?;
+                }
+                if !after.is_empty() {
+                    write!(f, " AFTER ")?;
+                    for (i, n) in after.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{n}")?;
+                    }
+                }
+                if let Some(expr) = when_condition {
+                    write!(f, " WHEN {expr}")?;
+                }
+                if let Some(n) = suspend_task_after_num_failures {
+                    write!(f, " SUSPEND_TASK_AFTER_NUM_FAILURES = {n}")?;
+                }
+                if let Some(c) = comment {
+                    write!(f, " COMMENT = '{c}'")?;
+                }
+                write!(f, " AS {sql_body}")
+            }
+            Statement::AlterTask {
+                if_exists,
+                name,
+                action,
+            } => {
+                write!(f, "ALTER TASK")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {name} {action}")
+            }
+            Statement::ExecuteTask { name } => {
+                write!(f, "EXECUTE TASK {name}")
+            }
+            Statement::ShowTasks {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}TASKS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )?;
                 Ok(())
             }
             Statement::CreateExternalVolume {
@@ -8890,6 +9022,8 @@ pub enum ObjectType {
     Stream,
     /// A warehouse.
     Warehouse,
+    /// A task.
+    Task,
 }
 
 impl fmt::Display for ObjectType {
@@ -8909,6 +9043,7 @@ impl fmt::Display for ObjectType {
             ObjectType::User => "USER",
             ObjectType::Stream => "STREAM",
             ObjectType::Warehouse => "WAREHOUSE",
+            ObjectType::Task => "TASK",
         })
     }
 }
@@ -9074,6 +9209,8 @@ pub enum DescribeObjectType {
     Database,
     /// `SCHEMA`
     Schema,
+    /// `TASK`
+    Task,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -9083,6 +9220,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::View => "VIEW",
             DescribeObjectType::Database => "DATABASE",
             DescribeObjectType::Schema => "SCHEMA",
+            DescribeObjectType::Task => "TASK",
         })
     }
 }
@@ -11560,6 +11698,28 @@ impl fmt::Display for AlterWarehouseOperation {
                 write!(f, "RENAME TO {new_name}")
             }
             AlterWarehouseOperation::AbortAllQueries => write!(f, "ABORT ALL QUERIES"),
+        }
+    }
+}
+
+/// Action for [`Statement::AlterTask`].
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-task>.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterTaskAction {
+    /// `RESUME`
+    Resume,
+    /// `SUSPEND`
+    Suspend,
+}
+
+impl fmt::Display for AlterTaskAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterTaskAction::Resume => write!(f, "RESUME"),
+            AlterTaskAction::Suspend => write!(f, "SUSPEND"),
         }
     }
 }
