@@ -615,6 +615,18 @@ impl<'a> Parser<'a> {
                     self.prev_token();
                     self.parse_while().map(Into::into)
                 }
+                Keyword::FOR => {
+                    self.prev_token();
+                    self.parse_for().map(Into::into)
+                }
+                Keyword::LOOP => {
+                    self.prev_token();
+                    self.parse_loop().map(Into::into)
+                }
+                Keyword::REPEAT => {
+                    self.prev_token();
+                    self.parse_repeat().map(Into::into)
+                }
                 Keyword::RAISE => {
                     self.prev_token();
                     self.parse_raise_stmt().map(Into::into)
@@ -808,12 +820,125 @@ impl<'a> Parser<'a> {
 
     /// Parse a `WHILE` statement.
     ///
+    /// Supports both the legacy MSSQL/T-SQL form
+    /// `WHILE <cond> BEGIN ... END` (the body terminator is the inner
+    /// `BEGIN ... END`) and the Snowflake-scripting forms
+    /// `WHILE <cond> DO ... END WHILE` and
+    /// `WHILE <cond> LOOP ... END LOOP` (where this method consumes
+    /// the `END WHILE` / `END LOOP` terminator).
+    ///
     /// See [Statement::While]
     fn parse_while(&mut self) -> Result<WhileStatement, ParserError> {
-        self.expect_keyword_is(Keyword::WHILE)?;
-        let while_block = self.parse_conditional_statement_block(&[Keyword::END])?;
+        let start_token = self.expect_keyword(Keyword::WHILE)?;
+        let condition = self.parse_expr()?;
+        // Snowflake-idiomatic forms open the body with DO or LOOP. MSSQL
+        // accepts neither — it goes straight into `BEGIN ... END` (or a
+        // single-statement body terminated by the next semicolon-bounded
+        // statement boundary).
+        let body_kind = match self.parse_one_of_keywords(&[Keyword::DO, Keyword::LOOP]) {
+            Some(Keyword::DO) => Some(WhileBodyKind::Do),
+            Some(Keyword::LOOP) => Some(WhileBodyKind::Loop),
+            _ => None,
+        };
+        let conditional_statements = self.parse_conditional_statements(&[Keyword::END])?;
+        if body_kind.is_some() {
+            // For DO/LOOP-opened bodies the body is a `Sequence` that stops
+            // at END, and this method must consume the matching END terminator
+            // (`END`, `END WHILE`, or `END LOOP`).
+            self.expect_keyword_is(Keyword::END)?;
+            let _ = self.parse_one_of_keywords(&[Keyword::WHILE, Keyword::LOOP]);
+        }
+        // For the legacy form the body is `BeginEnd`, which already absorbed
+        // its own END inside `parse_conditional_statements`; nothing else
+        // to consume here.
 
-        Ok(WhileStatement { while_block })
+        Ok(WhileStatement {
+            while_block: ConditionalStatementBlock {
+                start_token: AttachedToken(start_token),
+                condition: Some(condition),
+                then_token: None,
+                conditional_statements,
+            },
+            body_kind,
+        })
+    }
+
+    /// Parse a Snowflake scripting `FOR <var> IN [REVERSE] <start> TO <end>
+    /// DO ... END FOR` loop.
+    ///
+    /// See [Statement::For]
+    fn parse_for(&mut self) -> Result<ForStatement, ParserError> {
+        self.expect_keyword_is(Keyword::FOR)?;
+        let var = self.parse_identifier()?;
+        self.expect_keyword_is(Keyword::IN)?;
+        let reverse = self.parse_keyword(Keyword::REVERSE);
+        let start = self.parse_expr()?;
+        self.expect_keyword_is(Keyword::TO)?;
+        let end = self.parse_expr()?;
+        self.expect_keyword_is(Keyword::DO)?;
+        let body = self.parse_conditional_statements(&[Keyword::END])?;
+        self.expect_keyword_is(Keyword::END)?;
+        self.expect_keyword_is(Keyword::FOR)?;
+        Ok(ForStatement {
+            var,
+            reverse,
+            start,
+            end,
+            body,
+        })
+    }
+
+    /// Parse a Snowflake scripting `LOOP ... END LOOP` statement.
+    ///
+    /// See [Statement::Loop]
+    fn parse_loop(&mut self) -> Result<LoopStatement, ParserError> {
+        self.expect_keyword_is(Keyword::LOOP)?;
+        let body = self.parse_conditional_statements(&[Keyword::END])?;
+        self.expect_keyword_is(Keyword::END)?;
+        self.expect_keyword_is(Keyword::LOOP)?;
+        Ok(LoopStatement { body })
+    }
+
+    /// Parse a Snowflake scripting `REPEAT ... UNTIL <cond> END REPEAT`
+    /// statement. The body is terminated by `UNTIL` (not `END`).
+    ///
+    /// See [Statement::Repeat]
+    fn parse_repeat(&mut self) -> Result<RepeatStatement, ParserError> {
+        self.expect_keyword_is(Keyword::REPEAT)?;
+        let body = self.parse_conditional_statements(&[Keyword::UNTIL])?;
+        self.expect_keyword_is(Keyword::UNTIL)?;
+        let until = self.parse_expr()?;
+        self.expect_keyword_is(Keyword::END)?;
+        self.expect_keyword_is(Keyword::REPEAT)?;
+        Ok(RepeatStatement { body, until })
+    }
+
+    /// Parse a Snowflake `BREAK` / `EXIT` / `CONTINUE` / `ITERATE`
+    /// loop-control statement (with optional loop label).
+    ///
+    /// The caller is responsible for matching the leading keyword and
+    /// passing it as `kind`; this method consumes the keyword and any
+    /// trailing label.
+    ///
+    /// See [Statement::LoopControl]
+    fn parse_loop_control(
+        &mut self,
+        kind: LoopControlKind,
+    ) -> Result<LoopControlStatement, ParserError> {
+        // Consume the leading keyword (already matched by the caller).
+        self.next_token();
+        // Snowflake allows an optional loop label after the keyword. The
+        // surrounding scripting body ends each statement with `;`, so a
+        // label is present iff the next token is a Word that is not itself
+        // a terminal keyword for the enclosing context. We accept any
+        // identifier-shaped token; downstream classifiers will reject
+        // unexpected labels.
+        let label = if matches!(self.peek_token_ref().token, Token::Word(_)) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        Ok(LoopControlStatement { kind, label })
     }
 
     /// Parses an expression and associated list of statements
@@ -921,6 +1046,12 @@ impl<'a> Parser<'a> {
                 self.expect_token(&Token::Assignment)?;
                 let value = self.parse_expr()?;
                 Statement::Assignment { target, value }
+            } else if let Some(kind) = loop_control_keyword(&self.peek_nth_token_ref(0).token) {
+                // Loop-control statements only make sense inside a scripting
+                // body. Handle them here so they don't conflict with the
+                // `CONTINUE IDENTITY` clause of `TRUNCATE TABLE` (which lives
+                // in parse_statement and would steal CONTINUE at top level).
+                self.parse_loop_control(kind).map(Into::into)?
             } else {
                 self.parse_statement()?
             };
@@ -20894,6 +21025,22 @@ impl<'a> Parser<'a> {
         Ok(ResetStatement {
             reset: Reset::ConfigurationParameter(obj),
         })
+    }
+}
+
+/// Return the matching [`LoopControlKind`] when the token is one of the
+/// Snowflake loop-control keywords (`BREAK` / `EXIT` / `CONTINUE` /
+/// `ITERATE`), unquoted. Returns `None` otherwise.
+fn loop_control_keyword(token: &Token) -> Option<LoopControlKind> {
+    match token {
+        Token::Word(w) if w.quote_style.is_none() => match w.keyword {
+            Keyword::BREAK => Some(LoopControlKind::Break),
+            Keyword::EXIT => Some(LoopControlKind::Exit),
+            Keyword::CONTINUE => Some(LoopControlKind::Continue),
+            Keyword::ITERATE => Some(LoopControlKind::Iterate),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

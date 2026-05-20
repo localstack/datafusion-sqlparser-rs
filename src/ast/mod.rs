@@ -2706,7 +2706,7 @@ impl fmt::Display for IfStatement {
 
 /// A `WHILE` statement.
 ///
-/// Example:
+/// Example (MSSQL):
 /// ```sql
 /// WHILE @@FETCH_STATUS = 0
 /// BEGIN
@@ -2714,19 +2714,229 @@ impl fmt::Display for IfStatement {
 /// END
 /// ```
 ///
+/// Example (Snowflake scripting):
+/// ```sql
+/// WHILE counter <= 10 DO
+///   counter := counter + 1;
+/// END WHILE;
+/// ```
+///
 /// [MsSql](https://learn.microsoft.com/en-us/sql/t-sql/language-elements/while-transact-sql)
+/// [Snowflake](https://docs.snowflake.com/en/sql-reference/snowflake-scripting/while)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct WhileStatement {
     /// Block executed while the condition holds.
     pub while_block: ConditionalStatementBlock,
+    /// For the Snowflake-idiomatic forms `WHILE cond DO ... END WHILE` and
+    /// `WHILE cond LOOP ... END LOOP`, records the opening keyword so the
+    /// display impl can round-trip the source form. `None` means the legacy
+    /// form (the body's own terminator is enough to round-trip).
+    pub body_kind: Option<WhileBodyKind>,
+}
+
+/// Snowflake-idiomatic body opener for a [WhileStatement].
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum WhileBodyKind {
+    /// `WHILE cond DO ... END WHILE`
+    Do,
+    /// `WHILE cond LOOP ... END LOOP`
+    Loop,
 }
 
 impl fmt::Display for WhileStatement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let WhileStatement { while_block } = self;
-        write!(f, "{while_block}")?;
+        let WhileStatement {
+            while_block,
+            body_kind,
+        } = self;
+        match body_kind {
+            None => write!(f, "{while_block}")?,
+            Some(kind) => {
+                let (opener, closer) = match kind {
+                    WhileBodyKind::Do => ("DO", "WHILE"),
+                    WhileBodyKind::Loop => ("LOOP", "LOOP"),
+                };
+                write!(f, "WHILE")?;
+                if let Some(cond) = &while_block.condition {
+                    write!(f, " {cond}")?;
+                }
+                write!(f, " {opener}")?;
+                if !while_block.conditional_statements.statements().is_empty() {
+                    write!(f, " {}", while_block.conditional_statements)?;
+                }
+                write!(f, " END {closer}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A `FOR <var> IN [REVERSE] <start> TO <end> DO ... END FOR` statement
+/// (Snowflake scripting).
+///
+/// Example:
+/// ```sql
+/// FOR counter IN 1 TO 10 DO
+///   counter := counter + 1;
+/// END FOR;
+/// ```
+///
+/// [Snowflake](https://docs.snowflake.com/en/sql-reference/snowflake-scripting/for)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ForStatement {
+    /// Loop counter variable.
+    pub var: Ident,
+    /// `true` when the loop iterates from `end` down to `start`.
+    pub reverse: bool,
+    /// Inclusive lower bound (or upper bound when `reverse`).
+    pub start: Expr,
+    /// Inclusive upper bound (or lower bound when `reverse`).
+    pub end: Expr,
+    /// Loop body statements.
+    pub body: ConditionalStatements,
+}
+
+impl fmt::Display for ForStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ForStatement {
+            var,
+            reverse,
+            start,
+            end,
+            body,
+        } = self;
+        write!(f, "FOR {var} IN ")?;
+        if *reverse {
+            write!(f, "REVERSE ")?;
+        }
+        write!(f, "{start} TO {end} DO")?;
+        if !body.statements().is_empty() {
+            write!(f, " {body}")?;
+        }
+        write!(f, " END FOR")
+    }
+}
+
+/// A `LOOP ... END LOOP` statement (Snowflake scripting).
+///
+/// Example:
+/// ```sql
+/// LOOP
+///   IF (counter > 10) THEN BREAK; END IF;
+///   counter := counter + 1;
+/// END LOOP;
+/// ```
+///
+/// [Snowflake](https://docs.snowflake.com/en/sql-reference/snowflake-scripting/loop)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct LoopStatement {
+    /// Loop body statements.
+    pub body: ConditionalStatements,
+}
+
+impl fmt::Display for LoopStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let LoopStatement { body } = self;
+        write!(f, "LOOP")?;
+        if !body.statements().is_empty() {
+            write!(f, " {body}")?;
+        }
+        write!(f, " END LOOP")
+    }
+}
+
+/// A `REPEAT ... UNTIL <cond> END REPEAT` statement (Snowflake scripting).
+///
+/// Example:
+/// ```sql
+/// REPEAT
+///   counter := counter + 1;
+/// UNTIL (counter > 10)
+/// END REPEAT;
+/// ```
+///
+/// [Snowflake](https://docs.snowflake.com/en/sql-reference/snowflake-scripting/repeat)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct RepeatStatement {
+    /// Loop body statements.
+    pub body: ConditionalStatements,
+    /// Post-condition; loop exits when this expression evaluates to TRUE.
+    pub until: Expr,
+}
+
+impl fmt::Display for RepeatStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let RepeatStatement { body, until } = self;
+        write!(f, "REPEAT")?;
+        if !body.statements().is_empty() {
+            write!(f, " {body}")?;
+        }
+        write!(f, " UNTIL {until} END REPEAT")
+    }
+}
+
+/// Distinct keyword for a [LoopControlStatement]. `BREAK` and `EXIT` are
+/// preserved as separate variants so the AST round-trips the source form;
+/// the Snowflake transformer treats them as synonyms.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum LoopControlKind {
+    /// `BREAK` (Snowflake) — exit the innermost loop.
+    Break,
+    /// `EXIT` (Snowflake) — synonym for `BREAK`.
+    Exit,
+    /// `CONTINUE` (Snowflake) — jump to the next iteration of the loop.
+    Continue,
+    /// `ITERATE` (Snowflake) — synonym for `CONTINUE`.
+    Iterate,
+}
+
+impl fmt::Display for LoopControlKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LoopControlKind::Break => write!(f, "BREAK"),
+            LoopControlKind::Exit => write!(f, "EXIT"),
+            LoopControlKind::Continue => write!(f, "CONTINUE"),
+            LoopControlKind::Iterate => write!(f, "ITERATE"),
+        }
+    }
+}
+
+/// `BREAK` / `EXIT` / `CONTINUE` / `ITERATE` loop-control statement
+/// (Snowflake scripting).
+///
+/// Snowflake allows an optional loop label on these statements (e.g.
+/// `BREAK my_loop;`). The label is captured here for round-trip even
+/// though no current test uses it; downstream transformers should reject
+/// `Some(label)` rather than silently drop it.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct LoopControlStatement {
+    /// Which keyword was used (`BREAK` / `EXIT` / `CONTINUE` / `ITERATE`).
+    pub kind: LoopControlKind,
+    /// Optional loop label.
+    pub label: Option<Ident>,
+}
+
+impl fmt::Display for LoopControlStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let LoopControlStatement { kind, label } = self;
+        write!(f, "{kind}")?;
+        if let Some(label) = label {
+            write!(f, " {label}")?;
+        }
         Ok(())
     }
 }
@@ -3614,6 +3824,15 @@ pub enum Statement {
     If(IfStatement),
     /// A `WHILE` statement.
     While(WhileStatement),
+    /// A `FOR ... IN ... DO ... END FOR` statement (Snowflake scripting).
+    For(ForStatement),
+    /// A `LOOP ... END LOOP` statement (Snowflake scripting).
+    Loop(LoopStatement),
+    /// A `REPEAT ... UNTIL <cond> END REPEAT` statement (Snowflake scripting).
+    Repeat(RepeatStatement),
+    /// A `BREAK` / `EXIT` / `CONTINUE` / `ITERATE` loop-control statement
+    /// (Snowflake scripting).
+    LoopControl(LoopControlStatement),
     /// A `RAISE` statement.
     Raise(RaiseStatement),
     /// ```sql
@@ -5448,6 +5667,18 @@ impl fmt::Display for Statement {
                 write!(f, "{stmt}")
             }
             Statement::While(stmt) => {
+                write!(f, "{stmt}")
+            }
+            Statement::For(stmt) => {
+                write!(f, "{stmt}")
+            }
+            Statement::Loop(stmt) => {
+                write!(f, "{stmt}")
+            }
+            Statement::Repeat(stmt) => {
+                write!(f, "{stmt}")
+            }
+            Statement::LoopControl(stmt) => {
                 write!(f, "{stmt}")
             }
             Statement::Raise(stmt) => {
@@ -13102,6 +13333,30 @@ impl From<IfStatement> for Statement {
 impl From<WhileStatement> for Statement {
     fn from(w: WhileStatement) -> Self {
         Self::While(w)
+    }
+}
+
+impl From<ForStatement> for Statement {
+    fn from(s: ForStatement) -> Self {
+        Self::For(s)
+    }
+}
+
+impl From<LoopStatement> for Statement {
+    fn from(s: LoopStatement) -> Self {
+        Self::Loop(s)
+    }
+}
+
+impl From<RepeatStatement> for Statement {
+    fn from(s: RepeatStatement) -> Self {
+        Self::Repeat(s)
+    }
+}
+
+impl From<LoopControlStatement> for Statement {
+    fn from(s: LoopControlStatement) -> Self {
+        Self::LoopControl(s)
     }
 }
 

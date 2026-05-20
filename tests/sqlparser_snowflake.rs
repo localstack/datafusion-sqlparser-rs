@@ -6450,3 +6450,95 @@ fn test_show_terse_tasks_like() {
         _ => unreachable!(),
     }
 }
+
+// ── Snowflake scripting loop constructs (LAV-377-1) ───────────────────────
+
+#[test]
+fn test_while_do_end_while() {
+    let sql = "WHILE (counter <= 10) DO RETURN 1; END WHILE";
+    match snowflake().verified_stmt(sql) {
+        Statement::While(WhileStatement { body_kind, .. }) => {
+            assert_eq!(body_kind, Some(WhileBodyKind::Do));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_while_loop_end_loop() {
+    let sql = "WHILE (counter <= 10) LOOP RETURN 1; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::While(WhileStatement { body_kind, .. }) => {
+            assert_eq!(body_kind, Some(WhileBodyKind::Loop));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_to_end_for() {
+    let sql = "FOR counter IN 1 TO 10 DO RETURN 1; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { reverse, .. }) => {
+            assert!(!reverse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_reverse_to_end_for() {
+    let sql = "FOR counter IN REVERSE 1 TO 10 DO RETURN 1; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { reverse, .. }) => {
+            assert!(reverse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_loop_end_loop() {
+    let sql = "LOOP RETURN 1; END LOOP";
+    assert!(matches!(snowflake().verified_stmt(sql), Statement::Loop(_)));
+}
+
+#[test]
+fn test_repeat_until_end_repeat() {
+    let sql = "REPEAT RETURN 1; UNTIL (1 = 1) END REPEAT";
+    assert!(matches!(
+        snowflake().verified_stmt(sql),
+        Statement::Repeat(_)
+    ));
+}
+
+#[test]
+fn test_loop_control_statements_in_scripting_body() {
+    // BREAK / EXIT / CONTINUE / ITERATE are body-only — wrap them in a
+    // scripting BEGIN…END so the parser dispatches via
+    // parse_scripting_statement_list.
+    for (sql, expected_kind) in [
+        ("BEGIN BREAK; END", LoopControlKind::Break),
+        ("BEGIN EXIT; END", LoopControlKind::Exit),
+        ("BEGIN CONTINUE; END", LoopControlKind::Continue),
+        ("BEGIN ITERATE; END", LoopControlKind::Iterate),
+    ] {
+        let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+        assert_eq!(stmts.len(), 1, "{sql}");
+        let stmt = &stmts[0];
+        assert_eq!(stmt.to_string(), sql);
+        match stmt {
+            Statement::StartTransaction { statements, .. } => {
+                assert_eq!(statements.len(), 1, "{sql}");
+                match &statements[0] {
+                    Statement::LoopControl(lc) => {
+                        assert_eq!(lc.kind, expected_kind, "{sql}");
+                        assert!(lc.label.is_none(), "{sql}");
+                    }
+                    other => panic!("expected LoopControl, got {other:?} for {sql}"),
+                }
+            }
+            other => panic!("expected StartTransaction wrapper, got {other:?} for {sql}"),
+        }
+    }
+}
