@@ -49,6 +49,7 @@ use super::{
     Subscript, SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint, TableFactor,
     TableObject, TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind, Use, Values,
     ViewColumnDef, WhileStatement, WildcardAdditionalOptions, With, WithFill,
+    ForStatement, LoopControlStatement, LoopStatement, RepeatStatement,
 };
 
 /// Given an iterator of spans, return the [Span::union] of all spans.
@@ -340,6 +341,10 @@ impl Spanned for Statement {
             Statement::Case(stmt) => stmt.span(),
             Statement::If(stmt) => stmt.span(),
             Statement::While(stmt) => stmt.span(),
+            Statement::For(stmt) => stmt.span(),
+            Statement::Loop(stmt) => stmt.span(),
+            Statement::Repeat(stmt) => stmt.span(),
+            Statement::LoopControl(stmt) => stmt.span(),
             Statement::Raise(stmt) => stmt.span(),
             Statement::Call(function) => function.span(),
             Statement::Copy {
@@ -832,9 +837,50 @@ impl Spanned for IfStatement {
 
 impl Spanned for WhileStatement {
     fn span(&self) -> Span {
-        let WhileStatement { while_block } = self;
+        let WhileStatement {
+            while_block,
+            body_kind: _,
+        } = self;
 
         while_block.span()
+    }
+}
+
+impl Spanned for ForStatement {
+    fn span(&self) -> Span {
+        let ForStatement {
+            var,
+            reverse: _,
+            start,
+            end,
+            body,
+        } = self;
+        union_spans(
+            [var.span, start.span(), end.span(), body.span()]
+                .into_iter()
+                .filter(|s| s != &Span::empty()),
+        )
+    }
+}
+
+impl Spanned for LoopStatement {
+    fn span(&self) -> Span {
+        let LoopStatement { body } = self;
+        body.span()
+    }
+}
+
+impl Spanned for RepeatStatement {
+    fn span(&self) -> Span {
+        let RepeatStatement { body, until } = self;
+        union_spans([body.span(), until.span()].into_iter())
+    }
+}
+
+impl Spanned for LoopControlStatement {
+    fn span(&self) -> Span {
+        let LoopControlStatement { kind: _, label } = self;
+        label.as_ref().map(|l| l.span).unwrap_or_else(Span::empty)
     }
 }
 
