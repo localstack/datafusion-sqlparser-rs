@@ -1566,7 +1566,8 @@ fn test_mssql_while_statement() {
                         )),
                     })],
                 }
-            }
+            },
+            body_kind: None,
         })
     );
 
