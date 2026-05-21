@@ -6542,3 +6542,129 @@ fn test_loop_control_statements_in_scripting_body() {
         }
     }
 }
+
+#[test]
+fn test_while_do_body_with_loop_control_no_inner_begin() {
+    let sql = "WHILE (c <= 10) DO BREAK; END WHILE";
+    match snowflake().verified_stmt(sql) {
+        Statement::While(WhileStatement {
+            while_block,
+            body_kind,
+        }) => {
+            assert_eq!(body_kind, Some(WhileBodyKind::Do));
+            match &while_block.conditional_statements {
+                ConditionalStatements::Sequence { statements } => {
+                    assert_eq!(statements.len(), 1);
+                    match &statements[0] {
+                        Statement::LoopControl(lc) => {
+                            assert_eq!(lc.kind, LoopControlKind::Break);
+                            assert!(lc.label.is_none());
+                        }
+                        other => panic!("expected LoopControl, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Sequence body, got {other:?}"),
+            }
+        }
+        other => panic!("expected While, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_for_do_body_with_let_no_inner_begin() {
+    let sql = "FOR i IN 1 TO 10 DO LET v INT := i; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { body, .. }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::Let {
+                        name,
+                        data_type,
+                        value: _,
+                    } => {
+                        assert_eq!(name.value, "v");
+                        assert!(data_type.is_some());
+                    }
+                    other => panic!("expected Let, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected For, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_loop_body_with_bare_assignment_no_inner_begin() {
+    let sql = "LOOP v := v + 1; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::Loop(LoopStatement { body }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::Assignment { target, .. } => {
+                        assert_eq!(target.value, "v");
+                    }
+                    other => panic!("expected Assignment, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected Loop, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_repeat_body_with_loop_control_no_inner_begin() {
+    let sql = "REPEAT CONTINUE; UNTIL (c = 1) END REPEAT";
+    match snowflake().verified_stmt(sql) {
+        Statement::Repeat(RepeatStatement { body, .. }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::LoopControl(lc) => {
+                        assert_eq!(lc.kind, LoopControlKind::Continue);
+                        assert!(lc.label.is_none());
+                    }
+                    other => panic!("expected LoopControl, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected Repeat, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_if_then_body_with_loop_control_no_inner_begin() {
+    // Wrap in a LOOP so BREAK is contextually valid scripting.
+    let sql = "LOOP IF (c = 1) THEN BREAK; END IF; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::Loop(LoopStatement { body }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::If(IfStatement { if_block, .. }) => {
+                        match &if_block.conditional_statements {
+                            ConditionalStatements::Sequence { statements } => {
+                                assert_eq!(statements.len(), 1);
+                                match &statements[0] {
+                                    Statement::LoopControl(lc) => {
+                                        assert_eq!(lc.kind, LoopControlKind::Break);
+                                        assert!(lc.label.is_none());
+                                    }
+                                    other => panic!("expected LoopControl, got {other:?}"),
+                                }
+                            }
+                            other => panic!("expected Sequence IF-then arm, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected If, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence LOOP body, got {other:?}"),
+        },
+        other => panic!("expected Loop, got {other:?}"),
+    }
+}

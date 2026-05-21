@@ -840,7 +840,8 @@ impl<'a> Parser<'a> {
             Some(Keyword::LOOP) => Some(WhileBodyKind::Loop),
             _ => None,
         };
-        let conditional_statements = self.parse_conditional_statements(&[Keyword::END])?;
+        let conditional_statements =
+            self.parse_scripting_conditional_statements(&[Keyword::END])?;
         if body_kind.is_some() {
             // For DO/LOOP-opened bodies the body is a `Sequence` that stops
             // at END, and this method must consume the matching END terminator
@@ -876,7 +877,7 @@ impl<'a> Parser<'a> {
         self.expect_keyword_is(Keyword::TO)?;
         let end = self.parse_expr()?;
         self.expect_keyword_is(Keyword::DO)?;
-        let body = self.parse_conditional_statements(&[Keyword::END])?;
+        let body = self.parse_scripting_conditional_statements(&[Keyword::END])?;
         self.expect_keyword_is(Keyword::END)?;
         self.expect_keyword_is(Keyword::FOR)?;
         Ok(ForStatement {
@@ -893,7 +894,7 @@ impl<'a> Parser<'a> {
     /// See [Statement::Loop]
     fn parse_loop(&mut self) -> Result<LoopStatement, ParserError> {
         self.expect_keyword_is(Keyword::LOOP)?;
-        let body = self.parse_conditional_statements(&[Keyword::END])?;
+        let body = self.parse_scripting_conditional_statements(&[Keyword::END])?;
         self.expect_keyword_is(Keyword::END)?;
         self.expect_keyword_is(Keyword::LOOP)?;
         Ok(LoopStatement { body })
@@ -905,7 +906,7 @@ impl<'a> Parser<'a> {
     /// See [Statement::Repeat]
     fn parse_repeat(&mut self) -> Result<RepeatStatement, ParserError> {
         self.expect_keyword_is(Keyword::REPEAT)?;
-        let body = self.parse_conditional_statements(&[Keyword::UNTIL])?;
+        let body = self.parse_scripting_conditional_statements(&[Keyword::UNTIL])?;
         self.expect_keyword_is(Keyword::UNTIL)?;
         let until = self.parse_expr()?;
         self.expect_keyword_is(Keyword::END)?;
@@ -968,7 +969,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        let conditional_statements = self.parse_conditional_statements(terminal_keywords)?;
+        let conditional_statements = self.parse_scripting_conditional_statements(terminal_keywords)?;
 
         Ok(ConditionalStatementBlock {
             start_token: AttachedToken(start_token),
@@ -1000,6 +1001,33 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(conditional_statements)
+    }
+
+    /// Like [`parse_conditional_statements`], but the bare-sequence branch
+    /// dispatches to [`parse_scripting_statement_list`] so that body-only
+    /// scripting forms (loop control, `LET`, bare assignment) parse when the
+    /// body omits an inner `BEGIN … END`. Used by Snowflake-scripting loop
+    /// and conditional constructs; **not** used by `CREATE TRIGGER` /
+    /// `CREATE PROCEDURE` bodies, which retain their existing semantics via
+    /// [`parse_conditional_statements`].
+    fn parse_scripting_conditional_statements(
+        &mut self,
+        terminal_keywords: &[Keyword],
+    ) -> Result<ConditionalStatements, ParserError> {
+        if self.peek_keyword(Keyword::BEGIN) {
+            let begin_token = self.expect_keyword(Keyword::BEGIN)?;
+            let statements = self.parse_scripting_statement_list(terminal_keywords)?;
+            let end_token = self.expect_keyword(Keyword::END)?;
+            Ok(ConditionalStatements::BeginEnd(BeginEndStatements {
+                begin_token: AttachedToken(begin_token),
+                statements,
+                end_token: AttachedToken(end_token),
+            }))
+        } else {
+            Ok(ConditionalStatements::Sequence {
+                statements: self.parse_scripting_statement_list(terminal_keywords)?,
+            })
+        }
     }
 
     /// Parse a list of statements inside a `BEGIN...END` scripting block.
