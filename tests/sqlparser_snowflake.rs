@@ -6668,3 +6668,432 @@ fn test_if_then_body_with_loop_control_no_inner_begin() {
         other => panic!("expected Loop, got {other:?}"),
     }
 }
+
+#[test]
+fn test_create_file_format_type_csv() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT f TYPE = CSV") {
+        Statement::CreateFileFormat {
+            or_replace,
+            temporary,
+            if_not_exists,
+            name,
+            format_type,
+            options,
+            like_source,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!temporary);
+            assert!(!if_not_exists);
+            assert_eq!("f", name.to_string());
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert!(options.options.is_empty());
+            assert!(like_source.is_none());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_or_replace() {
+    match snowflake().verified_stmt("CREATE OR REPLACE FILE FORMAT f TYPE = JSON") {
+        Statement::CreateFileFormat {
+            or_replace,
+            format_type,
+            ..
+        } => {
+            assert!(or_replace);
+            assert_eq!(Some(Ident::new("JSON")), format_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_if_not_exists_with_options() {
+    let sql = "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER = '|' SKIP_HEADER = 1";
+    let canonical = "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER='|' SKIP_HEADER=1";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateFileFormat {
+            if_not_exists,
+            format_type,
+            options,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert_eq!(2, options.options.len());
+            assert_eq!("FIELD_DELIMITER", options.options[0].option_name);
+            assert_eq!("SKIP_HEADER", options.options[1].option_name);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_temporary_with_comment() {
+    match snowflake().verified_stmt("CREATE TEMPORARY FILE FORMAT f TYPE = CSV COMMENT = 'hi'") {
+        Statement::CreateFileFormat {
+            temporary,
+            format_type,
+            options,
+            comment,
+            ..
+        } => {
+            assert!(temporary);
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert!(options.options.is_empty());
+            assert_eq!(Some("hi".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_three_part_name() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT db.sch.f TYPE = AVRO") {
+        Statement::CreateFileFormat {
+            name, format_type, ..
+        } => {
+            assert_eq!("db.sch.f", name.to_string());
+            assert_eq!(Some(Ident::new("AVRO")), format_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_like_one_part() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT f LIKE other") {
+        Statement::CreateFileFormat {
+            name,
+            format_type,
+            options,
+            like_source,
+            ..
+        } => {
+            assert_eq!("f", name.to_string());
+            assert!(format_type.is_none());
+            assert!(options.options.is_empty());
+            assert_eq!(Some("other".to_string()), like_source.map(|s| s.to_string()));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_like_three_part() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT f LIKE db.sch.other") {
+        Statement::CreateFileFormat { like_source, .. } => {
+            assert_eq!(
+                Some("db.sch.other".to_string()),
+                like_source.map(|s| s.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_list_valued_option() {
+    let sql = "CREATE FILE FORMAT f TYPE = CSV NULL_IF = ('NULL', 'null')";
+    let canonical = "CREATE FILE FORMAT f TYPE = CSV NULL_IF=('NULL', 'null')";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateFileFormat { options, .. } => {
+            assert_eq!(1, options.options.len());
+            assert_eq!("NULL_IF", options.options[0].option_name);
+            match &options.options[0].option_value {
+                KeyValueOptionKind::Multi(values) => assert_eq!(2, values.len()),
+                other => panic!("expected Multi, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_all_type_values() {
+    for ty in ["CSV", "JSON", "AVRO", "ORC", "PARQUET", "XML"] {
+        let sql = format!("CREATE FILE FORMAT f TYPE = {ty}");
+        match snowflake().verified_stmt(&sql) {
+            Statement::CreateFileFormat { format_type, .. } => {
+                assert_eq!(Some(Ident::new(ty)), format_type);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_create_file_format_like_with_type_rejected() {
+    snowflake()
+        .parse_sql_statements("CREATE FILE FORMAT f LIKE g TYPE = CSV")
+        .expect_err("LIKE and TYPE are mutually exclusive");
+}
+
+#[test]
+fn test_create_file_format_like_with_option_rejected() {
+    snowflake()
+        .parse_sql_statements("CREATE FILE FORMAT f LIKE g FIELD_DELIMITER = '|'")
+        .expect_err("LIKE and options are mutually exclusive");
+}
+
+#[test]
+fn test_alter_file_format_rename() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT f RENAME TO g") {
+        Statement::AlterFileFormat {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("f", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterFileFormatOperation::RenameTo(target) => {
+                    assert_eq!("g", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_rename_cross_schema() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT IF EXISTS f RENAME TO db.sch.g") {
+        Statement::AlterFileFormat {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterFileFormatOperation::RenameTo(target) => {
+                    assert_eq!("db.sch.g", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_rename_cross_db() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT db1.sch1.f RENAME TO db2.sch2.g") {
+        Statement::AlterFileFormat {
+            name, operation, ..
+        } => {
+            assert_eq!("db1.sch1.f", name.to_string());
+            match operation {
+                AlterFileFormatOperation::RenameTo(target) => {
+                    assert_eq!("db2.sch2.g", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_set() {
+    let sql = "ALTER FILE FORMAT f SET FIELD_DELIMITER = ','";
+    let canonical = "ALTER FILE FORMAT f SET FIELD_DELIMITER=','";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Set { options, comment } => {
+                assert_eq!(1, options.options.len());
+                assert_eq!("FIELD_DELIMITER", options.options[0].option_name);
+                assert!(comment.is_none());
+            }
+            other => panic!("expected Set, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_set_with_comment() {
+    let sql = "ALTER FILE FORMAT f SET FIELD_DELIMITER = ',' COMMENT = 'updated'";
+    let canonical = "ALTER FILE FORMAT f SET FIELD_DELIMITER=',' COMMENT = 'updated'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Set { options, comment } => {
+                assert_eq!(1, options.options.len());
+                assert_eq!(Some("updated".to_string()), comment);
+            }
+            other => panic!("expected Set, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_unset_single() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT IF EXISTS f UNSET FIELD_DELIMITER") {
+        Statement::AlterFileFormat {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterFileFormatOperation::Unset {
+                    options,
+                    unset_comment,
+                } => {
+                    assert_eq!(vec![Ident::new("FIELD_DELIMITER")], options);
+                    assert!(!unset_comment);
+                }
+                other => panic!("expected Unset, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_unset_multiple() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT f UNSET FIELD_DELIMITER, RECORD_DELIMITER") {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Unset {
+                options,
+                unset_comment,
+            } => {
+                assert_eq!(
+                    vec![Ident::new("FIELD_DELIMITER"), Ident::new("RECORD_DELIMITER")],
+                    options
+                );
+                assert!(!unset_comment);
+            }
+            other => panic!("expected Unset, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_unset_comment() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT f UNSET COMMENT") {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Unset {
+                options,
+                unset_comment,
+            } => {
+                assert!(options.is_empty());
+                assert!(unset_comment);
+            }
+            other => panic!("expected Unset, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_set_no_options_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER FILE FORMAT f SET")
+        .expect_err("SET requires at least one option");
+}
+
+#[test]
+fn test_alter_file_format_unset_no_options_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER FILE FORMAT f UNSET")
+        .expect_err("UNSET requires at least one option");
+}
+
+#[test]
+fn test_drop_file_format() {
+    match snowflake().verified_stmt("DROP FILE FORMAT f") {
+        Statement::DropFileFormat { name, if_exists } => {
+            assert_eq!("f", name.to_string());
+            assert!(!if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_file_format_if_exists() {
+    match snowflake().verified_stmt("DROP FILE FORMAT IF EXISTS db.sch.f") {
+        Statement::DropFileFormat { name, if_exists } => {
+            assert_eq!("db.sch.f", name.to_string());
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_file_format() {
+    match snowflake().verified_stmt("DESCRIBE FILE FORMAT f") {
+        Statement::DescribeFileFormat { name } => {
+            assert_eq!("f", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_file_format() {
+    match snowflake().one_statement_parses_to("DESC FILE FORMAT db.sch.f", "DESCRIBE FILE FORMAT db.sch.f") {
+        Statement::DescribeFileFormat { name } => {
+            assert_eq!("db.sch.f", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_file_formats() {
+    match snowflake().verified_stmt("SHOW FILE FORMATS") {
+        Statement::ShowFileFormats { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_file_formats_like() {
+    snowflake().verified_stmt("SHOW FILE FORMATS LIKE 'pat%'");
+}
+
+#[test]
+fn test_show_file_formats_in_schema() {
+    snowflake().verified_stmt("SHOW FILE FORMATS IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_show_file_formats_in_database() {
+    snowflake().verified_stmt("SHOW FILE FORMATS IN DATABASE db");
+}
+
+#[test]
+fn test_show_file_formats_in_account() {
+    snowflake().verified_stmt("SHOW FILE FORMATS IN ACCOUNT");
+}
+
+#[test]
+fn test_show_file_formats_starts_with() {
+    snowflake().verified_stmt("SHOW FILE FORMATS STARTS WITH 'ff_'");
+}
+
+#[test]
+fn test_show_file_formats_limit_from() {
+    snowflake().verified_stmt("SHOW FILE FORMATS LIMIT 10 FROM 'cursor'");
+}
+
+#[test]
+fn test_show_terse_file_formats() {
+    match snowflake().verified_stmt("SHOW TERSE FILE FORMATS") {
+        Statement::ShowFileFormats { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}

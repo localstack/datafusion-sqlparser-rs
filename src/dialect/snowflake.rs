@@ -27,7 +27,8 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterExternalVolumeOperation, AlterTable, AlterTableOperation, AlterTableType,
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterTable, AlterTableOperation,
+    AlterTableType,
     CatalogRestAuthentication, CatalogRestConfig, CatalogSource, CatalogSyncNamespaceMode,
     CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty, ContactEntry,
     CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
@@ -278,6 +279,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_external_table(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
+            // ALTER FILE FORMAT
+            return Some(parse_alter_file_format(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
             // ALTER SESSION
             let set = match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
@@ -298,10 +304,19 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_catalog_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
+            // DROP FILE FORMAT
+            return Some(parse_drop_file_format(parser));
+        }
+
         if parser.parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE]).is_some() {
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
                 // DESC[RIBE] EXTERNAL VOLUME
                 return Some(parse_describe_external_volume(parser));
+            }
+            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
+                // DESC[RIBE] FILE FORMAT
+                return Some(parse_describe_file_format(parser));
             }
             if parser.parse_keyword(Keyword::WAREHOUSE) {
                 // DESC[RIBE] WAREHOUSE
@@ -352,6 +367,11 @@ impl Dialect for SnowflakeDialect {
                 Some(Keyword::TRANSIENT) => transient = true,
                 Some(Keyword::ICEBERG) => iceberg = true,
                 _ => {}
+            }
+
+            // CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT
+            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
+                return Some(parse_create_file_format(or_replace, temporary, parser));
             }
 
             if parser.parse_keyword(Keyword::STAGE) {
@@ -408,6 +428,9 @@ impl Dialect for SnowflakeDialect {
             let terse = parser.parse_keyword(Keyword::TERSE);
             if parser.parse_keyword(Keyword::OBJECTS) {
                 return Some(parse_show_objects(terse, parser));
+            }
+            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMATS]) {
+                return Some(parse_show_file_formats(terse, parser));
             }
             //Give back Keyword::TERSE
             if terse {
@@ -2185,6 +2208,142 @@ fn parse_describe_external_volume(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_external_volumes(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowExternalVolumes { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT [IF NOT EXISTS] <name> ...`
+fn parse_create_file_format(
+    or_replace: bool,
+    temporary: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut format_type = None;
+    let mut like_source = None;
+
+    if parser.parse_keyword(Keyword::LIKE) {
+        like_source = Some(parser.parse_object_name(false)?);
+    } else if parser.parse_keyword(Keyword::TYPE) {
+        parser.expect_token(&Token::Eq)?;
+        format_type = Some(parser.parse_identifier()?);
+    }
+
+    let options = if like_source.is_some() {
+        KeyValueOptions {
+            options: vec![],
+            delimiter: KeyValueOptionsDelimiter::Space,
+        }
+    } else {
+        parser.parse_key_value_options(false, &[Keyword::COMMENT])?
+    };
+
+    // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
+    if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+        return parser.expected(
+            "end of statement after CREATE FILE FORMAT ... LIKE",
+            parser.peek_token(),
+        );
+    }
+
+    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_comment_value()?)
+    } else {
+        None
+    };
+
+    Ok(Statement::CreateFileFormat {
+        or_replace,
+        temporary,
+        if_not_exists,
+        name,
+        format_type,
+        options,
+        like_source,
+        comment,
+    })
+}
+
+/// Parse `ALTER FILE FORMAT [IF EXISTS] <name> ...`
+fn parse_alter_file_format(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterFileFormatOperation::RenameTo(parser.parse_object_name(false)?)
+    } else if parser.parse_keyword(Keyword::SET) {
+        let options = parser.parse_key_value_options(false, &[Keyword::COMMENT])?;
+        let comment = if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            Some(parser.parse_comment_value()?)
+        } else {
+            None
+        };
+        if options.options.is_empty() && comment.is_none() {
+            return parser.expected(
+                "at least one option after ALTER FILE FORMAT <name> SET",
+                parser.peek_token(),
+            );
+        }
+        AlterFileFormatOperation::Set { options, comment }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        let mut options = vec![];
+        let mut unset_comment = false;
+        loop {
+            if parser.parse_keyword(Keyword::COMMENT) {
+                unset_comment = true;
+            } else {
+                options.push(parser.parse_identifier()?);
+            }
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+        if options.is_empty() && !unset_comment {
+            return parser.expected(
+                "at least one option after ALTER FILE FORMAT <name> UNSET",
+                parser.peek_token(),
+            );
+        }
+        AlterFileFormatOperation::Unset {
+            options,
+            unset_comment,
+        }
+    } else {
+        return parser.expected(
+            "RENAME TO, SET, or UNSET after ALTER FILE FORMAT <name>",
+            parser.peek_token(),
+        );
+    };
+
+    Ok(Statement::AlterFileFormat {
+        name,
+        if_exists,
+        operation,
+    })
+}
+
+/// Parse `DROP FILE FORMAT [IF EXISTS] <name>`
+fn parse_drop_file_format(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropFileFormat { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] FILE FORMAT <name>`
+fn parse_describe_file_format(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeFileFormat { name })
+}
+
+/// Parse `SHOW [TERSE] FILE FORMATS [ ... ]`
+fn parse_show_file_formats(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowFileFormats {
+        terse,
+        show_options,
+    })
 }
 
 /// Parse `DESC[RIBE] WAREHOUSE <name>`
