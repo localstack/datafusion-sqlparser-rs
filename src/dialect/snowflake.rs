@@ -369,9 +369,14 @@ impl Dialect for SnowflakeDialect {
                 _ => {}
             }
 
-            // CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT
+            // CREATE [OR REPLACE] [ TEMP | TEMPORARY | VOLATILE ] FILE FORMAT.
+            // For file formats VOLATILE is a synonym of TEMPORARY.
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
-                return Some(parse_create_file_format(or_replace, temporary, parser));
+                return Some(parse_create_file_format(
+                    or_replace,
+                    temporary || volatile,
+                    parser,
+                ));
             }
 
             if parser.parse_keyword(Keyword::STAGE) {

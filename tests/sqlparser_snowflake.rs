@@ -6751,6 +6751,21 @@ fn test_create_file_format_temporary_with_comment() {
 }
 
 #[test]
+fn test_create_file_format_temp_synonym() {
+    // TEMP and VOLATILE are synonyms of TEMPORARY for file formats; both
+    // canonicalize to TEMPORARY.
+    for sql in [
+        "CREATE TEMP FILE FORMAT f TYPE = CSV",
+        "CREATE VOLATILE FILE FORMAT f TYPE = CSV",
+    ] {
+        match snowflake().one_statement_parses_to(sql, "CREATE TEMPORARY FILE FORMAT f TYPE = CSV") {
+            Statement::CreateFileFormat { temporary, .. } => assert!(temporary),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
 fn test_create_file_format_three_part_name() {
     match snowflake().verified_stmt("CREATE FILE FORMAT db.sch.f TYPE = AVRO") {
         Statement::CreateFileFormat {
