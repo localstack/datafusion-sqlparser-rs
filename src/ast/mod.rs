@@ -4895,6 +4895,65 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-file-format>
+    CreateFileFormat {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `TEMPORARY` flag.
+        temporary: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// File format name.
+        name: ObjectName,
+        /// Optional `TYPE = { CSV | JSON | ... }` value.
+        format_type: Option<Ident>,
+        /// Format options (e.g. `FIELD_DELIMITER = '|'`).
+        options: KeyValueOptions,
+        /// Optional `LIKE <source>` — mutually exclusive with `format_type`
+        /// and `options`.
+        like_source: Option<ObjectName>,
+        /// Optional comment.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER FILE FORMAT [IF EXISTS] <name> ...
+    /// ```
+    AlterFileFormat {
+        /// File format name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The alter operation.
+        operation: AlterFileFormatOperation,
+    },
+    /// ```sql
+    /// DROP FILE FORMAT [IF EXISTS] <name>
+    /// ```
+    DropFileFormat {
+        /// File format name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] FILE FORMAT <name>
+    /// ```
+    DescribeFileFormat {
+        /// File format name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW [TERSE] FILE FORMATS [ LIKE '<pattern>' ] [ IN ... ] ...
+    /// ```
+    ShowFileFormats {
+        /// Whether to show terse output.
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `IN` / `LIMIT` / ...).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration>
@@ -6866,6 +6925,69 @@ impl fmt::Display for Statement {
                     write!(f, " {filter}")?;
                 }
                 Ok(())
+            }
+            Statement::CreateFileFormat {
+                or_replace,
+                temporary,
+                if_not_exists,
+                name,
+                format_type,
+                options,
+                like_source,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}{temporary}FILE FORMAT {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    temporary = if *temporary { "TEMPORARY " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(ref source) = like_source {
+                    write!(f, " LIKE {source}")?;
+                } else {
+                    if let Some(ref ft) = format_type {
+                        write!(f, " TYPE = {ft}")?;
+                    }
+                    if !options.options.is_empty() {
+                        write!(f, " {options}")?;
+                    }
+                }
+                if let Some(ref c) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
+                }
+                Ok(())
+            }
+            Statement::AlterFileFormat {
+                name,
+                if_exists,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER FILE FORMAT {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropFileFormat { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP FILE FORMAT {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeFileFormat { name } => {
+                write!(f, "DESCRIBE FILE FORMAT {name}")
+            }
+            Statement::ShowFileFormats {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}FILE FORMATS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
             }
             Statement::CreateCatalogIntegration {
                 or_replace,
@@ -11838,6 +11960,60 @@ impl fmt::Display for AlterExternalVolumeOperation {
                     "REMOVE STORAGE_LOCATION '{}'",
                     value::escape_single_quote_string(name)
                 )
+            }
+        }
+    }
+}
+
+/// Operations for `ALTER FILE FORMAT`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterFileFormatOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo(ObjectName),
+    /// `SET <format_option> = <value> [...] [ COMMENT = '<string>' ]`
+    Set {
+        /// The format options being set.
+        options: KeyValueOptions,
+        /// Optional `COMMENT` value.
+        comment: Option<String>,
+    },
+    /// `UNSET <format_option> [, ...] [ , COMMENT ]`
+    Unset {
+        /// The format option names being unset.
+        options: Vec<Ident>,
+        /// Whether `COMMENT` is being unset.
+        unset_comment: bool,
+    },
+}
+
+impl fmt::Display for AlterFileFormatOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterFileFormatOperation::RenameTo(name) => {
+                write!(f, "RENAME TO {name}")
+            }
+            AlterFileFormatOperation::Set { options, comment } => {
+                write!(f, "SET")?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                if let Some(c) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
+                }
+                Ok(())
+            }
+            AlterFileFormatOperation::Unset {
+                options,
+                unset_comment,
+            } => {
+                write!(f, "UNSET ")?;
+                let mut names: Vec<String> = options.iter().map(ToString::to_string).collect();
+                if *unset_comment {
+                    names.push("COMMENT".to_string());
+                }
+                write!(f, "{}", names.join(", "))
             }
         }
     }
