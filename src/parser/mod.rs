@@ -19639,7 +19639,8 @@ impl<'a> Parser<'a> {
                     self.maybe_parse(|p| p.expect_keyword(Keyword::OR))?;
                 }
 
-                let statements = self.parse_statement_list(&[Keyword::WHEN, Keyword::END])?;
+                let statements =
+                    self.parse_scripting_statement_list(&[Keyword::WHEN, Keyword::END])?;
 
                 when.push(ExceptionWhen { idents, statements });
             }
