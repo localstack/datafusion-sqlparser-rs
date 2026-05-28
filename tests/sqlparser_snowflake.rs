@@ -4770,6 +4770,86 @@ END
     assert_eq!(2, exception[1].statements.len());
 }
 
+/// Bare `var := expr;` inside an `EXCEPTION WHEN ... THEN` handler body
+/// must parse — same as in the outer scripting body.
+#[test]
+fn test_exception_handler_body_bare_assignment() {
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN msg := 'caught'; RETURN msg; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
+        panic!("expected StartTransaction");
+    };
+    let arms = exception.expect("expected EXCEPTION arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].statements.len(), 2);
+    match &arms[0].statements[0] {
+        Statement::Assignment { target, .. } => assert_eq!(target.value, "msg"),
+        other => panic!("expected Assignment, got {other:?}"),
+    }
+}
+
+/// `LET var TYPE := expr;` inside an `EXCEPTION WHEN ... THEN` handler body
+/// must parse — the handler body sees the same scripting surface as the
+/// outer body.
+#[test]
+fn test_exception_handler_body_let_declaration() {
+    let sql =
+        "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN LET t VARCHAR := 'caught'; RETURN t; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
+        panic!("expected StartTransaction");
+    };
+    let arms = exception.expect("expected EXCEPTION arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].statements.len(), 2);
+    match &arms[0].statements[0] {
+        Statement::Let {
+            name, data_type, ..
+        } => {
+            assert_eq!(name.value, "t");
+            assert!(data_type.is_some());
+        }
+        other => panic!("expected Let, got {other:?}"),
+    }
+}
+
+/// Loop-control statements (`BREAK`, `CONTINUE`, `EXIT`, `ITERATE`) inside
+/// an `EXCEPTION WHEN ... THEN` body must parse — the keyword surface is
+/// the same as the outer scripting body. (`LOOP ... EXCEPTION ...` is not
+/// the natural shape — instead nest the LOOP inside a BEGIN block whose
+/// handler issues BREAK.)
+#[test]
+fn test_exception_handler_body_loop_control() {
+    let sql = "BEGIN LOOP SELECT 1; END LOOP; EXCEPTION WHEN OTHER THEN BREAK; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
+        panic!("expected StartTransaction");
+    };
+    let arms = exception.expect("expected EXCEPTION arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].statements.len(), 1);
+    match &arms[0].statements[0] {
+        Statement::LoopControl(lc) => {
+            assert_eq!(lc.kind, LoopControlKind::Break);
+            assert!(lc.label.is_none());
+        }
+        other => panic!("expected LoopControl, got {other:?}"),
+    }
+}
+
+/// Regression: a malformed handler body (missing terminator) still surfaces
+/// a `ParserError`. The terminal keywords (`WHEN`, `END`) are unchanged
+/// after switching the call to `parse_scripting_statement_list`, so an
+/// unterminated handler body still errors at the same place.
+#[test]
+fn test_exception_handler_body_missing_terminator_errors() {
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN var := 1";
+    let err = snowflake()
+        .parse_sql_statements(sql)
+        .expect_err("missing END must error");
+    assert!(matches!(err, ParserError::ParserError(_)), "{err:?}");
+}
+
 #[test]
 fn test_begin_transaction() {
     snowflake().verified_stmt("BEGIN TRANSACTION");
