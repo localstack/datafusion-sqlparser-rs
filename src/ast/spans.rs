@@ -549,6 +549,7 @@ impl Spanned for Statement {
             Statement::ShowCatalogIntegrations { .. } => Span::empty(),
             Statement::Assignment { .. } => Span::empty(),
             Statement::Let { .. } => Span::empty(),
+            Statement::Null => Span::empty(),
         }
     }
 }
