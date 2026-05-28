@@ -6669,6 +6669,103 @@ fn test_if_then_body_with_loop_control_no_inner_begin() {
     }
 }
 
+/// Bare `NULL;` is a scripting no-op anywhere `parse_scripting_statement_list`
+/// runs: top-level body, after another statement, inside an inner `BEGIN…END`,
+/// and as the only statement in an `EXCEPTION WHEN OTHER THEN` handler body.
+#[test]
+fn test_scripting_null_statement_no_op_in_body() {
+    // Bare NULL; at the start of a BEGIN…END body.
+    let sql = "BEGIN NULL; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            assert!(matches!(statements[0], Statement::Null), "{statements:?}");
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+    assert_eq!(stmts[0].to_string(), sql);
+}
+
+#[test]
+fn test_scripting_null_after_other_statement() {
+    // Bare NULL; after another statement.
+    let sql = "BEGIN LET x := 1; NULL; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 2);
+            assert!(matches!(statements[0], Statement::Let { .. }));
+            assert!(matches!(statements[1], Statement::Null));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+    assert_eq!(stmts[0].to_string(), sql);
+}
+
+#[test]
+fn test_scripting_null_in_exception_when_other_handler() {
+    // NULL; is the only statement in an EXCEPTION WHEN OTHER THEN body.
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN NULL; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { exception, .. } => {
+            let arms = exception.as_ref().expect("expected EXCEPTION arms");
+            assert_eq!(arms.len(), 1);
+            assert_eq!(arms[0].statements.len(), 1);
+            assert!(matches!(arms[0].statements[0], Statement::Null));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_null_in_nested_begin_end() {
+    // Bare NULL; inside an inner BEGIN…END sub-block.
+    let sql = "BEGIN BEGIN NULL; END; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            match &statements[0] {
+                Statement::StartTransaction {
+                    statements: inner, ..
+                } => {
+                    assert_eq!(inner.len(), 1);
+                    assert!(matches!(inner[0], Statement::Null));
+                }
+                other => panic!("expected nested StartTransaction, got {other:?}"),
+            }
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_null_in_loop_body() {
+    // Bare NULL; inside a LOOP body (a scripting body parsed through
+    // parse_scripting_statement_list).
+    let sql = "LOOP NULL; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::Loop(LoopStatement { body }) => match body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                assert!(matches!(statements[0], Statement::Null));
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected Loop, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_top_level_null_still_errors() {
+    // Bare `NULL;` outside a scripting context must still error — the change
+    // is intentionally scoped to parse_scripting_statement_list.
+    assert!(snowflake().parse_sql_statements("NULL;").is_err());
+}
+
 #[test]
 fn test_create_file_format_type_csv() {
     match snowflake().verified_stmt("CREATE FILE FORMAT f TYPE = CSV") {

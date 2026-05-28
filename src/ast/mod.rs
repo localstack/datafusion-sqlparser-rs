@@ -5477,6 +5477,16 @@ pub enum Statement {
         /// Assignment expression.
         value: Expr,
     },
+    /// Bare `NULL` no-op statement inside a Snowflake Scripting `BEGIN...END` block.
+    ///
+    /// ```sql
+    /// NULL;
+    /// ```
+    /// Snowflake scripting (and PL/pgSQL) accept a bare `NULL;` as a no-op
+    /// statement — idiomatic inside empty handler bodies and stubbed
+    /// branches.
+    /// [Snowflake](https://docs.snowflake.com/en/developer-guide/snowflake-scripting/snowflake-scripting)
+    Null,
 }
 
 impl From<Analyze> for Statement {
@@ -7274,6 +7284,7 @@ impl fmt::Display for Statement {
                 }
                 write!(f, " := {value}")
             }
+            Statement::Null => write!(f, "NULL"),
         }
     }
 }

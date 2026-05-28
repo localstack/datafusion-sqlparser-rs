@@ -1080,6 +1080,15 @@ impl<'a> Parser<'a> {
                 // `CONTINUE IDENTITY` clause of `TRUNCATE TABLE` (which lives
                 // in parse_statement and would steal CONTINUE at top level).
                 self.parse_loop_control(kind).map(Into::into)?
+            } else if matches!(self.peek_nth_token_ref(0).token,
+                Token::Word(ref w) if w.quote_style.is_none() && w.keyword == Keyword::NULL)
+                && self.peek_nth_token_ref(1).token == Token::SemiColon
+            {
+                // Bare `NULL;` is a scripting no-op. The two-token lookahead
+                // (`NULL` then `;`) keeps it from stealing `NULL` from
+                // expressions like `RETURN NULL;` or `IF x IS NULL THEN`.
+                self.next_token();
+                Statement::Null
             } else {
                 self.parse_statement()?
             };
