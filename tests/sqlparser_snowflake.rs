@@ -6854,6 +6854,25 @@ fn test_create_file_format_temporary_with_comment() {
 }
 
 #[test]
+fn test_create_file_format_comment_between_options() {
+    // Snowflake accepts options in any order, including COMMENT before other
+    // options. COMMENT is hoisted into its own field; the rest stay in options.
+    let sql = "CREATE FILE FORMAT f TYPE = CSV COMMENT = 'c' COMPRESSION = 'GZIP'";
+    let canonical = "CREATE FILE FORMAT f TYPE=CSV COMPRESSION='GZIP' COMMENT='c'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateFileFormat {
+            options, comment, ..
+        } => {
+            assert_eq!(Some("CSV".to_string()), file_format_type(&options));
+            assert_eq!(2, options.options.len());
+            assert_eq!("COMPRESSION", options.options[1].option_name);
+            assert_eq!(Some("c".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_create_file_format_temp_synonym() {
     // TEMP is a synonym of TEMPORARY and canonicalizes to it. VOLATILE is kept
     // as its own flag (see test_create_file_format_volatile).
