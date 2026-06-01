@@ -2234,15 +2234,6 @@ fn parse_create_file_format(
         format_type = Some(parser.parse_identifier()?);
     }
 
-    let options = if like_source.is_some() {
-        KeyValueOptions {
-            options: vec![],
-            delimiter: KeyValueOptionsDelimiter::Space,
-        }
-    } else {
-        parser.parse_key_value_options(false, &[Keyword::COMMENT])?
-    };
-
     // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
     if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
         return parser.expected(
@@ -2251,11 +2242,36 @@ fn parse_create_file_format(
         );
     }
 
-    let comment = if parser.parse_keyword(Keyword::COMMENT) {
-        parser.expect_token(&Token::Eq)?;
-        Some(parser.parse_comment_value()?)
-    } else {
-        None
+    // `COMMENT` may appear anywhere among the options (Snowflake accepts any
+    // order, like CREATE TABLE / CREATE DATABASE), so it is parsed in the same
+    // loop rather than only as a trailing clause. It is hoisted into its own
+    // AST field; the remaining key-value options stay in `options`.
+    let mut comment = None;
+    let mut option_list: Vec<KeyValueOption> = Vec::new();
+    let mut delimiter = KeyValueOptionsDelimiter::Space;
+    if like_source.is_none() {
+        loop {
+            if parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_comment_value()?);
+                continue;
+            }
+            if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+                break;
+            }
+            let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT])?;
+            if parsed.options.is_empty() {
+                break;
+            }
+            if parsed.delimiter == KeyValueOptionsDelimiter::Comma {
+                delimiter = KeyValueOptionsDelimiter::Comma;
+            }
+            option_list.extend(parsed.options);
+        }
+    }
+    let options = KeyValueOptions {
+        options: option_list,
+        delimiter,
     };
 
     Ok(Statement::CreateFileFormat {
