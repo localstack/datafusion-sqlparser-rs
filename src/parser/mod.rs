@@ -5403,6 +5403,8 @@ impl<'a> Parser<'a> {
             self.parse_create_user(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
             self.parse_create_warehouse(or_replace)
+        } else if self.parse_keyword(Keyword::ACCOUNT) {
+            self.parse_create_account()
         } else if self.parse_keyword(Keyword::TASK) {
             self.parse_create_task(or_replace)
         } else if self.parse_keyword(Keyword::PROCEDURE) {
@@ -5494,6 +5496,31 @@ impl<'a> Parser<'a> {
             or_replace,
             if_not_exists,
             name,
+        })
+    }
+
+    fn parse_create_account(&mut self) -> Result<Statement, ParserError> {
+        let name = self.parse_identifier()?;
+        let mut options = Vec::new();
+        while let Token::Word(_) = self.peek_token_ref().token {
+            let name = self.parse_identifier()?;
+            self.expect_token(&Token::Eq)?;
+            let value = self.parse_expr()?;
+            options.push(AccountOption { name, value });
+        }
+        Ok(Statement::CreateAccount { name, options })
+    }
+
+    fn parse_drop_account(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_identifier()?;
+        self.expect_keyword(Keyword::GRACE_PERIOD_IN_DAYS)?;
+        self.expect_token(&Token::Eq)?;
+        let grace_period_in_days = self.parse_expr()?;
+        Ok(Statement::DropAccount {
+            if_exists,
+            name,
+            grace_period_in_days,
         })
     }
 
@@ -7699,6 +7726,8 @@ impl<'a> Parser<'a> {
             ObjectType::Stream
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
             ObjectType::Warehouse
+        } else if self.parse_keyword(Keyword::ACCOUNT) {
+            return self.parse_drop_account();
         } else if self.parse_keyword(Keyword::TASK) {
             ObjectType::Task
         } else if self.parse_keyword(Keyword::FUNCTION) {
@@ -11069,6 +11098,7 @@ impl<'a> Parser<'a> {
             Keyword::USER,
             Keyword::OPERATOR,
             Keyword::WAREHOUSE,
+            Keyword::ACCOUNT,
             Keyword::TASK,
         ])?;
         match object_type {
@@ -11119,10 +11149,11 @@ impl<'a> Parser<'a> {
             Keyword::CONNECTOR => self.parse_alter_connector(),
             Keyword::USER => self.parse_alter_user().map(Into::into),
             Keyword::WAREHOUSE => self.parse_alter_warehouse(),
+            Keyword::ACCOUNT => self.parse_alter_account(),
             Keyword::TASK => self.parse_alter_task(),
             // unreachable because expect_one_of_keywords used above
             unexpected_keyword => Err(ParserError::ParserError(
-                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, TASK}}, got {unexpected_keyword:?}"),
+                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, ACCOUNT, TASK}}, got {unexpected_keyword:?}"),
             )),
         }
     }
@@ -11407,6 +11438,41 @@ impl<'a> Parser<'a> {
             if_exists,
             operation,
         })
+    }
+
+    fn parse_alter_account(&mut self) -> Result<Statement, ParserError> {
+        // The name is optional — bare `ALTER ACCOUNT SET ...` targets the
+        // current account. SET and RENAME are the only operations, so their
+        // presence indicates no name was provided.
+        let starts_with_op = matches!(
+            self.peek_token().token,
+            Token::Word(ref w) if matches!(w.keyword, Keyword::SET | Keyword::RENAME)
+        );
+        let name = if starts_with_op {
+            None
+        } else {
+            Some(self.parse_identifier()?)
+        };
+
+        let operation = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+            let new_name = self.parse_identifier()?;
+            AlterAccountOperation::RenameTo { new_name }
+        } else if self.parse_keyword(Keyword::SET) {
+            let params = self.parse_comma_separated(|p| {
+                let name = p.parse_identifier()?;
+                p.expect_token(&Token::Eq)?;
+                let value = p.parse_expr()?;
+                Ok::<AccountOption, ParserError>(AccountOption { name, value })
+            })?;
+            AlterAccountOperation::Set { params }
+        } else {
+            return self.expected(
+                "SET or RENAME TO after ALTER ACCOUNT",
+                self.peek_token(),
+            );
+        };
+
+        Ok(Statement::AlterAccount { name, operation })
     }
 
     /// Parse `ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND }`.

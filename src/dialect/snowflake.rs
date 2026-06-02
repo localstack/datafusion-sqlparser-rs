@@ -430,6 +430,9 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::WAREHOUSES) {
                 return Some(parse_show_warehouses(parser));
             }
+            if parser.parse_keyword(Keyword::ACCOUNTS) {
+                return Some(parse_show_accounts(parser));
+            }
             let terse = parser.parse_keyword(Keyword::TERSE);
             if parser.parse_keyword(Keyword::OBJECTS) {
                 return Some(parse_show_objects(terse, parser));
@@ -2377,6 +2380,17 @@ fn parse_describe_warehouse(parser: &mut Parser) -> Result<Statement, ParserErro
 fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowWarehouses { filter })
+}
+
+/// Parse `SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']`
+fn parse_show_accounts(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let history = parser.parse_keyword(Keyword::HISTORY);
+    let like = if parser.parse_keyword(Keyword::LIKE) {
+        Some(parser.parse_literal_string()?)
+    } else {
+        None
+    };
+    Ok(Statement::ShowAccounts { history, like })
 }
 
 /// Parse `CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...`

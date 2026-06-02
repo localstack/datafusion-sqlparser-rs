@@ -6293,6 +6293,198 @@ fn test_alter_warehouse_set_multi_params() {
 }
 
 #[test]
+fn test_create_account() {
+    let sql = "CREATE ACCOUNT acc1 ADMIN_NAME = admin ADMIN_PASSWORD = 'secret' EMAIL = 'a@b.com' EDITION = STANDARD";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateAccount { name, options } => {
+            assert_eq!("acc1", name.to_string());
+            assert_eq!(4, options.len());
+            assert_eq!("ADMIN_NAME", options[0].name.to_string());
+            assert_eq!("admin", options[0].value.to_string());
+            assert_eq!("ADMIN_PASSWORD", options[1].name.to_string());
+            assert_eq!("'secret'", options[1].value.to_string());
+            assert_eq!("EMAIL", options[2].name.to_string());
+            assert_eq!("EDITION", options[3].name.to_string());
+            assert_eq!("STANDARD", options[3].value.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_account_full_options() {
+    let sql = "CREATE ACCOUNT acc1 ADMIN_NAME = admin ADMIN_PASSWORD = 'secret' \
+               FIRST_NAME = 'Jane' LAST_NAME = 'Doe' EMAIL = 'a@b.com' \
+               MUST_CHANGE_PASSWORD = true EDITION = BUSINESS_CRITICAL \
+               REGION = aws_us_west_2 REGION_GROUP = PUBLIC COMMENT = 'hi'";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateAccount { name, options } => {
+            assert_eq!("acc1", name.to_string());
+            assert_eq!(10, options.len());
+            assert_eq!("MUST_CHANGE_PASSWORD", options[5].name.to_string());
+            assert_eq!("true", options[5].value.to_string());
+            assert_eq!("EDITION", options[6].name.to_string());
+            assert_eq!("BUSINESS_CRITICAL", options[6].value.to_string());
+            assert_eq!("COMMENT", options[9].name.to_string());
+            assert_eq!("'hi'", options[9].value.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_set_named() {
+    let sql = "ALTER ACCOUNT acc1 SET STATEMENT_TIMEOUT_IN_SECONDS = 3600";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert_eq!("acc1", name.unwrap().to_string());
+            match operation {
+                AlterAccountOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("STATEMENT_TIMEOUT_IN_SECONDS", params[0].name.to_string());
+                    assert_eq!("3600", params[0].value.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_set_multi() {
+    let sql = "ALTER ACCOUNT acc1 SET STATEMENT_TIMEOUT_IN_SECONDS = 3600, TIMEZONE = 'UTC'";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { operation, .. } => match operation {
+            AlterAccountOperation::Set { params } => {
+                assert_eq!(2, params.len());
+                assert_eq!("TIMEZONE", params[1].name.to_string());
+                assert_eq!("'UTC'", params[1].value.to_string());
+            }
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_set_no_name() {
+    let sql = "ALTER ACCOUNT SET TIMEZONE = 'UTC'";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert!(name.is_none());
+            match operation {
+                AlterAccountOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("TIMEZONE", params[0].name.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_rename_to() {
+    let sql = "ALTER ACCOUNT acc1 RENAME TO acc2";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert_eq!("acc1", name.unwrap().to_string());
+            match operation {
+                AlterAccountOperation::RenameTo { new_name } => {
+                    assert_eq!("acc2", new_name.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_account() {
+    let sql = "DROP ACCOUNT acc1 GRACE_PERIOD_IN_DAYS = 7";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropAccount {
+            if_exists,
+            name,
+            grace_period_in_days,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("acc1", name.to_string());
+            assert_eq!("7", grace_period_in_days.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_account_if_exists() {
+    let sql = "DROP ACCOUNT IF EXISTS acc1 GRACE_PERIOD_IN_DAYS = 30";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropAccount {
+            if_exists,
+            name,
+            grace_period_in_days,
+        } => {
+            assert!(if_exists);
+            assert_eq!("acc1", name.to_string());
+            assert_eq!("30", grace_period_in_days.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts() {
+    let sql = "SHOW ACCOUNTS";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(!history);
+            assert!(like.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts_history() {
+    let sql = "SHOW ACCOUNTS HISTORY";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(history);
+            assert!(like.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts_like() {
+    let sql = "SHOW ACCOUNTS LIKE 'pat%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(!history);
+            assert_eq!("pat%", like.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts_history_like() {
+    let sql = "SHOW ACCOUNTS HISTORY LIKE 'pat%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(history);
+            assert_eq!("pat%", like.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_create_task_warehouse_schedule() {
     let sql = "CREATE TASK foo WAREHOUSE = wh SCHEDULE = '1 MINUTE' AS SELECT 1";
     match snowflake().verified_stmt(sql) {

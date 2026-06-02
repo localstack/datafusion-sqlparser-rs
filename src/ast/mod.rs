@@ -4780,6 +4780,54 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE ACCOUNT <name>
+    ///   ADMIN_NAME = <id> ADMIN_PASSWORD = '<pw>'
+    ///   [FIRST_NAME = …] [LAST_NAME = …] EMAIL = '<email>'
+    ///   [MUST_CHANGE_PASSWORD = <bool>]
+    ///   EDITION = { STANDARD | ENTERPRISE | BUSINESS_CRITICAL }
+    ///   [REGION = …] [REGION_GROUP = …] [COMMENT = '<text>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-account>
+    CreateAccount {
+        /// Account name.
+        name: Ident,
+        /// Raw `key = value` option pairs (`ADMIN_NAME`, `EDITION`, …) in source
+        /// order; not validated against the Snowflake property catalogue.
+        options: Vec<AccountOption>,
+    },
+    /// ```sql
+    /// ALTER ACCOUNT [<name>] <operation>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-account>
+    AlterAccount {
+        /// Optional account name (omitted to target the current account).
+        name: Option<Ident>,
+        /// The alter operation.
+        operation: AlterAccountOperation,
+    },
+    /// ```sql
+    /// DROP ACCOUNT [IF EXISTS] <name> GRACE_PERIOD_IN_DAYS = <int>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/drop-account>
+    DropAccount {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Account name.
+        name: Ident,
+        /// `GRACE_PERIOD_IN_DAYS = <int>` value.
+        grace_period_in_days: Expr,
+    },
+    /// ```sql
+    /// SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-accounts>
+    ShowAccounts {
+        /// `HISTORY` flag.
+        history: bool,
+        /// Optional `LIKE` pattern.
+        like: Option<String>,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>
     ///   [WAREHOUSE = <ident>]
     ///   [SCHEDULE = '<string>']
@@ -6799,6 +6847,41 @@ impl fmt::Display for Statement {
                 write!(f, "SHOW WAREHOUSES")?;
                 if let Some(filter) = filter {
                     write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateAccount { name, options } => {
+                write!(f, "CREATE ACCOUNT {name}")?;
+                for option in options {
+                    write!(f, " {option}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterAccount { name, operation } => {
+                write!(f, "ALTER ACCOUNT")?;
+                if let Some(name) = name {
+                    write!(f, " {name}")?;
+                }
+                write!(f, " {operation}")
+            }
+            Statement::DropAccount {
+                if_exists,
+                name,
+                grace_period_in_days,
+            } => {
+                write!(f, "DROP ACCOUNT ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name} GRACE_PERIOD_IN_DAYS = {grace_period_in_days}")
+            }
+            Statement::ShowAccounts { history, like } => {
+                write!(f, "SHOW ACCOUNTS")?;
+                if *history {
+                    write!(f, " HISTORY")?;
+                }
+                if let Some(like) = like {
+                    write!(f, " LIKE '{}'", value::escape_single_quote_string(like))?;
                 }
                 Ok(())
             }
@@ -12116,6 +12199,63 @@ impl fmt::Display for AlterWarehouseOperation {
                 write!(f, "RENAME TO {new_name}")
             }
             AlterWarehouseOperation::AbortAllQueries => write!(f, "ABORT ALL QUERIES"),
+        }
+    }
+}
+
+/// A `<key> = <value>` pair inside `CREATE ACCOUNT` or `ALTER ACCOUNT … SET …`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AccountOption {
+    /// Property name (e.g. `ADMIN_NAME`, `EDITION`).
+    pub name: Ident,
+    /// Property value expression (e.g. `'secret'`, `STANDARD`, `TRUE`).
+    pub value: Expr,
+}
+
+impl fmt::Display for AccountOption {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", self.name, self.value)
+    }
+}
+
+/// Operations for `ALTER ACCOUNT`.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-account>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterAccountOperation {
+    /// `SET <param> = <value> [, ...]`
+    Set {
+        /// Raw `key = value` pairs; not validated against the Snowflake property
+        /// catalogue because the executor doesn't read them.
+        params: Vec<AccountOption>,
+    },
+    /// `RENAME TO <new_name>`
+    RenameTo {
+        /// New account name.
+        new_name: Ident,
+    },
+}
+
+impl fmt::Display for AlterAccountOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterAccountOperation::Set { params } => {
+                write!(f, "SET ")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                Ok(())
+            }
+            AlterAccountOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
         }
     }
 }
