@@ -2790,32 +2790,57 @@ impl fmt::Display for WhileStatement {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ForStatement {
-    /// Loop counter variable.
+    /// Loop counter (range form) or row variable (cursor form).
     pub var: Ident,
-    /// `true` when the loop iterates from `end` down to `start`.
-    pub reverse: bool,
-    /// Inclusive lower bound (or upper bound when `reverse`).
-    pub start: Expr,
-    /// Inclusive upper bound (or lower bound when `reverse`).
-    pub end: Expr,
+    /// What the loop iterates over.
+    pub iteration: ForIterationSource,
     /// Loop body statements.
     pub body: ConditionalStatements,
+}
+
+/// The thing a [`ForStatement`] iterates over.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ForIterationSource {
+    /// Numeric range: `[REVERSE] <start> TO <end>`.
+    Range {
+        /// `true` when the loop iterates from `end` down to `start`.
+        reverse: bool,
+        /// Inclusive lower bound (or upper bound when `reverse`).
+        start: Expr,
+        /// Inclusive upper bound (or lower bound when `reverse`).
+        end: Expr,
+    },
+    /// Iterate over a cursor or query result set: `FOR row IN cursor DO`.
+    ///
+    /// [Snowflake](https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors)
+    Cursor(Expr),
 }
 
 impl fmt::Display for ForStatement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let ForStatement {
             var,
-            reverse,
-            start,
-            end,
+            iteration,
             body,
         } = self;
         write!(f, "FOR {var} IN ")?;
-        if *reverse {
-            write!(f, "REVERSE ")?;
+        match iteration {
+            ForIterationSource::Range {
+                reverse,
+                start,
+                end,
+            } => {
+                if *reverse {
+                    write!(f, "REVERSE ")?;
+                }
+                write!(f, "{start} TO {end} DO")?;
+            }
+            ForIterationSource::Cursor(source) => {
+                write!(f, "{source} DO")?;
+            }
         }
-        write!(f, "{start} TO {end} DO")?;
         if !body.statements().is_empty() {
             write!(f, " {body}")?;
         }

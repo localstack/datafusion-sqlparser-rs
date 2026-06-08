@@ -425,6 +425,13 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports the cursor-iteration `FOR` loop
+    /// (`FOR <row> IN <cursor> DO ... END FOR`) in addition to the numeric
+    /// range form.
+    fn supports_for_loop_over_cursor(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the MATCH_RECOGNIZE operation.
     fn supports_match_recognize(&self) -> bool {
         false

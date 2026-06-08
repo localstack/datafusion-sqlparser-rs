@@ -873,18 +873,28 @@ impl<'a> Parser<'a> {
         let var = self.parse_identifier()?;
         self.expect_keyword_is(Keyword::IN)?;
         let reverse = self.parse_keyword(Keyword::REVERSE);
-        let start = self.parse_expr()?;
-        self.expect_keyword_is(Keyword::TO)?;
-        let end = self.parse_expr()?;
+        let expr = self.parse_expr()?;
+        let iteration = if !reverse
+            && self.dialect.supports_for_loop_over_cursor()
+            && !self.peek_keyword(Keyword::TO)
+        {
+            ForIterationSource::Cursor(expr)
+        } else {
+            self.expect_keyword_is(Keyword::TO)?;
+            let end = self.parse_expr()?;
+            ForIterationSource::Range {
+                reverse,
+                start: expr,
+                end,
+            }
+        };
         self.expect_keyword_is(Keyword::DO)?;
         let body = self.parse_scripting_conditional_statements(&[Keyword::END])?;
         self.expect_keyword_is(Keyword::END)?;
         self.expect_keyword_is(Keyword::FOR)?;
         Ok(ForStatement {
             var,
-            reverse,
-            start,
-            end,
+            iteration,
             body,
         })
     }

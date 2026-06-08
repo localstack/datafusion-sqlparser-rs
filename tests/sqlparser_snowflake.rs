@@ -6751,9 +6751,10 @@ fn test_while_loop_end_loop() {
 fn test_for_to_end_for() {
     let sql = "FOR counter IN 1 TO 10 DO RETURN 1; END FOR";
     match snowflake().verified_stmt(sql) {
-        Statement::For(ForStatement { reverse, .. }) => {
-            assert!(!reverse);
-        }
+        Statement::For(ForStatement { iteration, .. }) => match iteration {
+            ForIterationSource::Range { reverse, .. } => assert!(!reverse),
+            other => panic!("expected Range, got {other:?}"),
+        },
         _ => unreachable!(),
     }
 }
@@ -6762,11 +6763,41 @@ fn test_for_to_end_for() {
 fn test_for_reverse_to_end_for() {
     let sql = "FOR counter IN REVERSE 1 TO 10 DO RETURN 1; END FOR";
     match snowflake().verified_stmt(sql) {
-        Statement::For(ForStatement { reverse, .. }) => {
-            assert!(reverse);
+        Statement::For(ForStatement { iteration, .. }) => match iteration {
+            ForIterationSource::Range { reverse, .. } => assert!(reverse),
+            other => panic!("expected Range, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_in_cursor_end_for() {
+    let sql = "FOR rec IN cur DO RETURN rec.price; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement {
+            var, iteration, ..
+        }) => {
+            assert_eq!(var.value, "rec");
+            match iteration {
+                ForIterationSource::Cursor(source) => {
+                    assert_eq!(source, Expr::Identifier(Ident::new("cur")));
+                }
+                other => panic!("expected Cursor, got {other:?}"),
+            }
         }
         _ => unreachable!(),
     }
+}
+
+#[test]
+fn test_for_in_cursor_not_supported_in_other_dialects() {
+    let sql = "FOR rec IN cur DO RETURN 1; END FOR";
+    let res = TestedDialects::new(vec![Box::new(GenericDialect {})]).parse_sql_statements(sql);
+    assert_eq!(
+        res.unwrap_err(),
+        ParserError::ParserError("Expected: TO, found: DO".to_string())
+    );
 }
 
 #[test]
