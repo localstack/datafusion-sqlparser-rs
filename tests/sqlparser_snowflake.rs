@@ -5446,6 +5446,136 @@ END $$"#;
     );
 }
 
+/// `LET res RESULTSET := (<query>)` routes into the same `Declare` shape as
+/// `DECLARE res RESULTSET := (<query>)`.
+#[test]
+fn test_scripting_let_resultset() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET res RESULTSET := (SELECT id FROM invoices);
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET RESULTSET should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[0] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.names[0].value, "res");
+    assert_eq!(decl.declare_type, Some(DeclareType::ResultSet));
+    assert!(
+        matches!(decl.assignment, Some(DeclareAssignment::DuckAssignment(_))),
+        "expected RESULTSET := query assignment, got {:?}",
+        decl.assignment
+    );
+}
+
+/// `LET cur CURSOR FOR (<query>)` routes into the same `Declare` shape as
+/// `DECLARE cur CURSOR FOR (<query>)`.
+#[test]
+fn test_scripting_let_cursor_for_query() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET cur CURSOR FOR (SELECT id FROM invoices);
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET CURSOR FOR query should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[0] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.names[0].value, "cur");
+    assert_eq!(decl.declare_type, Some(DeclareType::Cursor));
+    assert!(
+        matches!(decl.assignment, Some(DeclareAssignment::For(_))),
+        "expected CURSOR FOR assignment, got {:?}",
+        decl.assignment
+    );
+}
+
+/// `LET cur CURSOR FOR <resultset_name>` routes into the same `Declare` shape
+/// as `DECLARE cur CURSOR FOR res`.
+#[test]
+fn test_scripting_let_cursor_for_resultset_name() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET res RESULTSET := (SELECT id FROM invoices);
+  LET cur CURSOR FOR res;
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET CURSOR FOR resultset name should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[1] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.names[0].value, "cur");
+    assert_eq!(decl.declare_type, Some(DeclareType::Cursor));
+    match &decl.assignment {
+        Some(DeclareAssignment::For(expr)) => {
+            assert_eq!(expr.to_string(), "res");
+        }
+        other => panic!("expected CURSOR FOR res assignment, got {other:?}"),
+    }
+}
+
+/// The scalar `LET x [type] := expr` form must remain a `Statement::Let`.
+#[test]
+fn test_scripting_let_scalar_unaffected() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS INT LANGUAGE SQL AS $$
+BEGIN
+  LET x INT := 42;
+  RETURN x;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("scalar LET should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Let { name, data_type: Some(_), .. } if name.value == "x"
+        ),
+        "expected scalar Let, got {:?}",
+        begin_stmts[0]
+    );
+}
+
 #[test]
 fn test_create_external_volume_basic() {
     let sql = concat!(
