@@ -23,6 +23,8 @@ use crate::{
     },
     tokenizer::TokenWithSpan,
 };
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use core::iter;
 
 use crate::tokenizer::Span;
@@ -35,6 +37,7 @@ use super::{
     ConflictTarget, ConnectByKind, ConstraintCharacteristics, CopySource, CreateIndex, CreateTable,
     CreateTableOptions, Cte, Delete, DoUpdate, ExceptSelectItem, ExcludeConstraintElement,
     ExcludeSelectItem, Expr, ExprWithAlias, Fetch, ForStatement, ForValues, FromTable, Function,
+    ForIterationSource,
     FunctionArg, FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments,
     GroupByExpr, HavingBound, IfStatement, IlikeSelectItem, IndexColumn, Insert, Interpolate,
     InterpolateExpr, Join, JoinConstraint, JoinOperator, JsonPath, JsonPathElem, LateralView,
@@ -48,7 +51,6 @@ use super::{
     Statement, Subscript, SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint,
     TableFactor, TableObject, TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind,
     Use, Values, ViewColumnDef, WhileStatement, WildcardAdditionalOptions, With, WithFill,
-    ForIterationSource,
 };
 
 /// Given an iterator of spans, return the [Span::union] of all spans.
@@ -467,6 +469,7 @@ impl Spanned for Statement {
             Statement::CreateStage { .. } => Span::empty(),
             Statement::CreateFileFormat { .. } => Span::empty(),
             Statement::CreateWarehouse(..) => Span::empty(),
+            Statement::AlterStage { .. } => Span::empty(),
             Statement::Assert { .. } => Span::empty(),
             Statement::Grant { .. } => Span::empty(),
             Statement::Deny { .. } => Span::empty(),
