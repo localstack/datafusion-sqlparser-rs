@@ -50,6 +50,7 @@ use super::{
     TableObject, TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind, Use, Values,
     ViewColumnDef, WhileStatement, WildcardAdditionalOptions, With, WithFill,
     ForStatement, LoopControlStatement, LoopStatement, RepeatStatement,
+    ForIterationSource,
 };
 
 /// Given an iterator of spans, return the [Span::union] of all spans.
@@ -859,16 +860,18 @@ impl Spanned for ForStatement {
     fn span(&self) -> Span {
         let ForStatement {
             var,
-            reverse: _,
-            start,
-            end,
+            iteration,
             body,
         } = self;
-        union_spans(
-            [var.span, start.span(), end.span(), body.span()]
-                .into_iter()
-                .filter(|s| s != &Span::empty()),
-        )
+        let mut spans = vec![var.span, body.span()];
+        match iteration {
+            ForIterationSource::Range { start, end, .. } => {
+                spans.push(start.span());
+                spans.push(end.span());
+            }
+            ForIterationSource::Cursor(source) => spans.push(source.span()),
+        }
+        union_spans(spans.into_iter().filter(|s| s != &Span::empty()))
     }
 }
 
