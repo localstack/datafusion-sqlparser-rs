@@ -667,6 +667,7 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::CLOSE => self.parse_close(),
                 Keyword::SET => self.parse_set(),
+                Keyword::UNSET if dialect_of!(self is SnowflakeDialect) => self.parse_unset(),
                 Keyword::SHOW => self.parse_show(),
                 Keyword::USE => self.parse_use(),
                 Keyword::GRANT => self.parse_grant().map(Into::into),
@@ -15738,6 +15739,20 @@ impl<'a> Parser<'a> {
         let value = self.parse_expr()?;
 
         Ok(SetAssignment { scope, name, value })
+    }
+
+    /// Parse a Snowflake top-level `UNSET v` / `UNSET (v1, v2)` statement.
+    fn parse_unset(&mut self) -> Result<Statement, ParserError> {
+        let names = if self.consume_token(&Token::LParen) {
+            let names = self.parse_comma_separated(|parser: &mut Parser<'a>| {
+                Ok(ObjectName::from(vec![parser.parse_identifier()?]))
+            })?;
+            self.expect_token(&Token::RParen)?;
+            names
+        } else {
+            vec![self.parse_object_name(false)?]
+        };
+        Ok(Statement::Unset { names })
     }
 
     fn parse_set(&mut self) -> Result<Statement, ParserError> {
