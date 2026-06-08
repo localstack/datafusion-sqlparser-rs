@@ -4766,6 +4766,18 @@ pub enum Statement {
         comment: Option<String>,
     },
     /// ```sql
+    /// ALTER STAGE [IF EXISTS] <name> { SET ... | RENAME TO <new_name> }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-stage>
+    AlterStage {
+        /// Stage name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The alter operation.
+        operation: AlterStageOperation,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] WAREHOUSE [IF NOT EXISTS] <name>
     /// ```
     CreateWarehouse {
@@ -6838,6 +6850,17 @@ impl fmt::Display for Statement {
                     write!(f, " COMMENT='{}'", comment.as_ref().unwrap())?;
                 }
                 Ok(())
+            }
+            Statement::AlterStage {
+                name,
+                if_exists,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER STAGE {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
             }
             Statement::CreateWarehouse {
                 or_replace,
@@ -12133,6 +12156,61 @@ impl fmt::Display for AlterFileFormatOperation {
                     names.push("COMMENT".to_string());
                 }
                 write!(f, "{}", names.join(", "))
+            }
+        }
+    }
+}
+
+/// Operations for `ALTER STAGE`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterStageOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo(ObjectName),
+    /// `SET <stage-params/options>` — the same property groups as `CREATE STAGE`.
+    Set {
+        /// Internal/external stage parameters (URL, STORAGE_INTEGRATION,
+        /// CREDENTIALS, ENCRYPTION, ENDPOINT).
+        stage_params: StageParamsObject,
+        /// Directory table parameters (`DIRECTORY = (...)`).
+        directory_table_params: KeyValueOptions,
+        /// File format options (`FILE_FORMAT = (...)`).
+        file_format: KeyValueOptions,
+        /// Copy options (`COPY_OPTIONS = (...)`).
+        copy_options: KeyValueOptions,
+        /// Optional `COMMENT` value.
+        comment: Option<String>,
+    },
+}
+
+impl fmt::Display for AlterStageOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterStageOperation::RenameTo(name) => {
+                write!(f, "RENAME TO {name}")
+            }
+            AlterStageOperation::Set {
+                stage_params,
+                directory_table_params,
+                file_format,
+                copy_options,
+                comment,
+            } => {
+                write!(f, "SET{stage_params}")?;
+                if !directory_table_params.options.is_empty() {
+                    write!(f, " DIRECTORY=({directory_table_params})")?;
+                }
+                if !file_format.options.is_empty() {
+                    write!(f, " FILE_FORMAT=({file_format})")?;
+                }
+                if !copy_options.options.is_empty() {
+                    write!(f, " COPY_OPTIONS=({copy_options})")?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT='{comment}'")?;
+                }
+                Ok(())
             }
         }
     }

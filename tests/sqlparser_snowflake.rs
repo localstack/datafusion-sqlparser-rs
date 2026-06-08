@@ -7444,6 +7444,152 @@ fn test_alter_file_format_unset_no_options_rejected() {
 }
 
 #[test]
+fn test_alter_stage_rename() {
+    match snowflake().verified_stmt("ALTER STAGE s RENAME TO t") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("s", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::RenameTo(target) => {
+                    assert_eq!("t", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_rename_if_exists_cross_schema() {
+    match snowflake().verified_stmt("ALTER STAGE IF EXISTS db.sch.s RENAME TO db.sch.t") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("db.sch.s", name.to_string());
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::RenameTo(target) => {
+                    assert_eq!("db.sch.t", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_set_stage_params() {
+    let sql = concat!(
+        "ALTER STAGE my_ext_stage SET ",
+        "URL='s3://load/files/' ",
+        "STORAGE_INTEGRATION=myint ",
+        "CREDENTIALS=(AWS_KEY_ID='1a2b3c' AWS_SECRET_KEY='4x5y6z') ",
+        "ENCRYPTION=(MASTER_KEY='key' TYPE='AWS_SSE_KMS')"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("my_ext_stage", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::Set {
+                    stage_params,
+                    comment,
+                    ..
+                } => {
+                    assert_eq!("s3://load/files/", stage_params.url.unwrap());
+                    assert_eq!("myint", stage_params.storage_integration.unwrap());
+                    assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                        option_name: "AWS_KEY_ID".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString("1a2b3c".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                        option_name: "TYPE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString("AWS_SSE_KMS".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(comment.is_none());
+                }
+                other => panic!("expected Set, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_set_file_format_copy_options_comment() {
+    let sql = concat!(
+        "ALTER STAGE IF EXISTS my_stage SET ",
+        "DIRECTORY=(ENABLE=true) ",
+        "FILE_FORMAT=(TYPE=CSV) ",
+        "COPY_OPTIONS=(ON_ERROR=CONTINUE) ",
+        "COMMENT='updated'"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterStage {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::Set {
+                    directory_table_params,
+                    file_format,
+                    copy_options,
+                    comment,
+                    ..
+                } => {
+                    assert!(directory_table_params.options.contains(&KeyValueOption {
+                        option_name: "ENABLE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Boolean(true).with_empty_span()
+                        ),
+                    }));
+                    assert!(file_format.options.contains(&KeyValueOption {
+                        option_name: "TYPE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("CSV".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(copy_options.options.contains(&KeyValueOption {
+                        option_name: "ON_ERROR".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("CONTINUE".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert_eq!(Some("updated".to_string()), comment);
+                }
+                other => panic!("expected Set, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_invalid_operation_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER STAGE s UNSET COMMENT")
+        .expect_err("ALTER STAGE only supports SET and RENAME TO");
+}
+
+#[test]
 fn test_drop_file_format() {
     match snowflake().verified_stmt("DROP FILE FORMAT f") {
         Statement::DropFileFormat { name, if_exists } => {

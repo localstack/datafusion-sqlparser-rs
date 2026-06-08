@@ -27,8 +27,8 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterTable, AlterTableOperation,
-    AlterTableType,
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStageOperation, AlterTable,
+    AlterTableOperation, AlterTableType,
     CatalogRestAuthentication, CatalogRestConfig, CatalogSource, CatalogSyncNamespaceMode,
     CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty, ContactEntry,
     CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
@@ -287,6 +287,11 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
             // ALTER FILE FORMAT
             return Some(parse_alter_file_format(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
+            // ALTER STAGE
+            return Some(parse_alter_stage(parser));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
@@ -1285,13 +1290,49 @@ pub fn parse_create_stage(
     //[ IF NOT EXISTS ]
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+
+    let StageProperties {
+        stage_params,
+        directory_table_params,
+        file_format,
+        copy_options,
+        comment,
+    } = parse_stage_properties(parser)?;
+
+    Ok(Statement::CreateStage {
+        or_replace,
+        temporary,
+        if_not_exists,
+        name,
+        stage_params,
+        directory_table_params,
+        file_format,
+        copy_options,
+        comment,
+    })
+}
+
+/// The shared property groups parsed by both `CREATE STAGE` and
+/// `ALTER STAGE ... SET`.
+struct StageProperties {
+    stage_params: StageParamsObject,
+    directory_table_params: KeyValueOptions,
+    file_format: KeyValueOptions,
+    copy_options: KeyValueOptions,
+    comment: Option<String>,
+}
+
+/// Parse the stage property groups (`internalStageParams`/`externalStageParams`,
+/// `DIRECTORY`, `FILE_FORMAT`, `COPY_OPTIONS`, `COMMENT`) shared by
+/// `CREATE STAGE` and `ALTER STAGE ... SET`.
+fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, ParserError> {
+    // [ internalStageParams | externalStageParams ]
+    let stage_params = parse_stage_params(parser)?;
+
     let mut directory_table_params = Vec::new();
     let mut file_format = Vec::new();
     let mut copy_options = Vec::new();
     let mut comment = None;
-
-    // [ internalStageParams | externalStageParams ]
-    let stage_params = parse_stage_params(parser)?;
 
     // [ directoryTableParams ]
     if parser.parse_keyword(Keyword::DIRECTORY) {
@@ -1317,11 +1358,7 @@ pub fn parse_create_stage(
         comment = Some(parser.parse_comment_value()?);
     }
 
-    Ok(Statement::CreateStage {
-        or_replace,
-        temporary,
-        if_not_exists,
-        name,
+    Ok(StageProperties {
         stage_params,
         directory_table_params: KeyValueOptions {
             options: directory_table_params,
@@ -1336,6 +1373,42 @@ pub fn parse_create_stage(
             delimiter: KeyValueOptionsDelimiter::Space,
         },
         comment,
+    })
+}
+
+/// Parse `ALTER STAGE [IF EXISTS] <name> { SET ... | RENAME TO <new_name> }`
+fn parse_alter_stage(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterStageOperation::RenameTo(parser.parse_object_name(false)?)
+    } else if parser.parse_keyword(Keyword::SET) {
+        let StageProperties {
+            stage_params,
+            directory_table_params,
+            file_format,
+            copy_options,
+            comment,
+        } = parse_stage_properties(parser)?;
+        AlterStageOperation::Set {
+            stage_params,
+            directory_table_params,
+            file_format,
+            copy_options,
+            comment,
+        }
+    } else {
+        return parser.expected(
+            "SET or RENAME TO after ALTER STAGE <name>",
+            parser.peek_token(),
+        );
+    };
+
+    Ok(Statement::AlterStage {
+        name,
+        if_exists,
+        operation,
     })
 }
 
