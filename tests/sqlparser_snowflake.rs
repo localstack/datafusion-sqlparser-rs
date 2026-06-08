@@ -1916,6 +1916,59 @@ fn parse_snowflake_declare_result_set() {
 }
 
 #[test]
+fn parse_snowflake_declare_show_payload() {
+    fn payload_show(stmt: Statement) -> Statement {
+        match stmt {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare {
+                    assignment,
+                    for_query,
+                    ..
+                } = stmts.swap_remove(0);
+                let query = match (assignment, for_query) {
+                    (Some(DeclareAssignment::Default(expr)), None)
+                    | (Some(DeclareAssignment::DuckAssignment(expr)), None)
+                    | (Some(DeclareAssignment::For(expr)), None) => match *expr {
+                        Expr::Subquery(query) => query,
+                        other => panic!("expected subquery payload, got {other:?}"),
+                    },
+                    other => panic!("unexpected declaration payload: {other:?}"),
+                };
+                match *query.body {
+                    SetExpr::Show(show) => show,
+                    other => panic!("expected SHOW body, got {other:?}"),
+                }
+            }
+            other => panic!("expected DECLARE, got {other:?}"),
+        }
+    }
+
+    for sql in [
+        "DECLARE res RESULTSET DEFAULT (SHOW TASKS)",
+        "DECLARE res RESULTSET := (SHOW TASKS LIKE 'foo%')",
+        "DECLARE cur CURSOR FOR (SHOW TASKS)",
+    ] {
+        let stmt = snowflake().verified_stmt(sql);
+        // The parsed SHOW must be recoverable from the declaration AST.
+        assert!(matches!(payload_show(stmt), Statement::ShowTasks { .. }));
+    }
+
+    // The pre-existing parenthesized-SELECT payload is unaffected.
+    snowflake().verified_stmt("DECLARE res RESULTSET DEFAULT (SELECT price FROM invoices)");
+    snowflake().verified_stmt("DECLARE cur CURSOR FOR (SELECT id FROM invoices)");
+
+    // Under a non-Snowflake dialect the SHOW payload still errors.
+    let generic = TestedDialects::new(vec![Box::new(GenericDialect {})]);
+    for sql in [
+        "DECLARE res RESULTSET DEFAULT (SHOW TASKS)",
+        "DECLARE cur CURSOR FOR (SHOW TASKS)",
+    ] {
+        assert!(generic.parse_sql_statements(sql).is_err());
+    }
+}
+
+#[test]
 fn parse_snowflake_declare_exception() {
     for (sql, expected_name, expected_assigned_expr) in [
         (

@@ -177,6 +177,9 @@ pub enum SetExpr {
     Merge(Statement),
     /// `TABLE` command
     Table(Box<Table>),
+    /// `SHOW` statement used as the query payload of a Snowflake `RESULTSET` or
+    /// `CURSOR` declaration (`RESULTSET DEFAULT (SHOW ...)`, `CURSOR FOR (SHOW ...)`).
+    Show(Statement),
 }
 
 impl SetExpr {
@@ -205,6 +208,7 @@ impl fmt::Display for SetExpr {
             SetExpr::Delete(v) => v.fmt(f),
             SetExpr::Merge(v) => v.fmt(f),
             SetExpr::Table(t) => t.fmt(f),
+            SetExpr::Show(v) => v.fmt(f),
             SetExpr::SetOperation {
                 left,
                 right,

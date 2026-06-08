@@ -432,6 +432,13 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect accepts a parenthesized `SHOW` statement as
+    /// the query payload of a `RESULTSET` or `CURSOR` declaration
+    /// (`res RESULTSET DEFAULT (SHOW ...)`, `cur CURSOR FOR (SHOW ...)`).
+    fn supports_show_in_resultset_cursor(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the MATCH_RECOGNIZE operation.
     fn supports_match_recognize(&self) -> bool {
         false

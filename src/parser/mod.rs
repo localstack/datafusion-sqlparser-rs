@@ -8094,7 +8094,9 @@ impl<'a> Parser<'a> {
                         _ => (
                             Some(DeclareType::Cursor),
                             None,
-                            Some(DeclareAssignment::For(Box::new(self.parse_expr()?))),
+                            Some(DeclareAssignment::For(Box::new(
+                                self.parse_snowflake_declaration_payload_expr()?,
+                            ))),
                             None,
                         ),
                     }
@@ -8275,16 +8277,52 @@ impl<'a> Parser<'a> {
         Ok(match &self.peek_token_ref().token {
             Token::Word(w) if w.keyword == Keyword::DEFAULT => {
                 self.next_token(); // Skip `DEFAULT`
-                Some(DeclareAssignment::Default(Box::new(self.parse_expr()?)))
+                Some(DeclareAssignment::Default(Box::new(
+                    self.parse_snowflake_declaration_payload_expr()?,
+                )))
             }
             Token::Assignment => {
                 self.next_token(); // Skip `:=`
                 Some(DeclareAssignment::DuckAssignment(Box::new(
-                    self.parse_expr()?,
+                    self.parse_snowflake_declaration_payload_expr()?,
                 )))
             }
             _ => None,
         })
+    }
+
+    /// Parses the expression payload of a Snowflake `RESULTSET` / `CURSOR`
+    /// declaration. Identical to [`Parser::parse_expr`] except that, under a
+    /// dialect that allows it, a parenthesized `SHOW` statement is accepted as
+    /// the query payload and wrapped as an [`Expr::Subquery`] whose body is a
+    /// [`SetExpr::Show`]. The pre-existing `(SELECT ...)` subquery path is left
+    /// untouched.
+    fn parse_snowflake_declaration_payload_expr(&mut self) -> Result<Expr, ParserError> {
+        let is_paren_show = self.dialect.supports_show_in_resultset_cursor()
+            && self.peek_nth_token_ref(0).token == Token::LParen
+            && matches!(
+                &self.peek_nth_token_ref(1).token,
+                Token::Word(w) if w.keyword == Keyword::SHOW
+            );
+        if !is_paren_show {
+            return self.parse_expr();
+        }
+        self.expect_token(&Token::LParen)?;
+        self.expect_keyword_is(Keyword::SHOW)?;
+        let show = self.parse_show()?;
+        self.expect_token(&Token::RParen)?;
+        Ok(Expr::Subquery(Box::new(Query {
+            with: None,
+            body: Box::new(SetExpr::Show(show)),
+            order_by: None,
+            limit_clause: None,
+            fetch: None,
+            locks: vec![],
+            for_clause: None,
+            settings: None,
+            format_clause: None,
+            pipe_operators: vec![],
+        })))
     }
 
     /// Parses the assigned expression in a variable declaration.

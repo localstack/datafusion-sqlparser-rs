@@ -195,6 +195,11 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
+    fn supports_show_in_resultset_cursor(&self) -> bool {
+        true
+    }
+
     fn supports_match_recognize(&self) -> bool {
         true
     }
