@@ -10017,6 +10017,8 @@ pub enum DescribeObjectType {
     Schema,
     /// `TASK`
     Task,
+    /// `STAGE`
+    Stage,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -10027,6 +10029,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Database => "DATABASE",
             DescribeObjectType::Schema => "SCHEMA",
             DescribeObjectType::Task => "TASK",
+            DescribeObjectType::Stage => "STAGE",
         })
     }
 }
