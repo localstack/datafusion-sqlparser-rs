@@ -440,6 +440,7 @@ impl Spanned for Statement {
             Statement::Flush { .. } => Span::empty(),
             Statement::Discard { .. } => Span::empty(),
             Statement::Set(_) => Span::empty(),
+            Statement::Unset { .. } => Span::empty(),
             Statement::ShowFunctions { .. } => Span::empty(),
             Statement::ShowVariable { .. } => Span::empty(),
             Statement::ShowStatus { .. } => Span::empty(),

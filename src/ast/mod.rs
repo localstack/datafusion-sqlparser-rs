@@ -3797,6 +3797,16 @@ pub enum Statement {
     Analyze(Analyze),
     /// `SET` statements (session, transaction, timezone, etc.).
     Set(Set),
+    /// Snowflake `UNSET` of one or more session variables.
+    ///
+    /// ```sql
+    /// UNSET v
+    /// UNSET (v1, v2)
+    /// ```
+    Unset {
+        /// Session variable names to remove.
+        names: Vec<ObjectName>,
+    },
     /// ```sql
     /// TRUNCATE
     /// ```
@@ -6389,6 +6399,13 @@ impl fmt::Display for Statement {
                 Ok(())
             }
             Self::Set(set) => write!(f, "{set}"),
+            Statement::Unset { names } => {
+                if names.len() == 1 {
+                    write!(f, "UNSET {}", names[0])
+                } else {
+                    write!(f, "UNSET ({})", display_comma_separated(names))
+                }
+            }
             Statement::ShowVariable { variable } => {
                 write!(f, "SHOW")?;
                 if !variable.is_empty() {
