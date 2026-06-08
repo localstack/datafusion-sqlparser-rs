@@ -23,6 +23,8 @@ use crate::{
     },
     tokenizer::TokenWithSpan,
 };
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use core::iter;
 
 use crate::tokenizer::Span;
@@ -35,20 +37,19 @@ use super::{
     ConflictTarget, ConnectByKind, ConstraintCharacteristics, CopySource, CreateIndex, CreateTable,
     CreateTableOptions, Cte, Delete, DoUpdate, ExceptSelectItem, ExcludeSelectItem, Expr,
     ExprWithAlias, Fetch, ForIterationSource, ForStatement, ForValues, FromTable, Function,
-    FunctionArg,
-    FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments, GroupByExpr,
-    HavingBound, IfStatement, IlikeSelectItem, IndexColumn, Insert, Interpolate, InterpolateExpr,
-    Join, JoinConstraint, JoinOperator, JsonPath, JsonPathElem, LateralView, LimitClause,
-    LoopControlStatement, LoopStatement, MatchRecognizePattern, Measure, Merge, MergeAction,
-    MergeClause, MergeInsertExpr, MergeInsertKind, MergeUpdateExpr, NamedParenthesizedList,
-    NamedWindowDefinition, ObjectName, ObjectNamePart, Offset, OnConflict, OnConflictAction,
-    OnInsert, OpenStatement, OrderBy, OrderByExpr, OrderByKind, OutputClause, Parens, Partition,
-    PartitionBoundValue, PivotValueSource, ProjectionSelect, Query, RaiseStatement,
-    RaiseStatementValue, ReferentialAction, RenameSelectItem, RepeatStatement, ReplaceSelectElement,
-    ReplaceSelectItem, Select, SelectInto, SelectItem, SetExpr, SqlOption, Statement, Subscript,
-    SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint, TableFactor, TableObject,
-    TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind, Use, Values, ViewColumnDef,
-    WhileStatement, WildcardAdditionalOptions, With, WithFill,
+    FunctionArg, FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments,
+    GroupByExpr, HavingBound, IfStatement, IlikeSelectItem, IndexColumn, Insert, Interpolate,
+    InterpolateExpr, Join, JoinConstraint, JoinOperator, JsonPath, JsonPathElem, LateralView,
+    LimitClause, LoopControlStatement, LoopStatement, MatchRecognizePattern, Measure, Merge,
+    MergeAction, MergeClause, MergeInsertExpr, MergeInsertKind, MergeUpdateExpr,
+    NamedParenthesizedList, NamedWindowDefinition, ObjectName, ObjectNamePart, Offset, OnConflict,
+    OnConflictAction, OnInsert, OpenStatement, OrderBy, OrderByExpr, OrderByKind, OutputClause,
+    Parens, Partition, PartitionBoundValue, PivotValueSource, ProjectionSelect, Query,
+    RaiseStatement, RaiseStatementValue, ReferentialAction, RenameSelectItem, RepeatStatement,
+    ReplaceSelectElement, ReplaceSelectItem, Select, SelectInto, SelectItem, SetExpr, SqlOption,
+    Statement, Subscript, SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint,
+    TableFactor, TableObject, TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind,
+    Use, Values, ViewColumnDef, WhileStatement, WildcardAdditionalOptions, With, WithFill,
 };
 
 /// Given an iterator of spans, return the [Span::union] of all spans.
@@ -462,6 +463,7 @@ impl Spanned for Statement {
             Statement::CreateProcedure { .. } => Span::empty(),
             Statement::CreateMacro { .. } => Span::empty(),
             Statement::CreateStage { .. } => Span::empty(),
+            Statement::AlterStage { .. } => Span::empty(),
             Statement::Assert { .. } => Span::empty(),
             Statement::Grant { .. } => Span::empty(),
             Statement::Deny { .. } => Span::empty(),
@@ -831,10 +833,7 @@ impl Spanned for RepeatStatement {
 impl Spanned for LoopControlStatement {
     fn span(&self) -> Span {
         let LoopControlStatement { kind: _, label } = self;
-        label
-            .as_ref()
-            .map(|l| l.span)
-            .unwrap_or_else(Span::empty)
+        label.as_ref().map(|l| l.span).unwrap_or_else(Span::empty)
     }
 }
 

@@ -4793,8 +4793,7 @@ fn test_exception_handler_body_bare_assignment() {
 /// outer body.
 #[test]
 fn test_exception_handler_body_let_declaration() {
-    let sql =
-        "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN LET t VARCHAR := 'caught'; RETURN t; END";
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN LET t VARCHAR := 'caught'; RETURN t; END";
     let stmts = snowflake().parse_sql_statements(sql).expect(sql);
     let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
         panic!("expected StartTransaction");
@@ -5449,9 +5448,7 @@ fn test_create_external_volume_if_not_exists() {
         "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/'))",
     );
     match snowflake().verified_stmt(sql) {
-        Statement::CreateExternalVolume {
-            if_not_exists, ..
-        } => {
+        Statement::CreateExternalVolume { if_not_exists, .. } => {
             assert!(if_not_exists);
         }
         _ => unreachable!(),
@@ -5623,9 +5620,7 @@ fn test_alter_external_volume_add_storage_location() {
 fn test_alter_external_volume_set_allow_writes() {
     let sql = "ALTER EXTERNAL VOLUME my_vol SET ALLOW_WRITES = TRUE";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterExternalVolume {
-            operation, ..
-        } => {
+        Statement::AlterExternalVolume { operation, .. } => {
             assert_eq!(
                 AlterExternalVolumeOperation::SetAllowWrites(true),
                 operation
@@ -5636,9 +5631,7 @@ fn test_alter_external_volume_set_allow_writes() {
 
     let sql = "ALTER EXTERNAL VOLUME my_vol SET ALLOW_WRITES = FALSE";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterExternalVolume {
-            operation, ..
-        } => {
+        Statement::AlterExternalVolume { operation, .. } => {
             assert_eq!(
                 AlterExternalVolumeOperation::SetAllowWrites(false),
                 operation
@@ -5663,9 +5656,7 @@ fn test_alter_external_volume_if_exists() {
 fn test_alter_external_volume_remove_storage_location() {
     let sql = "ALTER EXTERNAL VOLUME my_vol REMOVE STORAGE_LOCATION 'loc1'";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterExternalVolume {
-            operation, ..
-        } => {
+        Statement::AlterExternalVolume { operation, .. } => {
             assert_eq!(
                 AlterExternalVolumeOperation::RemoveStorageLocation("loc1".to_string()),
                 operation
@@ -6207,9 +6198,7 @@ fn test_alter_warehouse_resume_if_suspended() {
     let sql = "ALTER WAREHOUSE foo RESUME IF SUSPENDED";
     match snowflake().verified_stmt(sql) {
         Statement::AlterWarehouse {
-            name,
-            operation,
-            ..
+            name, operation, ..
         } => {
             assert_eq!("foo", name.unwrap().to_string());
             assert_eq!(
@@ -6227,7 +6216,9 @@ fn test_alter_warehouse_resume_plain() {
     match snowflake().verified_stmt(sql) {
         Statement::AlterWarehouse { operation, .. } => {
             assert_eq!(
-                AlterWarehouseOperation::Resume { if_suspended: false },
+                AlterWarehouseOperation::Resume {
+                    if_suspended: false
+                },
                 operation
             );
         }
@@ -6239,12 +6230,12 @@ fn test_alter_warehouse_resume_plain() {
 fn test_alter_warehouse_rename_to() {
     let sql = "ALTER WAREHOUSE foo RENAME TO bar";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterWarehouse { operation, .. } => match operation {
-            AlterWarehouseOperation::RenameTo { new_name } => {
-                assert_eq!("bar", new_name.to_string());
-            }
-            _ => unreachable!(),
-        },
+        Statement::AlterWarehouse {
+            operation: AlterWarehouseOperation::RenameTo { new_name },
+            ..
+        } => {
+            assert_eq!("bar", new_name.to_string());
+        }
         _ => unreachable!(),
     }
 }
@@ -6264,14 +6255,14 @@ fn test_alter_warehouse_abort_all_queries() {
 fn test_alter_warehouse_unset_multi() {
     let sql = "ALTER WAREHOUSE foo UNSET COMMENT, AUTO_SUSPEND";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterWarehouse { operation, .. } => match operation {
-            AlterWarehouseOperation::Unset { params } => {
-                assert_eq!(2, params.len());
-                assert_eq!("COMMENT", params[0].to_string());
-                assert_eq!("AUTO_SUSPEND", params[1].to_string());
-            }
-            _ => unreachable!(),
-        },
+        Statement::AlterWarehouse {
+            operation: AlterWarehouseOperation::Unset { params },
+            ..
+        } => {
+            assert_eq!(2, params.len());
+            assert_eq!("COMMENT", params[0].to_string());
+            assert_eq!("AUTO_SUSPEND", params[1].to_string());
+        }
         _ => unreachable!(),
     }
 }
@@ -6280,14 +6271,14 @@ fn test_alter_warehouse_unset_multi() {
 fn test_alter_warehouse_set_multi_params() {
     let sql = "ALTER WAREHOUSE foo SET WAREHOUSE_SIZE = LARGE, AUTO_SUSPEND = 60";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterWarehouse { operation, .. } => match operation {
-            AlterWarehouseOperation::Set { params } => {
-                assert_eq!(2, params.len());
-                assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
-                assert_eq!("AUTO_SUSPEND", params[1].name.to_string());
-            }
-            _ => unreachable!(),
-        },
+        Statement::AlterWarehouse {
+            operation: AlterWarehouseOperation::Set { params },
+            ..
+        } => {
+            assert_eq!(2, params.len());
+            assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+            assert_eq!("AUTO_SUSPEND", params[1].name.to_string());
+        }
         _ => unreachable!(),
     }
 }
@@ -6355,14 +6346,14 @@ fn test_alter_account_set_named() {
 fn test_alter_account_set_multi() {
     let sql = "ALTER ACCOUNT acc1 SET STATEMENT_TIMEOUT_IN_SECONDS = 3600, TIMEZONE = 'UTC'";
     match snowflake().verified_stmt(sql) {
-        Statement::AlterAccount { operation, .. } => match operation {
-            AlterAccountOperation::Set { params } => {
-                assert_eq!(2, params.len());
-                assert_eq!("TIMEZONE", params[1].name.to_string());
-                assert_eq!("'UTC'", params[1].value.to_string());
-            }
-            _ => unreachable!(),
-        },
+        Statement::AlterAccount {
+            operation: AlterAccountOperation::Set { params },
+            ..
+        } => {
+            assert_eq!(2, params.len());
+            assert_eq!("TIMEZONE", params[1].name.to_string());
+            assert_eq!("'UTC'", params[1].value.to_string());
+        }
         _ => unreachable!(),
     }
 }
@@ -6656,7 +6647,9 @@ fn test_describe_task() {
     let sql = "DESCRIBE TASK foo";
     match snowflake().verified_stmt(sql) {
         Statement::DescribeObject {
-            object_type, object_name, ..
+            object_type,
+            object_name,
+            ..
         } => {
             assert_eq!(DescribeObjectType::Task, object_type);
             assert_eq!("foo", object_name.to_string());
@@ -6775,9 +6768,7 @@ fn test_for_reverse_to_end_for() {
 fn test_for_in_cursor_end_for() {
     let sql = "FOR rec IN cur DO RETURN rec.price; END FOR";
     match snowflake().verified_stmt(sql) {
-        Statement::For(ForStatement {
-            var, iteration, ..
-        }) => {
+        Statement::For(ForStatement { var, iteration, .. }) => {
             assert_eq!(var.value, "rec");
             match iteration {
                 ForIterationSource::Cursor(source) => {
@@ -7113,7 +7104,8 @@ fn test_create_file_format_or_replace() {
 #[test]
 fn test_create_file_format_if_not_exists_with_options() {
     let sql = "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER = '|' SKIP_HEADER = 1";
-    let canonical = "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER='|' SKIP_HEADER=1";
+    let canonical =
+        "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER='|' SKIP_HEADER=1";
     match snowflake().one_statement_parses_to(sql, canonical) {
         Statement::CreateFileFormat {
             if_not_exists,
@@ -7180,7 +7172,8 @@ fn test_create_file_format_temp_synonym() {
         "CREATE TEMP FILE FORMAT f TYPE = CSV",
         "CREATE VOLATILE FILE FORMAT f TYPE = CSV",
     ] {
-        match snowflake().one_statement_parses_to(sql, "CREATE TEMPORARY FILE FORMAT f TYPE = CSV") {
+        match snowflake().one_statement_parses_to(sql, "CREATE TEMPORARY FILE FORMAT f TYPE = CSV")
+        {
             Statement::CreateFileFormat { temporary, .. } => assert!(temporary),
             _ => unreachable!(),
         }
@@ -7213,7 +7206,10 @@ fn test_create_file_format_like_one_part() {
             assert_eq!("f", name.to_string());
             assert!(format_type.is_none());
             assert!(options.options.is_empty());
-            assert_eq!(Some("other".to_string()), like_source.map(|s| s.to_string()));
+            assert_eq!(
+                Some("other".to_string()),
+                like_source.map(|s| s.to_string())
+            );
         }
         _ => unreachable!(),
     }
@@ -7401,7 +7397,10 @@ fn test_alter_file_format_unset_multiple() {
                 unset_comment,
             } => {
                 assert_eq!(
-                    vec![Ident::new("FIELD_DELIMITER"), Ident::new("RECORD_DELIMITER")],
+                    vec![
+                        Ident::new("FIELD_DELIMITER"),
+                        Ident::new("RECORD_DELIMITER")
+                    ],
                     options
                 );
                 assert!(!unset_comment);
@@ -7444,6 +7443,152 @@ fn test_alter_file_format_unset_no_options_rejected() {
 }
 
 #[test]
+fn test_alter_stage_rename() {
+    match snowflake().verified_stmt("ALTER STAGE s RENAME TO t") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("s", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::RenameTo(target) => {
+                    assert_eq!("t", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_rename_if_exists_cross_schema() {
+    match snowflake().verified_stmt("ALTER STAGE IF EXISTS db.sch.s RENAME TO db.sch.t") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("db.sch.s", name.to_string());
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::RenameTo(target) => {
+                    assert_eq!("db.sch.t", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_set_stage_params() {
+    let sql = concat!(
+        "ALTER STAGE my_ext_stage SET ",
+        "URL='s3://load/files/' ",
+        "STORAGE_INTEGRATION=myint ",
+        "CREDENTIALS=(AWS_KEY_ID='1a2b3c' AWS_SECRET_KEY='4x5y6z') ",
+        "ENCRYPTION=(MASTER_KEY='key' TYPE='AWS_SSE_KMS')"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("my_ext_stage", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::Set {
+                    stage_params,
+                    comment,
+                    ..
+                } => {
+                    assert_eq!("s3://load/files/", stage_params.url.unwrap());
+                    assert_eq!("myint", stage_params.storage_integration.unwrap());
+                    assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                        option_name: "AWS_KEY_ID".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString("1a2b3c".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                        option_name: "TYPE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString("AWS_SSE_KMS".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(comment.is_none());
+                }
+                other => panic!("expected Set, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_set_file_format_copy_options_comment() {
+    let sql = concat!(
+        "ALTER STAGE IF EXISTS my_stage SET ",
+        "DIRECTORY=(ENABLE=true) ",
+        "FILE_FORMAT=(TYPE=CSV) ",
+        "COPY_OPTIONS=(ON_ERROR=CONTINUE) ",
+        "COMMENT='updated'"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterStage {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::Set {
+                    directory_table_params,
+                    file_format,
+                    copy_options,
+                    comment,
+                    ..
+                } => {
+                    assert!(directory_table_params.options.contains(&KeyValueOption {
+                        option_name: "ENABLE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Boolean(true).with_empty_span()
+                        ),
+                    }));
+                    assert!(file_format.options.contains(&KeyValueOption {
+                        option_name: "TYPE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("CSV".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(copy_options.options.contains(&KeyValueOption {
+                        option_name: "ON_ERROR".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("CONTINUE".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert_eq!(Some("updated".to_string()), comment);
+                }
+                other => panic!("expected Set, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_invalid_operation_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER STAGE s UNSET COMMENT")
+        .expect_err("ALTER STAGE only supports SET and RENAME TO");
+}
+
+#[test]
 fn test_drop_file_format() {
     match snowflake().verified_stmt("DROP FILE FORMAT f") {
         Statement::DropFileFormat { name, if_exists } => {
@@ -7477,7 +7622,9 @@ fn test_describe_file_format() {
 
 #[test]
 fn test_desc_file_format() {
-    match snowflake().one_statement_parses_to("DESC FILE FORMAT db.sch.f", "DESCRIBE FILE FORMAT db.sch.f") {
+    match snowflake()
+        .one_statement_parses_to("DESC FILE FORMAT db.sch.f", "DESCRIBE FILE FORMAT db.sch.f")
+    {
         Statement::DescribeFileFormat { name } => {
             assert_eq!("db.sch.f", name.to_string());
         }
