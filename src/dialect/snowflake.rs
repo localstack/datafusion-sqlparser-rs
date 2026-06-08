@@ -1351,7 +1351,24 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
     // [ file_format]
     if parser.parse_keyword(Keyword::FILE_FORMAT) {
         parser.expect_token(&Token::Eq)?;
-        file_format = parser.parse_key_value_options(true, &[])?.options;
+        if parser.peek_token().token == Token::LParen {
+            file_format = parser.parse_key_value_options(true, &[])?.options;
+        } else {
+            // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>` is
+            // sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` — normalize it.
+            let tok = parser.peek_token();
+            let value = match tok.token {
+                Token::Word(w) => {
+                    parser.next_token();
+                    Value::Placeholder(w.value.clone()).with_span(tok.span)
+                }
+                _ => parser.parse_value()?,
+            };
+            file_format = vec![KeyValueOption {
+                option_name: "FORMAT_NAME".to_string(),
+                option_value: KeyValueOptionKind::Single(value),
+            }];
+        }
     }
 
     // [ copy_options ]
