@@ -23,6 +23,8 @@ use crate::{
     },
     tokenizer::TokenWithSpan,
 };
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use core::iter;
 
 use crate::tokenizer::Span;
@@ -471,6 +473,7 @@ impl Spanned for Statement {
             Statement::CreateStage { .. } => Span::empty(),
             Statement::CreateFileFormat { .. } => Span::empty(),
             Statement::CreateWarehouse(..) => Span::empty(),
+            Statement::AlterStage { .. } => Span::empty(),
             Statement::Assert { .. } => Span::empty(),
             Statement::Grant { .. } => Span::empty(),
             Statement::Deny { .. } => Span::empty(),
