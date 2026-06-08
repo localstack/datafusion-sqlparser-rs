@@ -7024,18 +7024,10 @@ impl fmt::Display for Statement {
                 }
                 write!(f, ")")?;
                 if let Some(val) = allow_writes {
-                    write!(
-                        f,
-                        " ALLOW_WRITES = {}",
-                        if *val { "TRUE" } else { "FALSE" }
-                    )?;
+                    write!(f, " ALLOW_WRITES = {}", if *val { "TRUE" } else { "FALSE" })?;
                 }
                 if let Some(ref c) = comment {
-                    write!(
-                        f,
-                        " COMMENT = '{}'",
-                        value::escape_single_quote_string(c)
-                    )?;
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
                 }
                 Ok(())
             }
@@ -7163,20 +7155,12 @@ impl fmt::Display for Statement {
                 if let Some(ref auth) = rest_authentication {
                     write!(f, " REST_AUTHENTICATION = ({auth})")?;
                 }
-                write!(
-                    f,
-                    " ENABLED = {}",
-                    if *enabled { "TRUE" } else { "FALSE" }
-                )?;
+                write!(f, " ENABLED = {}", if *enabled { "TRUE" } else { "FALSE" })?;
                 if let Some(secs) = refresh_interval_seconds {
                     write!(f, " REFRESH_INTERVAL_SECONDS = {secs}")?;
                 }
                 if let Some(ref c) = comment {
-                    write!(
-                        f,
-                        " COMMENT = '{}'",
-                        value::escape_single_quote_string(c)
-                    )?;
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
                 }
                 Ok(())
             }
@@ -12466,11 +12450,7 @@ impl fmt::Display for CatalogRestConfig {
             write!(f, " CATALOG_API_TYPE = {t}")?;
         }
         if let Some(ref w) = self.warehouse {
-            write!(
-                f,
-                " WAREHOUSE = '{}'",
-                value::escape_single_quote_string(w)
-            )?;
+            write!(f, " WAREHOUSE = '{}'", value::escape_single_quote_string(w))?;
         }
         if let Some(ref m) = self.access_delegation_mode {
             write!(f, " ACCESS_DELEGATION_MODE = {m}")?;

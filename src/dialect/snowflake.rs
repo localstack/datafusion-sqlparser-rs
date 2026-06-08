@@ -28,16 +28,16 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStageOperation, AlterTable,
-    AlterTableOperation, AlterTableType,
-    CatalogRestAuthentication, CatalogRestConfig, CatalogSource, CatalogSyncNamespaceMode,
-    CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty, ContactEntry,
-    CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
-    ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident, IdentityParameters,
-    IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder,
-    InitializeKind, Insert, MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
-    MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart,
-    RefreshModeKind, RowAccessPolicy, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
-    StorageSerializationPolicy, TableObject, TagsColumnOption, Value, WrappedCollection,
+    AlterTableOperation, AlterTableType, CatalogRestAuthentication, CatalogRestConfig,
+    CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
+    ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
+    DollarQuotedString, ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident,
+    IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
+    IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
+    MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
+    MultiTableInsertWhenClause, ObjectName, ObjectNamePart, RefreshModeKind, RowAccessPolicy,
+    ShowObjects, SqlOption, Statement, StorageLifecyclePolicy, StorageSerializationPolicy,
+    TableObject, TagsColumnOption, Value, WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -319,7 +319,10 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_file_format(parser));
         }
 
-        if parser.parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE]).is_some() {
+        if parser
+            .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
+            .is_some()
+        {
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
                 // DESC[RIBE] EXTERNAL VOLUME
                 return Some(parse_describe_external_volume(parser));
@@ -2206,9 +2209,7 @@ fn parse_external_volume_storage_location(
     }
 
     let storage_base_url = storage_base_url.ok_or_else(|| {
-        ParserError::ParserError(
-            "STORAGE_BASE_URL is required in STORAGE_LOCATION".to_string(),
-        )
+        ParserError::ParserError("STORAGE_BASE_URL is required in STORAGE_LOCATION".to_string())
     })?;
 
     Ok(ExternalVolumeStorageLocation {
@@ -2316,7 +2317,8 @@ fn parse_create_file_format(
     }
 
     // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
-    if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+    if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon)
+    {
         return parser.expected(
             "end of statement after CREATE FILE FORMAT ... LIKE",
             parser.peek_token(),

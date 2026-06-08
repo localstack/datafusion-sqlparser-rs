@@ -979,7 +979,8 @@ impl<'a> Parser<'a> {
             }
         };
 
-        let conditional_statements = self.parse_scripting_conditional_statements(terminal_keywords)?;
+        let conditional_statements =
+            self.parse_scripting_conditional_statements(terminal_keywords)?;
 
         Ok(ConditionalStatementBlock {
             start_token: AttachedToken(start_token),
@@ -1013,13 +1014,13 @@ impl<'a> Parser<'a> {
         Ok(conditional_statements)
     }
 
-    /// Like [`parse_conditional_statements`], but the bare-sequence branch
-    /// dispatches to [`parse_scripting_statement_list`] so that body-only
+    /// Like `parse_conditional_statements`, but the bare-sequence branch
+    /// dispatches to `parse_scripting_statement_list` so that body-only
     /// scripting forms (loop control, `LET`, bare assignment) parse when the
     /// body omits an inner `BEGIN … END`. Used by Snowflake-scripting loop
     /// and conditional constructs; **not** used by `CREATE TRIGGER` /
     /// `CREATE PROCEDURE` bodies, which retain their existing semantics via
-    /// [`parse_conditional_statements`].
+    /// `parse_conditional_statements`.
     fn parse_scripting_conditional_statements(
         &mut self,
         terminal_keywords: &[Keyword],
@@ -1042,7 +1043,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a list of statements inside a `BEGIN...END` scripting block.
     ///
-    /// Extends [`parse_statement_list`] with Snowflake-scripting-specific forms:
+    /// Extends `parse_statement_list` with Snowflake-scripting-specific forms:
     /// - Bare assignment: `var := expr`
     /// - `LET` declaration: `LET var [data_type] := expr`
     pub(crate) fn parse_scripting_statement_list(
@@ -1053,10 +1054,10 @@ impl<'a> Parser<'a> {
         loop {
             match &self.peek_nth_token_ref(0).token {
                 Token::EOF => break,
-                Token::Word(w) => {
-                    if w.quote_style.is_none() && terminal_keywords.contains(&w.keyword) {
-                        break;
-                    }
+                Token::Word(w)
+                    if w.quote_style.is_none() && terminal_keywords.contains(&w.keyword) =>
+                {
+                    break
                 }
                 _ => {}
             }
@@ -8160,12 +8161,7 @@ impl<'a> Parser<'a> {
                             // The word could be a variable name.  Check that the token
                             // after it looks like the rest of a declaration (type, `:=`,
                             // `DEFAULT`, or `;` for a bare declaration with no type/init).
-                            matches!(
-                                tok1,
-                                Token::Assignment
-                                    | Token::Word(_)
-                                    | Token::SemiColon
-                            )
+                            matches!(tok1, Token::Assignment | Token::Word(_) | Token::SemiColon)
                         }
                         _ => false,
                     }
@@ -11476,10 +11472,7 @@ impl<'a> Parser<'a> {
             })?;
             AlterAccountOperation::Set { params }
         } else {
-            return self.expected(
-                "SET or RENAME TO after ALTER ACCOUNT",
-                self.peek_token(),
-            );
+            return self.expected("SET or RENAME TO after ALTER ACCOUNT", self.peek_token());
         };
 
         Ok(Statement::AlterAccount { name, operation })
@@ -12684,8 +12677,7 @@ impl<'a> Parser<'a> {
             let peek_token = parser.peek_token();
             let span = peek_token.span;
             match peek_token.token {
-                Token::DollarQuotedString(s)
-                    if dialect_of!(parser is PostgreSqlDialect | GenericDialect | SnowflakeDialect) =>
+                Token::DollarQuotedString(s) if dialect_of!(parser is PostgreSqlDialect | GenericDialect | SnowflakeDialect) =>
                 {
                     parser.next_token();
                     Ok(Expr::Value(Value::DollarQuotedString(s).with_span(span)))
@@ -14493,7 +14485,10 @@ impl<'a> Parser<'a> {
 
                 // Snowflake-style: DESC <object_type> <name>
                 if self.dialect.describe_requires_table_keyword()
-                    && matches!(describe_alias, DescribeAlias::Desc | DescribeAlias::Describe)
+                    && matches!(
+                        describe_alias,
+                        DescribeAlias::Desc | DescribeAlias::Describe
+                    )
                 {
                     if let Some(kw) = self.parse_one_of_keywords(&[
                         Keyword::TABLE,
@@ -14508,7 +14503,7 @@ impl<'a> Parser<'a> {
                             Keyword::DATABASE => DescribeObjectType::Database,
                             Keyword::SCHEMA => DescribeObjectType::Schema,
                             Keyword::TASK => DescribeObjectType::Task,
-                            _ => unreachable!(),
+                            _ => return self.expected("a describe object type", self.peek_token()),
                         };
                         let object_name = self.parse_object_name(false)?;
                         return Ok(Statement::DescribeObject {
