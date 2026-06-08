@@ -476,6 +476,7 @@ impl Spanned for Statement {
             Statement::Kill { .. } => Span::empty(),
             Statement::ExplainTable { .. } => Span::empty(),
             Statement::DescribeObject { .. } => Span::empty(),
+            Statement::DescribeResult { .. } => Span::empty(),
             Statement::Explain { .. } => Span::empty(),
             Statement::Savepoint { .. } => Span::empty(),
             Statement::ReleaseSavepoint { .. } => Span::empty(),

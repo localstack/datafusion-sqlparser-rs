@@ -14549,6 +14549,13 @@ impl<'a> Parser<'a> {
                         DescribeAlias::Desc | DescribeAlias::Describe
                     )
                 {
+                    if self.parse_keyword(Keyword::RESULT) {
+                        let query_id = self.parse_expr()?;
+                        return Ok(Statement::DescribeResult {
+                            describe_alias,
+                            query_id: Box::new(query_id),
+                        });
+                    }
                     if let Some(kw) = self.parse_one_of_keywords(&[
                         Keyword::TABLE,
                         Keyword::VIEW,

@@ -5216,6 +5216,19 @@ pub enum Statement {
         object_name: ObjectName,
     },
     /// ```sql
+    /// DESC | DESCRIBE RESULT <query_id>
+    /// ```
+    /// Snowflake-style `DESCRIBE RESULT '<query_id>'`, returning the column
+    /// metadata of a previously executed query's result set. The argument is a
+    /// general expression covering a string literal (`'01b...'`) and a function
+    /// call (`LAST_QUERY_ID()`).
+    DescribeResult {
+        /// `DESC` or `DESCRIBE`
+        describe_alias: DescribeAlias,
+        /// The query-id argument.
+        query_id: Box<Expr>,
+    },
+    /// ```sql
     /// [EXPLAIN | DESC | DESCRIBE]  <statement>
     /// ```
     Explain {
@@ -5753,6 +5766,12 @@ impl fmt::Display for Statement {
                 object_name,
             } => {
                 write!(f, "{describe_alias} {object_type} {object_name}")
+            }
+            Statement::DescribeResult {
+                describe_alias,
+                query_id,
+            } => {
+                write!(f, "{describe_alias} RESULT {query_id}")
             }
             Statement::Explain {
                 describe_alias,
