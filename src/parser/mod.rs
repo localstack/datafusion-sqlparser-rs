@@ -15913,6 +15913,7 @@ impl<'a> Parser<'a> {
                         Keyword::DATABASE,
                         Keyword::SCHEMA,
                         Keyword::TASK,
+                        Keyword::STAGE,
                     ]) {
                         let object_type = match kw {
                             Keyword::TABLE => DescribeObjectType::Table,
@@ -15920,6 +15921,7 @@ impl<'a> Parser<'a> {
                             Keyword::DATABASE => DescribeObjectType::Database,
                             Keyword::SCHEMA => DescribeObjectType::Schema,
                             Keyword::TASK => DescribeObjectType::Task,
+                            Keyword::STAGE => DescribeObjectType::Stage,
                             _ => return self.expected("a describe object type", self.peek_token()),
                         };
                         let object_name = self.parse_object_name(false)?;
