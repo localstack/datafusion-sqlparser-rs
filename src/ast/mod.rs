@@ -5125,6 +5125,15 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW [TERSE] STAGES [ LIKE '<pattern>' ] [ IN ... ] ...
+    /// ```
+    ShowStages {
+        /// Whether to show terse output.
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `IN` / `LIMIT` / ...).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration>
@@ -7246,6 +7255,16 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "SHOW {terse}FILE FORMATS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
+            }
+            Statement::ShowStages {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}STAGES{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }
