@@ -1072,6 +1072,7 @@ define_keywords!(
     SSPACE,
     STABLE,
     STAGE,
+    STAGES,
     START,
     STARTS,
     STATEMENT,
