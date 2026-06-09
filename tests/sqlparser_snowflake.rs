@@ -7951,3 +7951,28 @@ fn test_show_terse_file_formats() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_show_stages() {
+    match snowflake().verified_stmt("SHOW STAGES") {
+        Statement::ShowStages { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_stages_like_in_schema() {
+    snowflake().verified_stmt("SHOW STAGES LIKE 'pat%' IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_show_terse_stages() {
+    match snowflake().verified_stmt("SHOW TERSE STAGES") {
+        Statement::ShowStages { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}

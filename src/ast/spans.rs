@@ -551,6 +551,7 @@ impl Spanned for Statement {
             Statement::DropFileFormat { .. } => Span::empty(),
             Statement::DescribeFileFormat { .. } => Span::empty(),
             Statement::ShowFileFormats { .. } => Span::empty(),
+            Statement::ShowStages { .. } => Span::empty(),
             Statement::CreateCatalogIntegration { .. } => Span::empty(),
             Statement::DropCatalogIntegration { .. } => Span::empty(),
             Statement::ShowCatalogIntegrations { .. } => Span::empty(),

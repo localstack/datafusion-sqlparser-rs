@@ -458,6 +458,9 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMATS]) {
                 return Some(parse_show_file_formats(terse, parser));
             }
+            if parser.parse_keyword(Keyword::STAGES) {
+                return Some(parse_show_stages(terse, parser));
+            }
             //Give back Keyword::TERSE
             if terse {
                 parser.prev_token();
@@ -2467,6 +2470,15 @@ fn parse_describe_file_format(parser: &mut Parser) -> Result<Statement, ParserEr
 fn parse_show_file_formats(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowFileFormats {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] STAGES [ ... ]`
+fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowStages {
         terse,
         show_options,
     })
