@@ -1036,6 +1036,7 @@ define_keywords!(
     SRID,
     STABLE,
     STAGE,
+    STAGES,
     START,
     STARTS,
     STATEMENT,
