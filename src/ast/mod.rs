@@ -86,6 +86,7 @@ pub use self::ddl::{
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
     UserDefinedTypeStorage, ViewColumnDef, WithData,
+    ProcedureExecuteAs,
 };
 pub use self::dml::{
     Delete, Insert, Merge, MergeAction, MergeClause, MergeClauseKind, MergeInsertExpr,
@@ -4757,6 +4758,11 @@ pub enum Statement {
         returns: Option<DataType>,
         /// Optional language identifier.
         language: Option<Ident>,
+        /// Optional `EXECUTE AS { CALLER | OWNER }` rights clause (Snowflake).
+        ///
+        /// `None` means the clause was omitted, which Snowflake treats as
+        /// owner's rights — i.e. absent is equivalent to `Some(Owner)`.
+        execute_as: Option<ProcedureExecuteAs>,
         /// Procedure body statements.
         body: ConditionalStatements,
     },
@@ -6109,6 +6115,7 @@ impl fmt::Display for Statement {
                 params,
                 returns,
                 language,
+                execute_as,
                 body,
             } => {
                 let modifier = if *or_alter {
@@ -6132,6 +6139,10 @@ impl fmt::Display for Statement {
 
                 if let Some(language) = language {
                     write!(f, " LANGUAGE {language}")?;
+                }
+
+                if let Some(execute_as) = execute_as {
+                    write!(f, " EXECUTE AS {execute_as}")?;
                 }
 
                 write!(f, " AS {body}")
