@@ -198,6 +198,7 @@ define_keywords!(
     CACHE,
     CALL,
     CALLED,
+    CALLER,
     CANONICAL,
     CARDINALITY,
     CASCADE,
