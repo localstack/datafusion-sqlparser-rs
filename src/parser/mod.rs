@@ -22927,6 +22927,17 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let execute_as = if self.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+            if self.parse_keyword(Keyword::CALLER) {
+                Some(ProcedureExecuteAs::Caller)
+            } else {
+                self.expect_keyword_is(Keyword::OWNER)?;
+                Some(ProcedureExecuteAs::Owner)
+            }
+        } else {
+            None
+        };
+
         let body = match self.maybe_parse_begin_atomic()? {
             Some(statements) => CreateProcedureBody::BeginAtomic(statements),
             None => {
@@ -22967,6 +22978,7 @@ impl<'a> Parser<'a> {
             params,
             returns,
             language,
+            execute_as,
             body,
         })
     }
