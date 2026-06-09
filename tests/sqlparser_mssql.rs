@@ -209,6 +209,7 @@ fn parse_create_procedure() {
                 span: Span::empty(),
             }]),
             language: None,
+            execute_as: None,
         }
     )
 }
