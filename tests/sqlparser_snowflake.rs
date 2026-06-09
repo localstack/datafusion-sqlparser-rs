@@ -5405,6 +5405,64 @@ END $$"#;
     assert_eq!(stmts[0], stmts_plain[0]);
 }
 
+/// `EXECUTE AS { CALLER | OWNER }` rights clause parses, is recoverable from
+/// the AST, and round-trips through `Display`. An omitted clause is reported
+/// as owner's-rights (`None`).
+#[test]
+fn test_create_procedure_execute_as() {
+    fn execute_as_of(sql: &str) -> Option<ProcedureExecuteAs> {
+        let stmts = snowflake()
+            .parse_sql_statements(sql)
+            .expect("EXECUTE AS procedure should parse");
+        match &stmts[0] {
+            Statement::CreateProcedure { execute_as, .. } => *execute_as,
+            other => panic!("expected CreateProcedure, got {other:?}"),
+        }
+    }
+
+    let caller = r#"CREATE OR REPLACE PROCEDURE p(a INT) RETURNS VARCHAR LANGUAGE SQL EXECUTE AS CALLER AS $$
+BEGIN
+  RETURN 'x';
+END $$"#;
+    assert_eq!(execute_as_of(caller), Some(ProcedureExecuteAs::Caller));
+
+    let owner = r#"CREATE OR REPLACE PROCEDURE p(a INT) RETURNS VARCHAR LANGUAGE SQL EXECUTE AS OWNER AS $$
+BEGIN
+  RETURN 'x';
+END $$"#;
+    assert_eq!(execute_as_of(owner), Some(ProcedureExecuteAs::Owner));
+
+    let omitted = r#"CREATE OR REPLACE PROCEDURE p(a INT) RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  RETURN 'x';
+END $$"#;
+    assert_eq!(execute_as_of(omitted), None);
+
+    // A `CALLER` declaration is distinguishable from `OWNER`/omitted.
+    assert_ne!(execute_as_of(caller), execute_as_of(owner));
+    assert_ne!(execute_as_of(caller), execute_as_of(omitted));
+
+    // parse → Display → parse round-trips for all three forms.
+    for sql in [caller, owner, omitted] {
+        let first = snowflake().parse_sql_statements(sql).unwrap();
+        let rendered = first[0].to_string();
+        let second = snowflake()
+            .parse_sql_statements(&rendered)
+            .expect("re-parse of Display output should succeed");
+        assert_eq!(first[0], second[0]);
+    }
+
+    // The omitted form does not gain a spurious `EXECUTE AS` rendering.
+    let rendered_omitted = snowflake().parse_sql_statements(omitted).unwrap()[0].to_string();
+    assert!(!rendered_omitted.contains("EXECUTE AS"));
+    assert!(snowflake().parse_sql_statements(caller).unwrap()[0]
+        .to_string()
+        .contains("EXECUTE AS CALLER"));
+    assert!(snowflake().parse_sql_statements(owner).unwrap()[0]
+        .to_string()
+        .contains("EXECUTE AS OWNER"));
+}
+
 /// `LET var := expr` (without data type) inside `BEGIN...END`.
 #[test]
 fn test_scripting_let_without_type() {

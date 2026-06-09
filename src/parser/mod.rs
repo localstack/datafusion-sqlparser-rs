@@ -20443,6 +20443,21 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // Snowflake's `EXECUTE AS { CALLER | OWNER }` rights clause sits among
+        // the create options before the body `AS`. Only the two-keyword
+        // `EXECUTE AS` sequence is the rights clause; a standalone `AS`
+        // delimits the body below.
+        let execute_as = if self.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+            if self.parse_keyword(Keyword::CALLER) {
+                Some(ProcedureExecuteAs::Caller)
+            } else {
+                self.expect_keyword_is(Keyword::OWNER)?;
+                Some(ProcedureExecuteAs::Owner)
+            }
+        } else {
+            None
+        };
+
         self.expect_keyword_is(Keyword::AS)?;
 
         // Snowflake encloses the procedure body in a dollar-quoted string
@@ -20466,6 +20481,7 @@ impl<'a> Parser<'a> {
             params,
             returns,
             language,
+            execute_as,
             body,
         })
     }
