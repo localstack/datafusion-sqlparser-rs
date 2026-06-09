@@ -5376,6 +5376,35 @@ END; $$"#;
     );
 }
 
+/// Snowflake allows a `NOT NULL` nullability annotation on a procedure's
+/// return type. It is consumed (and dropped) so the parsed shape matches the
+/// un-annotated form.
+#[test]
+fn test_create_procedure_returns_not_null() {
+    let sql = r#"CREATE OR REPLACE PROCEDURE p() RETURNS BOOLEAN NOT NULL LANGUAGE SQL AS $$
+BEGIN
+  RETURN TRUE;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("RETURNS <type> NOT NULL procedure should parse");
+    let returns = match &stmts[0] {
+        Statement::CreateProcedure { returns, .. } => returns,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    assert_eq!(returns, &Some(DataType::Boolean));
+
+    // The un-annotated form parses to the same return type.
+    let sql_plain = r#"CREATE OR REPLACE PROCEDURE p() RETURNS BOOLEAN LANGUAGE SQL AS $$
+BEGIN
+  RETURN TRUE;
+END $$"#;
+    let stmts_plain = snowflake()
+        .parse_sql_statements(sql_plain)
+        .expect("RETURNS <type> procedure should parse");
+    assert_eq!(stmts[0], stmts_plain[0]);
+}
+
 /// `LET var := expr` (without data type) inside `BEGIN...END`.
 #[test]
 fn test_scripting_let_without_type() {

@@ -20432,6 +20432,11 @@ impl<'a> Parser<'a> {
             None
         };
 
+        // Snowflake allows a `NOT NULL` nullability annotation on the return
+        // type (mirroring functions). Procedures have no NULL-input behaviour
+        // to influence, so consume and drop it.
+        let _ = self.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+
         let language = if self.parse_keyword(Keyword::LANGUAGE) {
             Some(self.parse_identifier()?)
         } else {
