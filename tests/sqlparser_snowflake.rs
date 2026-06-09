@@ -7953,6 +7953,15 @@ fn test_show_terse_file_formats() {
 }
 
 #[test]
+fn test_create_stage_options_any_order() {
+    // Snowflake accepts the stage property groups in any order.
+    snowflake().one_statement_parses_to(
+        "CREATE OR REPLACE STAGE s FILE_FORMAT = (TYPE=CSV) URL = 's3://test/'",
+        "CREATE OR REPLACE STAGE s URL='s3://test/' FILE_FORMAT=(TYPE=CSV)",
+    );
+}
+
+#[test]
 fn test_show_stages() {
     match snowflake().verified_stmt("SHOW STAGES") {
         Statement::ShowStages { terse, .. } => {

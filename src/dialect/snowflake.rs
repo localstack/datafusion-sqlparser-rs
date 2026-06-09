@@ -1336,58 +1336,91 @@ struct StageProperties {
 /// Parse the stage property groups (`internalStageParams`/`externalStageParams`,
 /// `DIRECTORY`, `FILE_FORMAT`, `COPY_OPTIONS`, `COMMENT`) shared by
 /// `CREATE STAGE` and `ALTER STAGE ... SET`.
+///
+/// Snowflake accepts these groups in any order (e.g. `FILE_FORMAT = (...) URL =
+/// '...'`), so the groups are matched in a loop until none remains rather than
+/// in a fixed sequence. Each group may appear at most once.
 fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, ParserError> {
-    // [ internalStageParams | externalStageParams ]
-    let stage_params = parse_stage_params(parser)?;
-
+    let empty_options = || KeyValueOptions {
+        options: vec![],
+        delimiter: KeyValueOptionsDelimiter::Space,
+    };
+    let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
+    let mut encryption = empty_options();
+    let mut credentials = empty_options();
     let mut directory_table_params = Vec::new();
     let mut file_format = Vec::new();
     let mut copy_options = Vec::new();
     let mut comment = None;
 
-    // [ directoryTableParams ]
-    if parser.parse_keyword(Keyword::DIRECTORY) {
-        parser.expect_token(&Token::Eq)?;
-        directory_table_params = parser.parse_key_value_options(true, &[])?.options;
-    }
-
-    // [ file_format]
-    if parser.parse_keyword(Keyword::FILE_FORMAT) {
-        parser.expect_token(&Token::Eq)?;
-        if parser.peek_token().token == Token::LParen {
-            file_format = parser.parse_key_value_options(true, &[])?.options;
+    loop {
+        // [ internalStageParams | externalStageParams ]
+        if url.is_none() && parser.parse_keyword(Keyword::URL) {
+            parser.expect_token(&Token::Eq)?;
+            url = Some(match parser.next_token().token {
+                Token::SingleQuotedString(word) => Ok(word),
+                _ => parser.expected_ref("a URL statement", parser.peek_token_ref()),
+            }?);
+        } else if storage_integration.is_none()
+            && parser.parse_keyword(Keyword::STORAGE_INTEGRATION)
+        {
+            parser.expect_token(&Token::Eq)?;
+            storage_integration = Some(parser.next_token().token.to_string());
+        } else if endpoint.is_none() && parser.parse_keyword(Keyword::ENDPOINT) {
+            parser.expect_token(&Token::Eq)?;
+            endpoint = Some(match parser.next_token().token {
+                Token::SingleQuotedString(word) => Ok(word),
+                _ => parser.expected_ref("an endpoint statement", parser.peek_token_ref()),
+            }?);
+        } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
+            parser.expect_token(&Token::Eq)?;
+            credentials.options = parser.parse_key_value_options(true, &[])?.options;
+        } else if encryption.options.is_empty() && parser.parse_keyword(Keyword::ENCRYPTION) {
+            parser.expect_token(&Token::Eq)?;
+            encryption.options = parser.parse_key_value_options(true, &[])?.options;
+        } else if directory_table_params.is_empty() && parser.parse_keyword(Keyword::DIRECTORY) {
+            parser.expect_token(&Token::Eq)?;
+            directory_table_params = parser.parse_key_value_options(true, &[])?.options;
+        } else if file_format.is_empty() && parser.parse_keyword(Keyword::FILE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            if parser.peek_token().token == Token::LParen {
+                file_format = parser.parse_key_value_options(true, &[])?.options;
+            } else {
+                // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>`
+                // is sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` —
+                // normalize it.
+                let tok = parser.peek_token();
+                let value = match tok.token {
+                    Token::Word(w) => {
+                        parser.next_token();
+                        Value::Placeholder(w.value.clone()).with_span(tok.span)
+                    }
+                    _ => parser.parse_value()?,
+                };
+                file_format = vec![KeyValueOption {
+                    option_name: "FORMAT_NAME".to_string(),
+                    option_value: KeyValueOptionKind::Single(value),
+                }];
+            }
+        } else if copy_options.is_empty() && parser.parse_keyword(Keyword::COPY_OPTIONS) {
+            parser.expect_token(&Token::Eq)?;
+            copy_options = parser.parse_key_value_options(true, &[])?.options;
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
         } else {
-            // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>` is
-            // sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` — normalize it.
-            let tok = parser.peek_token();
-            let value = match tok.token {
-                Token::Word(w) => {
-                    parser.next_token();
-                    Value::Placeholder(w.value.clone()).with_span(tok.span)
-                }
-                _ => parser.parse_value()?,
-            };
-            file_format = vec![KeyValueOption {
-                option_name: "FORMAT_NAME".to_string(),
-                option_value: KeyValueOptionKind::Single(value),
-            }];
+            break;
         }
     }
 
-    // [ copy_options ]
-    if parser.parse_keyword(Keyword::COPY_OPTIONS) {
-        parser.expect_token(&Token::Eq)?;
-        copy_options = parser.parse_key_value_options(true, &[])?.options;
-    }
-
-    // [ comment ]
-    if parser.parse_keyword(Keyword::COMMENT) {
-        parser.expect_token(&Token::Eq)?;
-        comment = Some(parser.parse_comment_value()?);
-    }
-
     Ok(StageProperties {
-        stage_params,
+        stage_params: StageParamsObject {
+            url,
+            encryption,
+            endpoint,
+            storage_integration,
+            credentials,
+        },
         directory_table_params: KeyValueOptions {
             options: directory_table_params,
             delimiter: KeyValueOptionsDelimiter::Space,
