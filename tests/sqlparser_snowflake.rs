@@ -7951,3 +7951,37 @@ fn test_show_terse_file_formats() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_create_stage_options_any_order() {
+    // Snowflake accepts the stage property groups in any order.
+    snowflake().one_statement_parses_to(
+        "CREATE OR REPLACE STAGE s FILE_FORMAT = (TYPE=CSV) URL = 's3://test/'",
+        "CREATE OR REPLACE STAGE s URL='s3://test/' FILE_FORMAT=(TYPE=CSV)",
+    );
+}
+
+#[test]
+fn test_show_stages() {
+    match snowflake().verified_stmt("SHOW STAGES") {
+        Statement::ShowStages { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_stages_like_in_schema() {
+    snowflake().verified_stmt("SHOW STAGES LIKE 'pat%' IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_show_terse_stages() {
+    match snowflake().verified_stmt("SHOW TERSE STAGES") {
+        Statement::ShowStages { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}
