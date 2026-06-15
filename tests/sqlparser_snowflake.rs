@@ -385,6 +385,26 @@ fn test_snowflake_create_transient_table() {
 }
 
 #[test]
+fn test_snowflake_create_transient_schema() {
+    let sql = "CREATE TRANSIENT SCHEMA my_schema WITH MANAGED ACCESS COMMENT = 'foo bar'";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            transient,
+            with_managed_access,
+            comment,
+            ..
+        } => {
+            assert_eq!("my_schema", schema_name.to_string());
+            assert!(transient);
+            assert!(with_managed_access);
+            assert_eq!(comment, Some(CommentDef::WithEq("foo bar".to_string())));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_snowflake_create_table_column_comment() {
     let sql = "CREATE TABLE my_table (a STRING COMMENT 'some comment')";
     match snowflake().verified_stmt(sql) {

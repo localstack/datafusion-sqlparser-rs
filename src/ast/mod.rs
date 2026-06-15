@@ -4613,6 +4613,20 @@ pub enum Statement {
         schema_name: SchemaName,
         /// `true` when `OR REPLACE` was present.
         or_replace: bool,
+        /// `true` when `TRANSIENT` was present (Snowflake).
+        ///
+        /// ```sql
+        /// CREATE TRANSIENT SCHEMA myschema
+        /// ```
+        ///
+        /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-schema)
+        transient: bool,
+        /// `true` when `WITH MANAGED ACCESS` was present (Snowflake).
+        ///
+        /// ```sql
+        /// CREATE SCHEMA myschema WITH MANAGED ACCESS
+        /// ```
+        with_managed_access: bool,
         /// `true` when `IF NOT EXISTS` was present.
         if_not_exists: bool,
         /// Schema properties.
@@ -4647,6 +4661,8 @@ pub enum Statement {
         ///
         /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-clone#databases-schemas)
         clone: Option<ObjectName>,
+        /// Optional schema comment (Snowflake `COMMENT = '...'`).
+        comment: Option<CommentDef>,
     },
     /// ```sql
     /// CREATE DATABASE
@@ -6688,22 +6704,30 @@ impl fmt::Display for Statement {
             Statement::CreateSchema {
                 schema_name,
                 or_replace,
+                transient,
+                with_managed_access,
                 if_not_exists,
                 with,
                 options,
                 default_collate_spec,
                 clone,
+                comment,
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}SCHEMA {if_not_exists}{name}",
+                    "CREATE {or_replace}{transient}SCHEMA {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    transient = if *transient { "TRANSIENT " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     name = schema_name
                 )?;
 
                 if let Some(collate) = default_collate_spec {
                     write!(f, " DEFAULT COLLATE {collate}")?;
+                }
+
+                if *with_managed_access {
+                    write!(f, " WITH MANAGED ACCESS")?;
                 }
 
                 if let Some(with) = with {
@@ -6716,6 +6740,13 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+
+                if let Some(comment) = comment {
+                    match comment {
+                        CommentDef::WithEq(c) => write!(f, " COMMENT = '{c}'")?,
+                        CommentDef::WithoutEq(c) => write!(f, " COMMENT '{c}'")?,
+                    }
                 }
                 Ok(())
             }

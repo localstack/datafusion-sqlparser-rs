@@ -5432,7 +5432,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::PROCEDURE) {
             self.parse_create_procedure(or_alter, or_replace)
         } else if self.parse_keyword(Keyword::SCHEMA) {
-            self.parse_create_schema(or_replace)
+            self.parse_create_schema(or_replace, transient)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA after CREATE OR REPLACE",
@@ -5779,7 +5779,11 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a `CREATE SCHEMA` statement.
-    pub fn parse_create_schema(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+    pub fn parse_create_schema(
+        &mut self,
+        or_replace: bool,
+        transient: bool,
+    ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
 
         let schema_name = self.parse_schema_name()?;
@@ -5790,7 +5794,14 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let with = if self.peek_keyword(Keyword::WITH) {
+        // Snowflake's `WITH MANAGED ACCESS` shares the `WITH` keyword with
+        // Trino's `WITH (key='value')` option list, so probe for the
+        // Snowflake form first; `parse_keywords` backtracks if the full
+        // sequence is absent, leaving the Trino branch below intact.
+        let with_managed_access =
+            self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
+
+        let with = if !with_managed_access && self.peek_keyword(Keyword::WITH) {
             Some(self.parse_options(Keyword::WITH)?)
         } else {
             None
@@ -5808,14 +5819,19 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let comment = self.parse_optional_inline_comment()?;
+
         Ok(Statement::CreateSchema {
             schema_name,
             or_replace,
+            transient,
+            with_managed_access,
             if_not_exists,
             with,
             options,
             default_collate_spec,
             clone,
+            comment,
         })
     }
 
