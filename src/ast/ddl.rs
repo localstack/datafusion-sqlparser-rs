@@ -3608,6 +3608,8 @@ pub struct CreateFunction {
     pub or_replace: bool,
     /// True if this is a `CREATE TEMPORARY FUNCTION` statement
     pub temporary: bool,
+    /// True if this is a `CREATE SECURE FUNCTION` statement (Snowflake).
+    pub secure: bool,
     /// True if this is a `CREATE IF NOT EXISTS FUNCTION` statement
     pub if_not_exists: bool,
     /// Name of the function to be created.
@@ -3680,9 +3682,10 @@ impl fmt::Display for CreateFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "CREATE {or_alter}{or_replace}{temp}FUNCTION {if_not_exists}{name}",
+            "CREATE {or_alter}{or_replace}{temp}{secure}FUNCTION {if_not_exists}{name}",
             name = self.name,
             temp = if self.temporary { "TEMPORARY " } else { "" },
+            secure = if self.secure { "SECURE " } else { "" },
             or_alter = if self.or_alter { "OR ALTER " } else { "" },
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             if_not_exists = if self.if_not_exists {
