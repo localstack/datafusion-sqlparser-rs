@@ -410,12 +410,18 @@ impl Dialect for SnowflakeDialect {
                     or_replace, temporary, volatile, parser,
                 ));
             } else {
-                // need to go back with the cursor
+                // Not a Snowflake-specific CREATE form — rewind the consumed
+                // tokens so the generic `parse_create` re-parses from `CREATE`.
+                // The TEMP/VOLATILE/TRANSIENT/ICEBERG group is one token and
+                // must be rewound too, else generic forms that follow it strand
+                // the modifier (e.g. `CREATE TRANSIENT SCHEMA`). `LOCAL`/`GLOBAL`
+                // are deliberately left stranded so invalid combinations such as
+                // `CREATE LOCAL GLOBAL TABLE` still surface as errors.
                 let mut back = 1;
                 if or_replace {
                     back += 2
                 }
-                if temporary {
+                if temporary || volatile || transient || iceberg {
                     back += 1
                 }
                 for _i in 0..back {
