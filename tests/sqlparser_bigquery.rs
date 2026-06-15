@@ -2310,6 +2310,7 @@ fn test_bigquery_create_function() {
             or_alter: false,
             or_replace: true,
             temporary: true,
+            secure: false,
             if_not_exists: false,
             name: ObjectName::from(vec![
                 Ident::new("project1"),
