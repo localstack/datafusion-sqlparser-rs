@@ -5640,8 +5640,10 @@ impl<'a> Parser<'a> {
             self.parse_create_policy().map(Into::into)
         } else if self.parse_keyword(Keyword::EXTERNAL) {
             self.parse_create_external_table(or_replace).map(Into::into)
+        } else if self.parse_keywords(&[Keyword::SECURE, Keyword::FUNCTION]) {
+            self.parse_create_function(or_alter, or_replace, temporary, true)
         } else if self.parse_keyword(Keyword::FUNCTION) {
-            self.parse_create_function(or_alter, or_replace, temporary)
+            self.parse_create_function(or_alter, or_replace, temporary, false)
         } else if self.parse_keyword(Keyword::DOMAIN) {
             self.parse_create_domain().map(Into::into)
         } else if self.parse_keyword(Keyword::TRIGGER) {
@@ -6265,12 +6267,13 @@ impl<'a> Parser<'a> {
         or_alter: bool,
         or_replace: bool,
         temporary: bool,
+        secure: bool,
     ) -> Result<Statement, ParserError> {
         if dialect_of!(self is HiveDialect) {
             self.parse_hive_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is PostgreSqlDialect | GenericDialect | SnowflakeDialect) {
-            self.parse_postgres_create_function(or_replace, temporary)
+            self.parse_postgres_create_function(or_replace, temporary, secure)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
             self.parse_create_macro(or_replace, temporary)
@@ -6293,6 +6296,7 @@ impl<'a> Parser<'a> {
         &mut self,
         or_replace: bool,
         temporary: bool,
+        secure: bool,
     ) -> Result<CreateFunction, ParserError> {
         let name = self.parse_object_name(false)?;
 
@@ -6432,6 +6436,7 @@ impl<'a> Parser<'a> {
             or_alter: false,
             or_replace,
             temporary,
+            secure,
             name,
             args: Some(args),
             return_type,
@@ -6468,6 +6473,7 @@ impl<'a> Parser<'a> {
             or_alter: false,
             or_replace,
             temporary,
+            secure: false,
             name,
             function_body: Some(body),
             using,
@@ -6548,6 +6554,7 @@ impl<'a> Parser<'a> {
             or_alter: false,
             or_replace,
             temporary,
+            secure: false,
             if_not_exists,
             name,
             args: Some(args),
@@ -6639,6 +6646,7 @@ impl<'a> Parser<'a> {
             or_alter,
             or_replace,
             temporary,
+            secure: false,
             if_not_exists: false,
             name,
             args: Some(args),

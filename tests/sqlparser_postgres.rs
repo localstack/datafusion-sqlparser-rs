@@ -4918,6 +4918,7 @@ $$"#;
             or_alter: false,
             or_replace: true,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("check_strings_different")]),
             args: Some(vec![
                 OperateFunctionArg::with_name(
@@ -4965,6 +4966,7 @@ $$"#;
             or_alter: false,
             or_replace: true,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("check_not_zero")]),
             args: Some(vec![
                 OperateFunctionArg::with_name(
@@ -5008,6 +5010,7 @@ $$"#;
             or_alter: false,
             or_replace: true,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("check_values_different")]),
             args: Some(vec![
                 OperateFunctionArg::with_name(
@@ -5055,6 +5058,7 @@ $$"#;
             or_alter: false,
             or_replace: true,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("check_values_different")]),
             args: Some(vec![
                 OperateFunctionArg::with_name(
@@ -5098,6 +5102,7 @@ $$"#;
             or_alter: false,
             or_replace: true,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("foo")]),
             args: Some(vec![
                 OperateFunctionArg::with_name(
@@ -5147,6 +5152,7 @@ fn parse_create_function() {
             or_alter: false,
             or_replace: false,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("add")]),
             args: Some(vec![
                 OperateFunctionArg::unnamed(DataType::Integer(None)),
@@ -5288,6 +5294,7 @@ fn parse_create_function_c_with_module_pathname() {
             or_alter: false,
             or_replace: false,
             temporary: false,
+            secure: false,
             name: ObjectName::from(vec![Ident::new("cas_in")]),
             args: Some(vec![OperateFunctionArg::with_name(
                 "input",
@@ -7115,6 +7122,7 @@ fn parse_trigger_related_functions() {
             or_alter: false,
             or_replace: false,
             temporary: false,
+            secure: false,
             if_not_exists: false,
             name: ObjectName::from(vec![Ident::new("emp_stamp")]),
             args: Some(vec![]),
