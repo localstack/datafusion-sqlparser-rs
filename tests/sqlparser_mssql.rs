@@ -240,6 +240,7 @@ fn parse_create_function() {
             or_alter: false,
             or_replace: false,
             temporary: false,
+            secure: false,
             if_not_exists: false,
             name: ObjectName::from(vec![Ident::new("some_scalar_udf")]),
             args: Some(vec![
@@ -426,6 +427,7 @@ fn parse_create_function_parameter_default_values() {
             or_alter: false,
             or_replace: false,
             temporary: false,
+            secure: false,
             if_not_exists: false,
             name: ObjectName::from(vec![Ident::new("test_func")]),
             args: Some(vec![OperateFunctionArg {
