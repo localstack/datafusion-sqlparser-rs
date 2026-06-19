@@ -1880,8 +1880,27 @@ impl<'a> Parser<'a> {
         let is_outer_join = self.peek_outer_join_operator();
         match &self.peek_token_ref().token {
             Token::LParen if !is_outer_join => {
-                let id_parts = vec![w.to_ident(w_span)];
-                self.parse_function(ObjectName::from(id_parts))
+                let ident = w.to_ident(w_span);
+                // Snowflake call-by-name in expression position:
+                // `IDENTIFIER('f')(args)`. The `IDENTIFIER('f')` forms the
+                // callee name (an `ObjectNamePart::Function`) and the trailing
+                // `(args)` is the actual call — mirror the object-name grammar
+                // so the resulting `Expr::Function` matches the CALL path shape.
+                if self.dialect.is_identifier_generating_function_name(&ident, &[]) {
+                    let checkpoint = self.index;
+                    self.expect_token(&Token::LParen)?;
+                    let args = self
+                        .parse_comma_separated0(Self::parse_function_args, Token::RParen)?;
+                    self.expect_token(&Token::RParen)?;
+                    if self.peek_token_ref().token == Token::LParen {
+                        let name = ObjectName(vec![ObjectNamePart::Function(
+                            ObjectNamePartFunction { name: ident, args },
+                        )]);
+                        return self.parse_function(name);
+                    }
+                    self.index = checkpoint;
+                }
+                self.parse_function(ObjectName::from(vec![ident]))
             }
             // string introducer https://dev.mysql.com/doc/refman/8.0/en/charset-introducer.html
             Token::SingleQuotedString(_)
