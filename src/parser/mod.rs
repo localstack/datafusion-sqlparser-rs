@@ -8361,6 +8361,30 @@ impl<'a> Parser<'a> {
     /// [`SetExpr::Show`]. The pre-existing `(SELECT ...)` subquery path is left
     /// untouched.
     fn parse_snowflake_declaration_payload_expr(&mut self) -> Result<Expr, ParserError> {
+        let is_paren_execute = self.dialect.supports_execute_immediate()
+            && self.peek_nth_token_ref(0).token == Token::LParen
+            && matches!(
+                &self.peek_nth_token_ref(1).token,
+                Token::Word(w) if w.keyword == Keyword::EXECUTE
+            );
+        if is_paren_execute {
+            self.expect_token(&Token::LParen)?;
+            self.expect_keyword_is(Keyword::EXECUTE)?;
+            let execute = self.parse_execute()?;
+            self.expect_token(&Token::RParen)?;
+            return Ok(Expr::Subquery(Box::new(Query {
+                with: None,
+                body: Box::new(SetExpr::Execute(execute)),
+                order_by: None,
+                limit_clause: None,
+                fetch: None,
+                locks: vec![],
+                for_clause: None,
+                settings: None,
+                format_clause: None,
+                pipe_operators: vec![],
+            })));
+        }
         let is_paren_show = self.dialect.supports_show_in_resultset_cursor()
             && self.peek_nth_token_ref(0).token == Token::LParen
             && matches!(

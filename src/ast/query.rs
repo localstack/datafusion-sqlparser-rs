@@ -180,6 +180,11 @@ pub enum SetExpr {
     /// `SHOW` statement used as the query payload of a Snowflake `RESULTSET` or
     /// `CURSOR` declaration (`RESULTSET DEFAULT (SHOW ...)`, `CURSOR FOR (SHOW ...)`).
     Show(Statement),
+    /// `EXECUTE IMMEDIATE` statement used as the query payload of a Snowflake
+    /// `RESULTSET` declaration (`RESULTSET := (EXECUTE IMMEDIATE '<query>')`). The
+    /// payload SQL is only known at runtime, so the contained statement carries
+    /// the dynamic-SQL expression rather than a static query body.
+    Execute(Statement),
 }
 
 impl SetExpr {
@@ -209,6 +214,7 @@ impl fmt::Display for SetExpr {
             SetExpr::Merge(v) => v.fmt(f),
             SetExpr::Table(t) => t.fmt(f),
             SetExpr::Show(v) => v.fmt(f),
+            SetExpr::Execute(v) => v.fmt(f),
             SetExpr::SetOperation {
                 left,
                 right,
