@@ -865,7 +865,7 @@ fn format_datetime_precision_and_tz(
     let len_fmt = len.as_ref().map(|l| format!("({l})")).unwrap_or_default();
 
     match time_zone {
-        TimezoneInfo::Tz => {
+        TimezoneInfo::Tz | TimezoneInfo::WithLocalTimeZone => {
             write!(f, "{time_zone}{len_fmt}")?;
         }
         _ => {
@@ -928,6 +928,10 @@ pub enum TimezoneInfo {
     ///
     /// [Postgresql]: https://www.postgresql.org/docs/current/datatype-datetime.html
     Tz,
+    /// Snowflake `WITH LOCAL TIME ZONE`, e.g. TIMESTAMP WITH LOCAL TIME ZONE, [Snowflake]
+    ///
+    /// [Snowflake]: https://docs.snowflake.com/en/sql-reference/data-types-datetime
+    WithLocalTimeZone,
 }
 
 impl fmt::Display for TimezoneInfo {
@@ -947,6 +951,9 @@ impl fmt::Display for TimezoneInfo {
                 // must be aware of that. Check <https://www.postgresql.org/docs/14/datatype-datetime.html>
                 // for more information
                 write!(f, "TZ")
+            }
+            TimezoneInfo::WithLocalTimeZone => {
+                write!(f, " WITH LOCAL TIME ZONE")
             }
         }
     }

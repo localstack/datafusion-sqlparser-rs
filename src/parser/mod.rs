@@ -13099,10 +13099,20 @@ impl<'a> Parser<'a> {
                     Ok(DataType::Datetime64(precision, time_zone))
                 }
                 Keyword::TIMESTAMP => {
-                    let precision = self.parse_optional_precision()?;
+                    let mut precision = self.parse_optional_precision()?;
                     let tz = if self.parse_keyword(Keyword::WITH) {
-                        self.expect_keywords(&[Keyword::TIME, Keyword::ZONE])?;
-                        TimezoneInfo::WithTimeZone
+                        if self.parse_keyword(Keyword::LOCAL) {
+                            self.expect_keywords(&[Keyword::TIME, Keyword::ZONE])?;
+                            // Snowflake spells the precision after the full type
+                            // name: TIMESTAMP WITH LOCAL TIME ZONE(9).
+                            if precision.is_none() {
+                                precision = self.parse_optional_precision()?;
+                            }
+                            TimezoneInfo::WithLocalTimeZone
+                        } else {
+                            self.expect_keywords(&[Keyword::TIME, Keyword::ZONE])?;
+                            TimezoneInfo::WithTimeZone
+                        }
                     } else if self.parse_keyword(Keyword::WITHOUT) {
                         self.expect_keywords(&[Keyword::TIME, Keyword::ZONE])?;
                         TimezoneInfo::WithoutTimeZone
