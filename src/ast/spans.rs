@@ -237,6 +237,7 @@ impl Spanned for SetExpr {
             SetExpr::Delete(statement) => statement.span(),
             SetExpr::Merge(statement) => statement.span(),
             SetExpr::Show(statement) => statement.span(),
+            SetExpr::Execute(statement) => statement.span(),
         }
     }
 }
