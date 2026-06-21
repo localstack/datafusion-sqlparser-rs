@@ -13070,6 +13070,17 @@ impl<'a> Parser<'a> {
                 Keyword::NVARCHAR => {
                     Ok(DataType::Nvarchar(self.parse_optional_character_length()?))
                 }
+                Keyword::NCHAR => {
+                    if self.parse_keyword(Keyword::VARYING) {
+                        Ok(DataType::Nvarchar(self.parse_optional_character_length()?))
+                    } else {
+                        let modifiers = self.parse_optional_type_modifiers()?.unwrap_or_default();
+                        Ok(DataType::Custom(
+                            ObjectName::from(vec![Ident::new("NCHAR")]),
+                            modifiers,
+                        ))
+                    }
+                }
                 Keyword::CHARACTER => {
                     if self.parse_keyword(Keyword::VARYING) {
                         Ok(DataType::CharacterVarying(
