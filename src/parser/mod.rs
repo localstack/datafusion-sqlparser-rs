@@ -1886,16 +1886,21 @@ impl<'a> Parser<'a> {
                 // callee name (an `ObjectNamePart::Function`) and the trailing
                 // `(args)` is the actual call — mirror the object-name grammar
                 // so the resulting `Expr::Function` matches the CALL path shape.
-                if self.dialect.is_identifier_generating_function_name(&ident, &[]) {
+                if self
+                    .dialect
+                    .is_identifier_generating_function_name(&ident, &[])
+                {
                     let checkpoint = self.index;
                     self.expect_token(&Token::LParen)?;
-                    let args = self
-                        .parse_comma_separated0(Self::parse_function_args, Token::RParen)?;
+                    let args =
+                        self.parse_comma_separated0(Self::parse_function_args, Token::RParen)?;
                     self.expect_token(&Token::RParen)?;
                     if self.peek_token_ref().token == Token::LParen {
-                        let name = ObjectName(vec![ObjectNamePart::Function(
-                            ObjectNamePartFunction { name: ident, args },
-                        )]);
+                        let name =
+                            ObjectName(vec![ObjectNamePart::Function(ObjectNamePartFunction {
+                                name: ident,
+                                args,
+                            })]);
                         return self.parse_function(name);
                     }
                     self.index = checkpoint;
