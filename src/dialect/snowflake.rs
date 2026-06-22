@@ -1677,7 +1677,25 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         // FILE_FORMAT
         if parser.parse_keyword(Keyword::FILE_FORMAT) {
             parser.expect_token(&Token::Eq)?;
-            file_format = parser.parse_key_value_options(true, &[], false)?.options;
+            if parser.peek_token().token == Token::LParen {
+                file_format = parser.parse_key_value_options(true, &[], false)?.options;
+            } else {
+                // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>`
+                // is sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` —
+                // normalize it (mirrors CREATE STAGE).
+                let tok = parser.peek_token();
+                let value = match tok.token {
+                    Token::Word(w) => {
+                        parser.next_token();
+                        Value::Placeholder(w.value.clone()).with_span(tok.span)
+                    }
+                    _ => parser.parse_value()?,
+                };
+                file_format = vec![KeyValueOption {
+                    option_name: "FORMAT_NAME".to_string(),
+                    option_value: KeyValueOptionKind::Single(value),
+                }];
+            }
         // PARTITION BY
         } else if parser.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
             partition = Some(Box::new(parser.parse_expr()?))
