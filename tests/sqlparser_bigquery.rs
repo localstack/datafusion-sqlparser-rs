@@ -45,11 +45,40 @@ fn parse_literal_string() {
         r#""""triple-double'unescaped""", "#, // line 1, column 118
         r#"'''triple-single"unescaped'''"#,   // line 1, column 131
     );
+    // With the escaper doubling every quote unconditionally, an unescape=false
+    // value containing a quote re-serializes to the quote-doubled form, so the
+    // serialization no longer round-trips verbatim. Parsing (the point of this
+    // test) is unchanged; assert the parsed AST and the canonical doubled form.
+    let canonical = concat!(
+        "SELECT ",
+        "'single', ",
+        r#""double", "#,
+        "'''triple-single''', ",
+        r#""""triple-double""", "#,
+        r#"'single\''escaped', "#,
+        r#"'''triple-single\'escaped''', "#,
+        r#"'''triple-single'unescaped''', "#,
+        r#""double\""escaped", "#,
+        r#""""triple-double\"escaped""", "#,
+        r#""""triple-double"unescaped""", "#,
+        r#""""triple-double'unescaped""", "#,
+        r#"'''triple-single"unescaped'''"#,
+    );
     let dialect = TestedDialects::new_with_options(
         vec![Box::new(BigQueryDialect {})],
         ParserOptions::new().with_unescape(false),
     );
-    let select = dialect.verified_only_select(sql);
+    let statements = dialect.parse_sql_statements(sql).unwrap();
+    assert_eq!(1, statements.len());
+    let stmt = statements.into_iter().next().unwrap();
+    assert_eq!(canonical, stmt.to_string());
+    let select = match stmt {
+        Statement::Query(query) => match *query.body {
+            SetExpr::Select(s) => *s,
+            _ => panic!("Expected SetExpr::Select"),
+        },
+        _ => panic!("Expected Query"),
+    };
     assert_eq!(12, select.projection.len());
     assert_eq!(
         &Expr::Value(Value::SingleQuotedString("single".into()).with_empty_span()),
