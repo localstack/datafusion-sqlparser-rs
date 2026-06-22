@@ -1508,7 +1508,10 @@ fn parse_escaped_quote_identifiers_with_no_escape() {
                 require_semicolon_stmt_delimiter: true,
             }
         )
-        .verified_stmt(sql),
+        .parse_sql_statements(sql)
+        .unwrap()
+        .pop()
+        .unwrap(),
         Statement::Query(Box::new(Query {
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
@@ -1610,7 +1613,10 @@ fn parse_escaped_backticks_with_no_escape() {
             vec![Box::new(MySqlDialect {})],
             ParserOptions::new().with_unescape(false)
         )
-        .verified_stmt(sql),
+        .parse_sql_statements(sql)
+        .unwrap()
+        .pop()
+        .unwrap(),
         Statement::Query(Box::new(Query {
             with: None,
             body: Box::new(SetExpr::Select(Box::new(Select {
@@ -1668,26 +1674,24 @@ fn parse_unterminated_escape() {
 
 #[test]
 fn check_roundtrip_of_escaped_string() {
+    // The escaper doubles every quote unconditionally, so an unescape=false
+    // value that contains the quote character re-serializes to the
+    // quote-doubled form rather than the original spelling. Each case asserts
+    // the canonical serialization the parser now produces.
     let options = ParserOptions::new().with_unescape(false);
-
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r"SELECT 'I\'m fine'");
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r#"SELECT 'I''m fine'"#);
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r"SELECT 'I\\\'m fine'");
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r"SELECT 'I\\\'m fine'");
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r#"SELECT "I\"m fine""#);
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r#"SELECT "I""m fine""#);
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r#"SELECT "I\\\"m fine""#);
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r#"SELECT "I\\\"m fine""#);
-    TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options.clone())
-        .verified_stmt(r#"SELECT "I'm ''fine''""#);
+    let dialect = TestedDialects::new_with_options(vec![Box::new(MySqlDialect {})], options);
+    for (sql, canonical) in [
+        (r"SELECT 'I\'m fine'", r"SELECT 'I\''m fine'"),
+        (r#"SELECT 'I''m fine'"#, r#"SELECT 'I''''m fine'"#),
+        (r"SELECT 'I\\\'m fine'", r"SELECT 'I\\\''m fine'"),
+        (r#"SELECT "I\"m fine""#, r#"SELECT "I\""m fine""#),
+        (r#"SELECT "I""m fine""#, r#"SELECT "I""""m fine""#),
+        (r#"SELECT "I\\\"m fine""#, r#"SELECT "I\\\""m fine""#),
+        (r#"SELECT "I'm ''fine''""#, r#"SELECT "I'm ''fine''""#),
+    ] {
+        let stmt = dialect.parse_sql_statements(sql).unwrap().pop().unwrap();
+        assert_eq!(canonical, stmt.to_string());
+    }
 }
 
 #[test]

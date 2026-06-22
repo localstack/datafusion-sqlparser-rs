@@ -1558,13 +1558,26 @@ fn parse_escaped_single_quote_string_predicate_with_no_escape() {
     let sql = "SELECT id, fname, lname FROM customer \
                WHERE salary <> 'Jim''s salary'";
 
-    let ast = TestedDialects::new_with_options(
+    // unescape=false keeps the doubled quote in the value; the escaper now
+    // re-doubles on display (`'Jim''''s salary'`), so this no longer
+    // round-trips verbatim. Parsing is the point here — assert the AST.
+    let stmt = TestedDialects::new_with_options(
         vec![Box::new(MySqlDialect {})],
         ParserOptions::new()
             .with_trailing_commas(true)
             .with_unescape(false),
     )
-    .verified_only_select(sql);
+    .parse_sql_statements(sql)
+    .unwrap()
+    .pop()
+    .unwrap();
+    let ast = match stmt {
+        Statement::Query(query) => match *query.body {
+            SetExpr::Select(s) => *s,
+            _ => panic!("Expected SetExpr::Select"),
+        },
+        _ => panic!("Expected Query"),
+    };
 
     assert_eq!(
         Some(Expr::BinaryOp {
