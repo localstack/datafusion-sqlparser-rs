@@ -2676,6 +2676,83 @@ fn test_copy_into_file_format() {
 }
 
 #[test]
+fn test_copy_into_file_format_name_shorthand() {
+    // Bare `FILE_FORMAT = <name>` is sugar for
+    // `FILE_FORMAT = (FORMAT_NAME = <name>)`, for both the location-unload and
+    // table-load forms. An unquoted identifier parses to a `Placeholder`.
+    for sql in [
+        "COPY INTO @my_stage/out.csv FROM (SELECT * FROM t) FILE_FORMAT = my_format",
+        "COPY INTO my_table FROM @my_stage FILE_FORMAT = my_format",
+    ] {
+        match snowflake()
+            .parse_sql_statements(sql)
+            .unwrap()
+            .pop()
+            .unwrap()
+        {
+            Statement::CopyIntoSnowflake { file_format, .. } => {
+                assert_eq!(
+                    file_format.options,
+                    vec![KeyValueOption {
+                        option_name: "FORMAT_NAME".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("my_format".to_string()).with_empty_span()
+                        ),
+                    }]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // A quoted name parses to a `SingleQuotedString`.
+    match snowflake()
+        .parse_sql_statements(
+            "COPY INTO @my_stage/out.csv FROM (SELECT * FROM t) FILE_FORMAT = 'my_format'",
+        )
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CopyIntoSnowflake { file_format, .. } => {
+            assert_eq!(
+                file_format.options,
+                vec![KeyValueOption {
+                    option_name: "FORMAT_NAME".to_string(),
+                    option_value: KeyValueOptionKind::Single(
+                        Value::SingleQuotedString("my_format".to_string()).with_empty_span()
+                    ),
+                }]
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // The parenthesized form is unaffected.
+    match snowflake()
+        .parse_sql_statements(
+            "COPY INTO @my_stage/out.csv FROM (SELECT * FROM t) FILE_FORMAT = (TYPE = 'CSV')",
+        )
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CopyIntoSnowflake { file_format, .. } => {
+            assert_eq!(
+                file_format.options,
+                vec![KeyValueOption {
+                    option_name: "TYPE".to_string(),
+                    option_value: KeyValueOptionKind::Single(
+                        Value::SingleQuotedString("CSV".to_string()).with_empty_span()
+                    ),
+                }]
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_copy_into_copy_options() {
     let sql = concat!(
         "COPY INTO my_company.emp_basic ",
