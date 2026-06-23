@@ -4275,21 +4275,22 @@ impl<'a> Parser<'a> {
                     let negated = self.parse_keyword(Keyword::NOT);
                     let regexp = self.parse_keyword(Keyword::REGEXP);
                     let rlike = self.parse_keyword(Keyword::RLIKE);
-                    let null = if !self.in_column_definition_state() {
-                        self.parse_keyword(Keyword::NULL)
-                    } else {
-                        false
-                    };
                     if regexp || rlike {
-                        Ok(Expr::RLike {
+                        return Ok(Expr::RLike {
                             negated,
                             expr: Box::new(expr),
                             pattern: Box::new(
                                 self.parse_subexpr(self.dialect.prec_value(Precedence::Like))?,
                             ),
                             regexp,
-                        })
-                    } else if negated && null {
+                        });
+                    }
+                    let null = if !self.in_column_definition_state() {
+                        self.parse_keyword(Keyword::NULL)
+                    } else {
+                        false
+                    };
+                    if negated && null {
                         Ok(Expr::IsNotNull(Box::new(expr)))
                     } else if self.parse_keyword(Keyword::IN) {
                         self.parse_in(expr, negated)
