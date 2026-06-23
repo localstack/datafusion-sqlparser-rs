@@ -6710,6 +6710,8 @@ fn parse_trigger_related_functions() {
             base_location: None,
             external_volume: None,
             catalog: None,
+            catalog_table_name: None,
+            auto_refresh: None,
             catalog_sync: None,
             storage_serialization_policy: None,
             table_options: CreateTableOptions::None,
