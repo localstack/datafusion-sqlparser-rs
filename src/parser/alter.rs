@@ -259,7 +259,7 @@ impl Parser<'_> {
             };
 
         let set_tag = if self.parse_keywords(&[Keyword::SET, Keyword::TAG]) {
-            self.parse_key_value_options(false, &[])?
+            self.parse_key_value_options(false, &[], false)?
         } else {
             KeyValueOptions {
                 delimiter: KeyValueOptionsDelimiter::Comma,
@@ -277,7 +277,7 @@ impl Parser<'_> {
         };
 
         let set_props = if self.parse_keyword(Keyword::SET) {
-            self.parse_key_value_options(false, &[])?
+            self.parse_key_value_options(false, &[], false)?
         } else {
             KeyValueOptions {
                 delimiter: KeyValueOptionsDelimiter::Comma,
