@@ -4352,6 +4352,16 @@ fn test_grant_database_role_to() {
 }
 
 #[test]
+fn test_create_database_role() {
+    snowflake().verified_stmt("CREATE DATABASE ROLE r1");
+    snowflake().verified_stmt("CREATE OR REPLACE DATABASE ROLE r1");
+    snowflake().verified_stmt("CREATE DATABASE ROLE IF NOT EXISTS db1.r1");
+    snowflake().verified_stmt("CREATE DATABASE ROLE db1.\"role123\" COMMENT = 'hi'");
+    snowflake().verified_stmt("DROP DATABASE ROLE r1");
+    snowflake().verified_stmt("DROP DATABASE ROLE IF EXISTS db1.\"role123\"");
+}
+
+#[test]
 fn test_alter_session() {
     assert_eq!(
         snowflake()

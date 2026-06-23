@@ -393,6 +393,7 @@ impl Spanned for Statement {
             ),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
+            Statement::CreateDatabaseRole { name, .. } => name.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),
             Statement::CreateCollation(create_collation) => create_collation.span(),
             Statement::DropExtension(drop_extension) => drop_extension.span(),

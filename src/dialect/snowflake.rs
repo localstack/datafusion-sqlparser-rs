@@ -434,6 +434,9 @@ impl Dialect for SnowflakeDialect {
                     .map(Into::into),
                 );
             } else if parser.parse_keyword(Keyword::DATABASE) {
+                if parser.parse_keyword(Keyword::ROLE) {
+                    return Some(parser.parse_create_database_role(or_replace));
+                }
                 return Some(parse_create_database(or_replace, transient, parser));
             } else {
                 // Not a Snowflake-specific CREATE form — rewind the consumed
