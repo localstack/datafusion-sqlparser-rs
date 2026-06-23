@@ -5578,9 +5578,11 @@ impl<'a> Parser<'a> {
             self.parse_create_task(or_replace)
         } else if self.parse_keyword(Keyword::PROCEDURE) {
             self.parse_create_procedure(or_alter, or_replace)
+        } else if self.parse_keyword(Keyword::ROLE) {
+            self.parse_create_role(or_replace).map(Into::into)
         } else if or_replace {
             self.expected_ref(
-                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or SCHEMA or WAREHOUSE or TASK or PROCEDURE after CREATE OR REPLACE",
+                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or SCHEMA or WAREHOUSE or TASK or PROCEDURE or ROLE after CREATE OR REPLACE",
                 self.peek_token_ref(),
             )
         } else if self.parse_keyword(Keyword::EXTENSION) {
@@ -5593,8 +5595,6 @@ impl<'a> Parser<'a> {
             self.parse_create_virtual_table()
         } else if self.parse_keyword(Keyword::DATABASE) {
             self.parse_create_database()
-        } else if self.parse_keyword(Keyword::ROLE) {
-            self.parse_create_role().map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(temporary)
         } else if self.parse_keyword(Keyword::COLLATION) {
@@ -7281,7 +7281,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a `CREATE ROLE` statement.
-    pub fn parse_create_role(&mut self) -> Result<CreateRole, ParserError> {
+    pub fn parse_create_role(&mut self, or_replace: bool) -> Result<CreateRole, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let names = self.parse_comma_separated(|p| p.parse_object_name(false))?;
 
@@ -7485,6 +7485,7 @@ impl<'a> Parser<'a> {
 
         Ok(CreateRole {
             names,
+            or_replace,
             if_not_exists,
             login,
             inherit,
