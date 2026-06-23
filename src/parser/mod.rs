@@ -5842,9 +5842,11 @@ impl<'a> Parser<'a> {
             || self.dialect.supports_create_proc_syntax() && self.parse_keyword(Keyword::PROC)
         {
             self.parse_create_procedure(or_alter, or_replace)
+        } else if self.parse_keyword(Keyword::ROLE) {
+            self.parse_create_role(RoleKeyword::Role, or_replace).map(Into::into)
         } else if or_replace {
             self.expected_ref(
-                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or AGGREGATE or SCHEMA or WAREHOUSE or TASK or PROCEDURE after CREATE OR REPLACE",
+                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or AGGREGATE or SCHEMA or WAREHOUSE or TASK or PROCEDURE or ROLE after CREATE OR REPLACE",
                 self.peek_token_ref(),
             )
         } else if self.parse_keyword(Keyword::EXTENSION) {
@@ -5857,10 +5859,8 @@ impl<'a> Parser<'a> {
             self.parse_create_virtual_table()
         } else if self.parse_keyword(Keyword::DATABASE) {
             self.parse_create_database()
-        } else if self.parse_keyword(Keyword::ROLE) {
-            self.parse_create_role(RoleKeyword::Role).map(Into::into)
         } else if self.dialect.supports_create_group() && self.parse_keyword(Keyword::GROUP) {
-            self.parse_create_role(RoleKeyword::Group).map(Into::into)
+            self.parse_create_role(RoleKeyword::Group, false).map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(temporary)
         } else if self.parse_keyword(Keyword::COLLATION) {
@@ -7524,6 +7524,7 @@ impl<'a> Parser<'a> {
     pub fn parse_create_role(
         &mut self,
         role_keyword: RoleKeyword,
+        or_replace: bool,
     ) -> Result<CreateRole, ParserError> {
         let supports_if_not_exists = matches!(role_keyword, RoleKeyword::Role)
             && self.dialect.supports_create_role_if_not_exists();
@@ -7740,6 +7741,7 @@ impl<'a> Parser<'a> {
         Ok(CreateRole {
             keyword: role_keyword,
             names,
+            or_replace,
             if_not_exists,
             login,
             inherit,
