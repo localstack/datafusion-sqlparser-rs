@@ -7788,7 +7788,9 @@ impl<'a> Parser<'a> {
         let persistent = dialect_of!(self is DuckDbDialect)
             && self.parse_one_of_keywords(&[Keyword::PERSISTENT]).is_some();
 
-        let object_type = if self.parse_keyword(Keyword::TABLE) {
+        let object_type = if self.parse_keyword(Keyword::TABLE)
+            || self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE])
+        {
             ObjectType::Table
         } else if self.parse_keyword(Keyword::COLLATION) {
             ObjectType::Collation

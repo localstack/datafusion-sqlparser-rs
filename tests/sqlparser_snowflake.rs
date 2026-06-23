@@ -1052,6 +1052,120 @@ fn test_snowflake_create_iceberg_table_without_location() {
 }
 
 #[test]
+fn test_snowflake_create_iceberg_table_comma_separated_options() {
+    let canonical = "CREATE ICEBERG TABLE my_table (a INT) \
+        EXTERNAL_VOLUME='volume' CATALOG='SNOWFLAKE' BASE_LOCATION='relative/path'";
+    let with_commas = "CREATE ICEBERG TABLE my_table (a INT) \
+        CATALOG='SNOWFLAKE', EXTERNAL_VOLUME='volume', BASE_LOCATION='relative/path'";
+    match snowflake().one_statement_parses_to(with_commas, canonical) {
+        Statement::CreateTable(CreateTable {
+            iceberg,
+            columns,
+            external_volume,
+            catalog,
+            base_location,
+            ..
+        }) => {
+            assert!(iceberg);
+            assert_eq!(1, columns.len());
+            assert_eq!("volume", external_volume.unwrap());
+            assert_eq!("SNOWFLAKE", catalog.unwrap());
+            assert_eq!("relative/path", base_location.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_externally_managed() {
+    match snowflake().verified_stmt(
+        "CREATE OR REPLACE ICEBERG TABLE my_table \
+         CATALOG='my_catalog_integration' CATALOG_TABLE_NAME='db.tbl' AUTO_REFRESH=TRUE",
+    ) {
+        Statement::CreateTable(CreateTable {
+            or_replace,
+            iceberg,
+            columns,
+            catalog,
+            catalog_table_name,
+            auto_refresh,
+            base_location,
+            query,
+            ..
+        }) => {
+            assert!(or_replace);
+            assert!(iceberg);
+            assert!(columns.is_empty());
+            assert_eq!("my_catalog_integration", catalog.unwrap());
+            assert_eq!("db.tbl", catalog_table_name.unwrap());
+            assert_eq!(Some(true), auto_refresh);
+            assert!(base_location.is_none());
+            assert!(query.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_ctas() {
+    match snowflake().verified_stmt(
+        "CREATE ICEBERG TABLE my_table EXTERNAL_VOLUME='volume' CATALOG='SNOWFLAKE' \
+         BASE_LOCATION='relative/path' AS SELECT 1",
+    ) {
+        Statement::CreateTable(CreateTable {
+            iceberg,
+            columns,
+            query,
+            base_location,
+            ..
+        }) => {
+            assert!(iceberg);
+            assert!(columns.is_empty());
+            assert!(query.is_some());
+            assert_eq!("relative/path", base_location.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_drop_iceberg_table() {
+    match snowflake().one_statement_parses_to(
+        "DROP ICEBERG TABLE IF EXISTS my_table PURGE",
+        "DROP TABLE IF EXISTS my_table PURGE",
+    ) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            purge,
+            ..
+        } => {
+            assert_eq!(ObjectType::Table, object_type);
+            assert!(if_exists);
+            assert!(purge);
+            assert_eq!("my_table", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().one_statement_parses_to("DROP ICEBERG TABLE my_table", "DROP TABLE my_table")
+    {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            purge,
+            ..
+        } => {
+            assert_eq!(ObjectType::Table, object_type);
+            assert!(!if_exists);
+            assert!(!purge);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_snowflake_create_table_trailing_options() {
     // Serialization to SQL assume that in `CREATE TABLE AS` the options come before the `AS (<query>)`
     // but Snowflake supports also the other way around

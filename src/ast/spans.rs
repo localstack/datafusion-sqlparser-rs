@@ -638,6 +638,8 @@ impl Spanned for CreateTable {
             external_volume: _,                 // todo, Snowflake specific
             base_location: _,                   // todo, Snowflake specific
             catalog: _,                         // todo, Snowflake specific
+            catalog_table_name: _,              // todo, Snowflake specific
+            auto_refresh: _,                    // todo, Snowflake specific
             catalog_sync: _,                    // todo, Snowflake specific
             storage_serialization_policy: _,
             table_options,

@@ -1109,6 +1109,14 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder.catalog = Some(parser.parse_literal_string()?);
                 }
+                Keyword::CATALOG_TABLE_NAME => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.catalog_table_name = Some(parser.parse_literal_string()?);
+                }
+                Keyword::AUTO_REFRESH => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.auto_refresh = Some(parser.parse_boolean_string()?);
+                }
                 Keyword::BASE_LOCATION => {
                     parser.expect_token(&Token::Eq)?;
                     builder.base_location = Some(parser.parse_literal_string()?);
@@ -1178,6 +1186,8 @@ pub fn parse_create_table(
                 let (columns, constraints) = parser.parse_columns()?;
                 builder = builder.columns(columns).constraints(constraints);
             }
+            // Snowflake accepts Iceberg table options either space- or comma-separated.
+            Token::Comma => {}
             Token::EOF => {
                 break;
             }
@@ -1198,7 +1208,9 @@ pub fn parse_create_table(
 
     builder = builder.table_options(table_options);
 
-    if iceberg && builder.base_location.is_none() {
+    // Managed Iceberg tables require BASE_LOCATION; externally-managed ones
+    // (identified by CATALOG_TABLE_NAME) do not.
+    if iceberg && builder.base_location.is_none() && builder.catalog_table_name.is_none() {
         return Err(ParserError::ParserError(
             "BASE_LOCATION is required for ICEBERG tables".to_string(),
         ));

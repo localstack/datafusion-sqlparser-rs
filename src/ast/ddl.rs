@@ -3073,6 +3073,12 @@ pub struct CreateTable {
     /// Snowflake "CATALOG" clause for Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub catalog: Option<String>,
+    /// Snowflake "CATALOG_TABLE_NAME" clause for externally-managed Iceberg tables
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
+    pub catalog_table_name: Option<String>,
+    /// Snowflake "AUTO_REFRESH" clause for externally-managed Iceberg tables
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
+    pub auto_refresh: Option<bool>,
     /// Snowflake "CATALOG_SYNC" clause for Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub catalog_sync: Option<String>,
@@ -3162,8 +3168,10 @@ impl fmt::Display for CreateTable {
             && self.like.is_none()
             && self.clone.is_none()
             && self.partition_of.is_none()
+            && !self.iceberg
         {
-            // PostgreSQL allows `CREATE TABLE t ();`, but requires empty parens
+            // PostgreSQL allows `CREATE TABLE t ();`, but requires empty parens.
+            // Externally-managed Iceberg tables legitimately have no column list.
             f.write_str(" ()")?;
         } else if let Some(CreateTableLikeKind::Parenthesized(like_in_columns_list)) = &self.like {
             write!(f, " ({like_in_columns_list})")?;
@@ -3305,6 +3313,18 @@ impl fmt::Display for CreateTable {
 
         if let Some(catalog) = self.catalog.as_ref() {
             write!(f, " CATALOG='{catalog}'")?;
+        }
+
+        if let Some(catalog_table_name) = self.catalog_table_name.as_ref() {
+            write!(f, " CATALOG_TABLE_NAME='{catalog_table_name}'")?;
+        }
+
+        if let Some(auto_refresh) = self.auto_refresh {
+            write!(
+                f,
+                " AUTO_REFRESH={}",
+                if auto_refresh { "TRUE" } else { "FALSE" }
+            )?;
         }
 
         if self.iceberg {
