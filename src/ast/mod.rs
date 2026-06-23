@@ -8376,6 +8376,8 @@ pub enum Action {
 
     /// Read access.
     Read,
+    /// Write access.
+    Write,
     /// Read session-level access.
     ReadSession,
     /// References with optional column list.
@@ -8469,6 +8471,7 @@ impl fmt::Display for Action {
             Action::Ownership => f.write_str("OWNERSHIP")?,
             Action::PurchaseDataExchangeListing => f.write_str("PURCHASE DATA EXCHANGE LISTING")?,
             Action::Read => f.write_str("READ")?,
+            Action::Write => f.write_str("WRITE")?,
             Action::ReadSession => f.write_str("READ SESSION")?,
             Action::References { .. } => f.write_str("REFERENCES")?,
             Action::Replicate => f.write_str("REPLICATE")?,
@@ -8537,6 +8540,8 @@ pub enum ActionCreateObjectType {
     Schema,
     /// A share object.
     Share,
+    /// A table object.
+    Table,
     /// A user object.
     User,
     /// A warehouse object.
@@ -8563,6 +8568,7 @@ impl fmt::Display for ActionCreateObjectType {
             ActionCreateObjectType::Role => write!(f, "ROLE"),
             ActionCreateObjectType::Schema => write!(f, "SCHEMA"),
             ActionCreateObjectType::Share => write!(f, "SHARE"),
+            ActionCreateObjectType::Table => write!(f, "TABLE"),
             ActionCreateObjectType::User => write!(f, "USER"),
             ActionCreateObjectType::Warehouse => write!(f, "WAREHOUSE"),
         }
@@ -8895,6 +8901,46 @@ pub enum GrantObjects {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
+    /// Grant privileges on `ALL SCHEMAS IN DATABASE <database_name> [, ...]`
+    AllSchemasInDatabase {
+        /// The target database names.
+        databases: Vec<ObjectName>,
+    },
+    /// Grant privileges on `ALL TABLES IN DATABASE <database_name> [, ...]`
+    AllTablesInDatabase {
+        /// The target database names.
+        databases: Vec<ObjectName>,
+    },
+    /// Grant privileges on `ALL STAGES IN SCHEMA <schema_name> [, ...]`
+    AllStagesInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `ALL FILE FORMATS IN SCHEMA <schema_name> [, ...]`
+    AllFileFormatsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `FUTURE TABLES IN DATABASE <database_name> [, ...]`
+    FutureTablesInDatabase {
+        /// The target database names.
+        databases: Vec<ObjectName>,
+    },
+    /// Grant privileges on `FUTURE STAGES IN SCHEMA <schema_name> [, ...]`
+    FutureStagesInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `FUTURE FILE FORMATS IN SCHEMA <schema_name> [, ...]`
+    FutureFileFormatsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `FUTURE FUNCTIONS IN SCHEMA <schema_name> [, ...]`
+    FutureFunctionsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
     /// Grant privileges on specific databases
     Databases(Vec<ObjectName>),
     /// Grant privileges on specific schemas
@@ -8913,6 +8959,10 @@ pub enum GrantObjects {
     ResourceMonitors(Vec<ObjectName>),
     /// Grant privileges on users
     Users(Vec<ObjectName>),
+    /// Grant privileges on specific stages
+    Stages(Vec<ObjectName>),
+    /// Grant privileges on specific file formats
+    FileFormats(Vec<ObjectName>),
     /// Grant privileges on compute pools
     ComputePools(Vec<ObjectName>),
     /// Grant privileges on connections
@@ -9056,11 +9106,73 @@ impl fmt::Display for GrantObjects {
                     display_comma_separated(schemas)
                 )
             }
+            GrantObjects::AllSchemasInDatabase { databases } => {
+                write!(
+                    f,
+                    "ALL SCHEMAS IN DATABASE {}",
+                    display_comma_separated(databases)
+                )
+            }
+            GrantObjects::AllTablesInDatabase { databases } => {
+                write!(
+                    f,
+                    "ALL TABLES IN DATABASE {}",
+                    display_comma_separated(databases)
+                )
+            }
+            GrantObjects::AllStagesInSchema { schemas } => {
+                write!(
+                    f,
+                    "ALL STAGES IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::AllFileFormatsInSchema { schemas } => {
+                write!(
+                    f,
+                    "ALL FILE FORMATS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::FutureTablesInDatabase { databases } => {
+                write!(
+                    f,
+                    "FUTURE TABLES IN DATABASE {}",
+                    display_comma_separated(databases)
+                )
+            }
+            GrantObjects::FutureStagesInSchema { schemas } => {
+                write!(
+                    f,
+                    "FUTURE STAGES IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::FutureFileFormatsInSchema { schemas } => {
+                write!(
+                    f,
+                    "FUTURE FILE FORMATS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::FutureFunctionsInSchema { schemas } => {
+                write!(
+                    f,
+                    "FUTURE FUNCTIONS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
             GrantObjects::ResourceMonitors(objects) => {
                 write!(f, "RESOURCE MONITOR {}", display_comma_separated(objects))
             }
             GrantObjects::Users(objects) => {
                 write!(f, "USER {}", display_comma_separated(objects))
+            }
+            GrantObjects::Stages(objects) => {
+                write!(f, "STAGE {}", display_comma_separated(objects))
+            }
+            GrantObjects::FileFormats(objects) => {
+                write!(f, "FILE FORMAT {}", display_comma_separated(objects))
             }
             GrantObjects::ComputePools(objects) => {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
