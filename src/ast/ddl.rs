@@ -459,6 +459,13 @@ pub enum AlterTableOperation {
     },
     /// Remove the clustering key from the table.
     DropClusteringKey,
+    /// `DROP ROW ACCESS POLICY <policy_name>` (Snowflake).
+    DropRowAccessPolicy {
+        /// The row access policy name being detached.
+        policy_name: ObjectName,
+    },
+    /// `DROP ALL ROW ACCESS POLICIES` (Snowflake).
+    DropAllRowAccessPolicies,
     /// Redshift `ALTER SORTKEY (column_list)`
     /// <https://docs.aws.amazon.com/redshift/latest/dg/r_ALTER_TABLE.html>
     AlterSortKey {
@@ -1007,6 +1014,12 @@ impl fmt::Display for AlterTableOperation {
             AlterTableOperation::DropClusteringKey => {
                 write!(f, "DROP CLUSTERING KEY")?;
                 Ok(())
+            }
+            AlterTableOperation::DropRowAccessPolicy { policy_name } => {
+                write!(f, "DROP ROW ACCESS POLICY {policy_name}")
+            }
+            AlterTableOperation::DropAllRowAccessPolicies => {
+                write!(f, "DROP ALL ROW ACCESS POLICIES")
             }
             AlterTableOperation::AlterSortKey { columns } => {
                 write!(f, "ALTER SORTKEY({})", display_comma_separated(columns))?;

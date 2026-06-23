@@ -5080,6 +5080,59 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] ROW ACCESS POLICY [IF NOT EXISTS] <name>
+    ///   AS (<args>) RETURNS BOOLEAN -> <body>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-row-access-policy>
+    CreateRowAccessPolicy {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Signature arguments (name + type).
+        args: Vec<OperateFunctionArg>,
+        /// The declared return type (`BOOLEAN`).
+        return_type: DataType,
+        /// The policy body expression after `->`.
+        policy_expr: Expr,
+    },
+    /// ```sql
+    /// ALTER ROW ACCESS POLICY [IF EXISTS] <name> RENAME TO <new_name>
+    /// ```
+    AlterRowAccessPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// New policy name.
+        new_name: ObjectName,
+    },
+    /// ```sql
+    /// DROP ROW ACCESS POLICY [IF EXISTS] <name>
+    /// ```
+    DropRowAccessPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] ROW ACCESS POLICY <name>
+    /// ```
+    DescribeRowAccessPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW ROW ACCESS POLICIES [ LIKE '<pattern>' ]
+    /// ```
+    ShowRowAccessPolicies {
+        /// Optional `LIKE` filter.
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration>
@@ -7218,6 +7271,50 @@ impl fmt::Display for Statement {
                     "SHOW {terse}STAGES{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
+            }
+            Statement::CreateRowAccessPolicy {
+                or_replace,
+                if_not_exists,
+                name,
+                args,
+                return_type,
+                policy_expr,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}ROW ACCESS POLICY {if_not_exists}{name} AS ({args}) RETURNS {return_type} -> {policy_expr}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    args = display_comma_separated(args),
+                )
+            }
+            Statement::AlterRowAccessPolicy {
+                if_exists,
+                name,
+                new_name,
+            } => {
+                write!(
+                    f,
+                    "ALTER ROW ACCESS POLICY {if_exists}{name} RENAME TO {new_name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropRowAccessPolicy { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP ROW ACCESS POLICY {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeRowAccessPolicy { name } => {
+                write!(f, "DESCRIBE ROW ACCESS POLICY {name}")
+            }
+            Statement::ShowRowAccessPolicies { filter } => {
+                write!(f, "SHOW ROW ACCESS POLICIES")?;
+                if let Some(filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
             }
             Statement::CreateCatalogIntegration {
                 or_replace,

@@ -32,6 +32,7 @@ use crate::ast::{
     CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
     ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
     DollarQuotedString, ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident,
+    OperateFunctionArg,
     IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
     IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
@@ -304,6 +305,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_stage(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+            // ALTER ROW ACCESS POLICY
+            return Some(parse_alter_row_access_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
             // ALTER SESSION
             let set = match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
@@ -329,6 +335,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_file_format(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+            // DROP ROW ACCESS POLICY
+            return Some(parse_drop_row_access_policy(parser));
+        }
+
         if parser
             .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
             .is_some()
@@ -344,6 +355,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::WAREHOUSE) {
                 // DESC[RIBE] WAREHOUSE
                 return Some(parse_describe_warehouse(parser));
+            }
+            if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+                // DESC[RIBE] ROW ACCESS POLICY
+                return Some(parse_describe_row_access_policy(parser));
             }
             // not handled — put back DESC/DESCRIBE
             parser.prev_token();
@@ -362,6 +377,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] CATALOG INTEGRATION
             if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATION]) {
                 return Some(parse_create_catalog_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] ROW ACCESS POLICY
+            if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+                return Some(parse_create_row_access_policy(or_replace, parser));
             }
 
             // LOCAL | GLOBAL
@@ -471,6 +491,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::STAGES) {
                 return Some(parse_show_stages(terse, parser));
+            }
+            if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
+                return Some(parse_show_row_access_policies(parser));
             }
             //Give back Keyword::TERSE
             if terse {
@@ -2532,6 +2555,73 @@ fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, Pars
 fn parse_describe_warehouse(parser: &mut Parser) -> Result<Statement, ParserError> {
     let name = parser.parse_object_name(false)?;
     Ok(Statement::DescribeWarehouse { name })
+}
+
+/// Parse `CREATE [OR REPLACE] ROW ACCESS POLICY [IF NOT EXISTS] <name>
+///   AS (<arg> <type>[, ...]) RETURNS <type> -> <body>`
+fn parse_create_row_access_policy(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    parser.expect_token(&Token::LParen)?;
+    let args = parser.parse_comma_separated(|p| {
+        let arg_name = p.parse_identifier()?;
+        let data_type = p.parse_data_type()?;
+        Ok(OperateFunctionArg {
+            mode: None,
+            name: Some(arg_name),
+            data_type,
+            default_expr: None,
+        })
+    })?;
+    parser.expect_token(&Token::RParen)?;
+    parser.expect_keyword_is(Keyword::RETURNS)?;
+    let return_type = parser.parse_data_type()?;
+    parser.expect_token(&Token::Arrow)?;
+    let policy_expr = parser.parse_expr()?;
+    Ok(Statement::CreateRowAccessPolicy {
+        or_replace,
+        if_not_exists,
+        name,
+        args,
+        return_type,
+        policy_expr,
+    })
+}
+
+/// Parse `ALTER ROW ACCESS POLICY [IF EXISTS] <name> RENAME TO <new_name>`
+fn parse_alter_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+    let new_name = parser.parse_object_name(false)?;
+    Ok(Statement::AlterRowAccessPolicy {
+        if_exists,
+        name,
+        new_name,
+    })
+}
+
+/// Parse `DROP ROW ACCESS POLICY [IF EXISTS] <name>`
+fn parse_drop_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropRowAccessPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] ROW ACCESS POLICY <name>`
+fn parse_describe_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeRowAccessPolicy { name })
+}
+
+/// Parse `SHOW ROW ACCESS POLICIES [LIKE '<pattern>']`
+fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowRowAccessPolicies { filter })
 }
 
 /// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`

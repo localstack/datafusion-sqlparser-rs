@@ -10919,6 +10919,16 @@ impl<'a> Parser<'a> {
                 AlterTableOperation::DropProjection { if_exists, name }
             } else if self.parse_keywords(&[Keyword::CLUSTERING, Keyword::KEY]) {
                 AlterTableOperation::DropClusteringKey
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::ROW,
+                Keyword::ACCESS,
+                Keyword::POLICIES,
+            ]) {
+                AlterTableOperation::DropAllRowAccessPolicies
+            } else if self.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+                let policy_name = self.parse_object_name(false)?;
+                AlterTableOperation::DropRowAccessPolicy { policy_name }
             } else {
                 let has_column_keyword = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
                 let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
