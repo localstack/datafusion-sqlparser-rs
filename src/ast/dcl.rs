@@ -311,6 +311,8 @@ impl fmt::Display for SecondaryRoles {
 pub struct CreateRole {
     /// Role names to create.
     pub names: Vec<ObjectName>,
+    /// Whether `OR REPLACE` was specified.
+    pub or_replace: bool,
     /// Whether `IF NOT EXISTS` was specified.
     pub if_not_exists: bool,
     // Postgres
@@ -353,7 +355,8 @@ impl fmt::Display for CreateRole {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "CREATE ROLE {if_not_exists}{names}{superuser}{create_db}{create_role}{inherit}{login}{replication}{bypassrls}",
+            "CREATE {or_replace}ROLE {if_not_exists}{names}{superuser}{create_db}{create_role}{inherit}{login}{replication}{bypassrls}",
+            or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
             names = display_separated(&self.names, ", "),
             superuser = match self.superuser {
