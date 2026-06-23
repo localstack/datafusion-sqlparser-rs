@@ -17773,6 +17773,11 @@ fn parse_create_user() {
     verified_stmt("CREATE OR REPLACE USER u1");
     verified_stmt("CREATE OR REPLACE USER IF NOT EXISTS u1");
     verified_stmt("CREATE OR REPLACE USER IF NOT EXISTS u1 PASSWORD='secret'");
+    // Snowflake accepts options without the `=` separator.
+    one_statement_parses_to(
+        "CREATE USER u1 PASSWORD 'secret'",
+        "CREATE USER u1 PASSWORD='secret'",
+    );
     let dialects = all_dialects_where(|d| d.supports_boolean_literals());
     dialects.one_statement_parses_to(
         "CREATE OR REPLACE USER IF NOT EXISTS u1 PASSWORD='secret' MUST_CHANGE_PASSWORD=TRUE",

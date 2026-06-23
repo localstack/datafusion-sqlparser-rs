@@ -5501,11 +5501,11 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_identifier()?;
         let options = self
-            .parse_key_value_options(false, &[Keyword::WITH, Keyword::TAG])?
+            .parse_key_value_options(false, &[Keyword::WITH, Keyword::TAG], true)?
             .options;
         let with_tags = self.parse_keyword(Keyword::WITH);
         let tags = if self.parse_keyword(Keyword::TAG) {
-            self.parse_key_value_options(true, &[])?.options
+            self.parse_key_value_options(true, &[], false)?.options
         } else {
             vec![]
         };
@@ -21258,6 +21258,7 @@ impl<'a> Parser<'a> {
         &mut self,
         parenthesized: bool,
         end_words: &[Keyword],
+        optional_equals: bool,
     ) -> Result<KeyValueOptions, ParserError> {
         let mut options: Vec<KeyValueOption> = Vec::new();
         let mut delimiter = KeyValueOptionsDelimiter::Space;
@@ -21279,7 +21280,7 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 Token::Word(w) if !end_words.contains(&w.keyword) => {
-                    options.push(self.parse_key_value_option(&w)?)
+                    options.push(self.parse_key_value_option(&w, optional_equals)?)
                 }
                 Token::Word(w) if end_words.contains(&w.keyword) => {
                     self.prev_token();
@@ -21297,12 +21298,20 @@ impl<'a> Parser<'a> {
         Ok(KeyValueOptions { delimiter, options })
     }
 
-    /// Parses a `KEY = VALUE` construct based on the specified key
+    /// Parses a `KEY = VALUE` construct based on the specified key.
+    ///
+    /// When `optional_equals` is set the `=` separator may be omitted
+    /// (`KEY VALUE`), as Snowflake accepts for `CREATE USER` options.
     pub(crate) fn parse_key_value_option(
         &mut self,
         key: &Word,
+        optional_equals: bool,
     ) -> Result<KeyValueOption, ParserError> {
-        self.expect_token(&Token::Eq)?;
+        if optional_equals {
+            let _ = self.consume_token(&Token::Eq);
+        } else {
+            self.expect_token(&Token::Eq)?;
+        }
         let peeked_token = self.peek_token();
         match peeked_token.token {
             Token::SingleQuotedString(_) => Ok(KeyValueOption {
@@ -21347,7 +21356,7 @@ impl<'a> Parser<'a> {
                     None => Ok(KeyValueOption {
                         option_name: key.value.clone(),
                         option_value: KeyValueOptionKind::KeyValueOptions(Box::new(
-                            self.parse_key_value_options(true, &[])?,
+                            self.parse_key_value_options(true, &[], optional_equals)?,
                         )),
                     }),
                 }

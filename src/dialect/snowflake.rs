@@ -1411,17 +1411,17 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             }?);
         } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
             parser.expect_token(&Token::Eq)?;
-            credentials.options = parser.parse_key_value_options(true, &[])?.options;
+            credentials.options = parser.parse_key_value_options(true, &[], false)?.options;
         } else if encryption.options.is_empty() && parser.parse_keyword(Keyword::ENCRYPTION) {
             parser.expect_token(&Token::Eq)?;
-            encryption.options = parser.parse_key_value_options(true, &[])?.options;
+            encryption.options = parser.parse_key_value_options(true, &[], false)?.options;
         } else if directory_table_params.is_empty() && parser.parse_keyword(Keyword::DIRECTORY) {
             parser.expect_token(&Token::Eq)?;
-            directory_table_params = parser.parse_key_value_options(true, &[])?.options;
+            directory_table_params = parser.parse_key_value_options(true, &[], false)?.options;
         } else if file_format.is_empty() && parser.parse_keyword(Keyword::FILE_FORMAT) {
             parser.expect_token(&Token::Eq)?;
             if parser.peek_token().token == Token::LParen {
-                file_format = parser.parse_key_value_options(true, &[])?.options;
+                file_format = parser.parse_key_value_options(true, &[], false)?.options;
             } else {
                 // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>`
                 // is sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` —
@@ -1441,7 +1441,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             }
         } else if copy_options.is_empty() && parser.parse_keyword(Keyword::COPY_OPTIONS) {
             parser.expect_token(&Token::Eq)?;
-            copy_options = parser.parse_key_value_options(true, &[])?.options;
+            copy_options = parser.parse_key_value_options(true, &[], false)?.options;
         } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
             parser.expect_token(&Token::Eq)?;
             comment = Some(parser.parse_comment_value()?);
@@ -1649,7 +1649,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         // FILE_FORMAT
         if parser.parse_keyword(Keyword::FILE_FORMAT) {
             parser.expect_token(&Token::Eq)?;
-            file_format = parser.parse_key_value_options(true, &[])?.options;
+            file_format = parser.parse_key_value_options(true, &[], false)?.options;
         // PARTITION BY
         } else if parser.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
             partition = Some(Box::new(parser.parse_expr()?))
@@ -1687,14 +1687,14 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         // COPY OPTIONS
         } else if parser.parse_keyword(Keyword::COPY_OPTIONS) {
             parser.expect_token(&Token::Eq)?;
-            copy_options = parser.parse_key_value_options(true, &[])?.options;
+            copy_options = parser.parse_key_value_options(true, &[], false)?.options;
         } else {
             match parser.next_token().token {
                 Token::SemiColon | Token::EOF => break,
                 Token::Comma => continue,
                 // In `COPY INTO <location>` the copy options do not have a shared key
                 // like in `COPY INTO <table>`
-                Token::Word(key) => copy_options.push(parser.parse_key_value_option(&key)?),
+                Token::Word(key) => copy_options.push(parser.parse_key_value_option(&key, false)?),
                 _ => {
                     return parser
                         .expected_ref("another copy option, ; or EOF'", parser.peek_token_ref())
@@ -1857,7 +1857,7 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
     if parser.parse_keyword(Keyword::CREDENTIALS) {
         parser.expect_token(&Token::Eq)?;
         credentials = KeyValueOptions {
-            options: parser.parse_key_value_options(true, &[])?.options,
+            options: parser.parse_key_value_options(true, &[], false)?.options,
             delimiter: KeyValueOptionsDelimiter::Space,
         };
     }
@@ -1866,7 +1866,7 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
     if parser.parse_keyword(Keyword::ENCRYPTION) {
         parser.expect_token(&Token::Eq)?;
         encryption = KeyValueOptions {
-            options: parser.parse_key_value_options(true, &[])?.options,
+            options: parser.parse_key_value_options(true, &[], false)?.options,
             delimiter: KeyValueOptionsDelimiter::Space,
         };
     }
@@ -1901,7 +1901,7 @@ fn parse_session_options(
             Token::Word(key) => {
                 parser.advance_token();
                 if set {
-                    let option = parser.parse_key_value_option(&key)?;
+                    let option = parser.parse_key_value_option(&key, false)?;
                     options.push(option);
                 } else {
                     options.push(KeyValueOption {
@@ -2437,7 +2437,7 @@ fn parse_create_file_format(
             if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
                 break;
             }
-            let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT])?;
+            let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
             if parsed.options.is_empty() {
                 break;
             }
@@ -2472,7 +2472,7 @@ fn parse_alter_file_format(parser: &mut Parser) -> Result<Statement, ParserError
     let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
         AlterFileFormatOperation::RenameTo(parser.parse_object_name(false)?)
     } else if parser.parse_keyword(Keyword::SET) {
-        let options = parser.parse_key_value_options(false, &[Keyword::COMMENT])?;
+        let options = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
         let comment = if parser.parse_keyword(Keyword::COMMENT) {
             parser.expect_token(&Token::Eq)?;
             Some(parser.parse_comment_value()?)
