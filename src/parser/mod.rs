@@ -18374,6 +18374,8 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::OrganiationListing)
         } else if self.parse_keywords(&[Keyword::REPLICATION, Keyword::GROUP]) {
             Some(ActionCreateObjectType::ReplicationGroup)
+        } else if self.parse_keywords(&[Keyword::DATABASE, Keyword::ROLE]) {
+            Some(ActionCreateObjectType::DatabaseRole)
         }
         // Single-word object types
         else if self.parse_keyword(Keyword::ACCOUNT) {
@@ -18394,6 +18396,14 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::User)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
             Some(ActionCreateObjectType::Warehouse)
+        } else if matches!(self.peek_token_ref().token, Token::Word(ref w) if w.keyword == Keyword::NoKeyword)
+        {
+            // Qualified "class" create privilege, e.g.
+            // `CREATE SNOWFLAKE.ML.ANOMALY_DETECTION`.
+            self.maybe_parse(|p| p.parse_object_name(false))
+                .ok()
+                .flatten()
+                .map(ActionCreateObjectType::Class)
         } else {
             None
         }

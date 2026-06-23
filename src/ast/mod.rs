@@ -8432,8 +8432,13 @@ pub enum ActionCreateObjectType {
     ComputePool,
     /// A data exchange listing.
     DataExchangeListing,
+    /// A class object identified by a qualified name, e.g.
+    /// `CREATE SNOWFLAKE.ML.ANOMALY_DETECTION`.
+    Class(ObjectName),
     /// A database object.
     Database,
+    /// A database role object.
+    DatabaseRole,
     /// An external volume object.
     ExternalVolume,
     /// A failover group object.
@@ -8466,7 +8471,9 @@ impl fmt::Display for ActionCreateObjectType {
             ActionCreateObjectType::ApplicationPackage => write!(f, "APPLICATION PACKAGE"),
             ActionCreateObjectType::ComputePool => write!(f, "COMPUTE POOL"),
             ActionCreateObjectType::DataExchangeListing => write!(f, "DATA EXCHANGE LISTING"),
+            ActionCreateObjectType::Class(name) => write!(f, "{name}"),
             ActionCreateObjectType::Database => write!(f, "DATABASE"),
+            ActionCreateObjectType::DatabaseRole => write!(f, "DATABASE ROLE"),
             ActionCreateObjectType::ExternalVolume => write!(f, "EXTERNAL VOLUME"),
             ActionCreateObjectType::FailoverGroup => write!(f, "FAILOVER GROUP"),
             ActionCreateObjectType::Integration => write!(f, "INTEGRATION"),
