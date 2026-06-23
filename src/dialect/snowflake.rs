@@ -429,6 +429,9 @@ impl Dialect for SnowflakeDialect {
                     .map(Into::into),
                 );
             } else if parser.parse_keyword(Keyword::DATABASE) {
+                if parser.parse_keyword(Keyword::ROLE) {
+                    return Some(parser.parse_create_database_role(or_replace));
+                }
                 return Some(parse_create_database(or_replace, transient, parser));
             } else if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 return Some(parse_create_file_format(

@@ -4006,6 +4006,21 @@ pub enum Statement {
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createrole.html)
     CreateRole(CreateRole),
     /// ```sql
+    /// CREATE [OR REPLACE] DATABASE ROLE [IF NOT EXISTS] <name> [COMMENT = '...']
+    /// ```
+    /// Snowflake database role (scoped to a database, distinct from an
+    /// account-level role).
+    CreateDatabaseRole {
+        /// `true` when `OR REPLACE` was specified.
+        or_replace: bool,
+        /// `true` when `IF NOT EXISTS` was specified.
+        if_not_exists: bool,
+        /// The (optionally database-qualified) role name.
+        name: ObjectName,
+        /// Optional `COMMENT = '...'` clause.
+        comment: Option<String>,
+    },
+    /// ```sql
     /// CREATE SECRET
     /// ```
     /// See [DuckDB](https://duckdb.org/docs/sql/statements/create_secret.html)
@@ -6328,6 +6343,23 @@ impl fmt::Display for Statement {
                 write!(f, "{drop_operator_class}")
             }
             Statement::CreateRole(create_role) => write!(f, "{create_role}"),
+            Statement::CreateDatabaseRole {
+                or_replace,
+                if_not_exists,
+                name,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}DATABASE ROLE {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
             Statement::CreateSecret {
                 or_replace,
                 temporary,
@@ -9785,6 +9817,8 @@ pub enum ObjectType {
     Database,
     /// A role.
     Role,
+    /// A database role (Snowflake).
+    DatabaseRole,
     /// A sequence.
     Sequence,
     /// A stage.
@@ -9812,6 +9846,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
             ObjectType::Role => "ROLE",
+            ObjectType::DatabaseRole => "DATABASE ROLE",
             ObjectType::Sequence => "SEQUENCE",
             ObjectType::Stage => "STAGE",
             ObjectType::Type => "TYPE",
