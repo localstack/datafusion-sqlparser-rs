@@ -5896,7 +5896,11 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::VIRTUAL) {
             self.parse_create_virtual_table()
         } else if self.parse_keyword(Keyword::DATABASE) {
-            self.parse_create_database()
+            if self.parse_keyword(Keyword::ROLE) {
+                self.parse_create_database_role(or_replace)
+            } else {
+                self.parse_create_database()
+            }
         } else if self.dialect.supports_create_group() && self.parse_keyword(Keyword::GROUP) {
             self.parse_create_role(RoleKeyword::Group, false).map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
@@ -7851,6 +7855,28 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a Snowflake `CREATE [OR REPLACE] DATABASE ROLE` statement. The
+    /// leading `DATABASE ROLE` keywords have already been consumed.
+    pub fn parse_create_database_role(
+        &mut self,
+        or_replace: bool,
+    ) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let comment = if self.parse_keyword(Keyword::COMMENT) {
+            self.expect_token(&Token::Eq)?;
+            Some(self.parse_literal_string()?)
+        } else {
+            None
+        };
+        Ok(Statement::CreateDatabaseRole {
+            or_replace,
+            if_not_exists,
+            name,
+            comment,
+        })
+    }
+
     /// Parse an `OWNER` clause.
     pub fn parse_owner(&mut self) -> Result<Owner, ParserError> {
         let owner = match self.parse_one_of_keywords(&[Keyword::CURRENT_USER, Keyword::CURRENT_ROLE, Keyword::SESSION_USER]) {
@@ -8638,7 +8664,11 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::SCHEMA) {
             ObjectType::Schema
         } else if self.parse_keyword(Keyword::DATABASE) {
-            ObjectType::Database
+            if self.parse_keyword(Keyword::ROLE) {
+                ObjectType::DatabaseRole
+            } else {
+                ObjectType::Database
+            }
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             ObjectType::Sequence
         } else if self.parse_keyword(Keyword::STAGE) {
