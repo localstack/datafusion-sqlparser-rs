@@ -842,6 +842,7 @@ define_keywords!(
     PLANS,
     POINT,
     POLARIS,
+    POLICIES,
     POLICY,
     POLYGON,
     POOL,
