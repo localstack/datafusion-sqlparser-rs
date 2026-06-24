@@ -442,6 +442,7 @@ define_keywords!(
     EXPLAIN,
     EXPLICIT,
     EXPORT,
+    EXPORTED,
     EXPRESSION,
     EXTEND,
     EXTENDED,
