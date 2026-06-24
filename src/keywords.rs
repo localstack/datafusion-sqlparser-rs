@@ -854,6 +854,7 @@ define_keywords!(
     PRIOR,
     PRIVILEGES,
     PROCEDURE,
+    PROCEDURES,
     PROCESSLIST,
     PROFILE,
     PROGRAM,

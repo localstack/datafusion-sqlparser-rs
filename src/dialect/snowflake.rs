@@ -498,6 +498,9 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
                 return Some(parse_show_row_access_policies(parser));
             }
+            if parser.parse_keyword(Keyword::PROCEDURES) {
+                return Some(parse_show_procedures(parser));
+            }
             //Give back Keyword::TERSE
             if terse {
                 parser.prev_token();
@@ -2637,6 +2640,12 @@ fn parse_describe_row_access_policy(parser: &mut Parser) -> Result<Statement, Pa
 fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowRowAccessPolicies { filter })
+}
+
+/// Parse `SHOW PROCEDURES [LIKE '<pattern>']`
+fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowProcedures { filter })
 }
 
 /// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`
