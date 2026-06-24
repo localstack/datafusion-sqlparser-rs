@@ -37,7 +37,8 @@ use crate::ast::{
     IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
     MultiTableInsertWhenClause, ObjectName, ObjectNamePart, RefreshModeKind, RowAccessPolicy,
-    ShowObjects, SqlOption, Statement, StorageLifecyclePolicy, StorageSerializationPolicy,
+    ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
+    StorageSerializationPolicy,
     TableObject, TagsColumnOption, Value, WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
@@ -497,6 +498,15 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::SEQUENCES) {
                 return Some(parse_show_sequences(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::PRIMARY) {
+                return Some(parse_show_keys(ShowKeysKind::Primary, terse, parser));
+            }
+            if parser.parse_keyword(Keyword::IMPORTED) {
+                return Some(parse_show_keys(ShowKeysKind::Imported, terse, parser));
+            }
+            if parser.parse_keyword(Keyword::EXPORTED) {
+                return Some(parse_show_keys(ShowKeysKind::Exported, terse, parser));
             }
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
                 return Some(parse_show_row_access_policies(parser));
@@ -2573,6 +2583,21 @@ fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_sequences(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowSequences {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] { PRIMARY | IMPORTED | EXPORTED } KEYS [ ... ]`
+fn parse_show_keys(
+    kind: ShowKeysKind,
+    terse: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::KEYS)?;
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowKeys {
+        kind,
         terse,
         show_options,
     })

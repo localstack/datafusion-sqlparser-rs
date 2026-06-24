@@ -555,6 +555,7 @@ impl Spanned for Statement {
             Statement::ShowFileFormats { .. } => Span::empty(),
             Statement::ShowStages { .. } => Span::empty(),
             Statement::ShowSequences { .. } => Span::empty(),
+            Statement::ShowKeys { .. } => Span::empty(),
             Statement::CreateRowAccessPolicy { .. } => Span::empty(),
             Statement::AlterRowAccessPolicy { .. } => Span::empty(),
             Statement::DropRowAccessPolicy { .. } => Span::empty(),

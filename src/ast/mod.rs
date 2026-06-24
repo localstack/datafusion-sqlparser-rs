@@ -2505,6 +2505,29 @@ impl fmt::Display for ShowCreateObject {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// Key-constraint catalog selected by a `SHOW ... KEYS` statement.
+pub enum ShowKeysKind {
+    /// `SHOW [TERSE] PRIMARY KEYS`
+    Primary,
+    /// `SHOW IMPORTED KEYS`
+    Imported,
+    /// `SHOW EXPORTED KEYS`
+    Exported,
+}
+
+impl fmt::Display for ShowKeysKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ShowKeysKind::Primary => f.write_str("PRIMARY"),
+            ShowKeysKind::Imported => f.write_str("IMPORTED"),
+            ShowKeysKind::Exported => f.write_str("EXPORTED"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// Objects that can be targeted by a `COMMENT` statement.
 pub enum CommentObject {
     /// A collation.
@@ -5104,6 +5127,19 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW [TERSE] PRIMARY KEYS [ IN ... ]
+    /// SHOW IMPORTED KEYS [ IN ... ]
+    /// SHOW EXPORTED KEYS [ IN ... ]
+    /// ```
+    ShowKeys {
+        /// Which key-constraint catalog to show.
+        kind: ShowKeysKind,
+        /// Whether to show terse output (only meaningful for `PRIMARY KEYS`).
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `IN` / `LIMIT` / ...).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] ROW ACCESS POLICY [IF NOT EXISTS] <name>
     ///   AS (<args>) RETURNS BOOLEAN -> <body>
     /// ```
@@ -7320,6 +7356,17 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "SHOW {terse}SEQUENCES{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
+            }
+            Statement::ShowKeys {
+                kind,
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}{kind} KEYS{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }
