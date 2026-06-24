@@ -5095,6 +5095,15 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW [TERSE] SEQUENCES [ LIKE '<pattern>' ] [ IN ... ] ...
+    /// ```
+    ShowSequences {
+        /// Whether to show terse output.
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `IN` / `LIMIT` / ...).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] ROW ACCESS POLICY [IF NOT EXISTS] <name>
     ///   AS (<args>) RETURNS BOOLEAN -> <body>
     /// ```
@@ -7308,6 +7317,16 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "SHOW {terse}STAGES{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
+            }
+            Statement::ShowSequences {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}SEQUENCES{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }

@@ -495,6 +495,9 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::STAGES) {
                 return Some(parse_show_stages(terse, parser));
             }
+            if parser.parse_keyword(Keyword::SEQUENCES) {
+                return Some(parse_show_sequences(terse, parser));
+            }
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
                 return Some(parse_show_row_access_policies(parser));
             }
@@ -2564,6 +2567,15 @@ fn parse_show_file_formats(terse: bool, parser: &mut Parser) -> Result<Statement
 fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowStages {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] SEQUENCES [ ... ]`
+fn parse_show_sequences(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowSequences {
         terse,
         show_options,
     })
