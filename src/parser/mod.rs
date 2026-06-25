@@ -19856,6 +19856,80 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::FutureSequencesInSchema {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::SCHEMAS,
+                Keyword::IN,
+                Keyword::DATABASE,
+            ]) {
+                Some(GrantObjects::AllSchemasInDatabase {
+                    databases: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::TABLES,
+                Keyword::IN,
+                Keyword::DATABASE,
+            ]) {
+                Some(GrantObjects::AllTablesInDatabase {
+                    databases: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::STAGES,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::AllStagesInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::FILE,
+                Keyword::FORMATS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::AllFileFormatsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::TABLES,
+                Keyword::IN,
+                Keyword::DATABASE,
+            ]) {
+                Some(GrantObjects::FutureTablesInDatabase {
+                    databases: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::STAGES,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::FutureStagesInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::FILE,
+                Keyword::FORMATS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::FutureFileFormatsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::FUNCTIONS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::FutureFunctionsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
             } else if self.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITOR]) {
                 Some(GrantObjects::ResourceMonitors(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
@@ -19887,6 +19961,14 @@ impl<'a> Parser<'a> {
             } else if self.peek_grant_object_type() && self.parse_keyword(Keyword::ROUTINE) {
                 Some(GrantObjects::Routines(
                     self.parse_comma_separated(Parser::parse_function_desc)?,
+                ))
+            } else if self.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
+                Some(GrantObjects::FileFormats(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
+            } else if self.parse_keyword(Keyword::STAGE) {
+                Some(GrantObjects::Stages(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
             } else {
                 let object_type = if self.peek_grant_object_type() {
@@ -20024,6 +20106,8 @@ impl<'a> Parser<'a> {
             })
         } else if self.parse_keyword(Keyword::READ) {
             Ok(Action::Read)
+        } else if self.parse_keyword(Keyword::WRITE) {
+            Ok(Action::Write)
         } else if self.parse_keyword(Keyword::REPLICATE) {
             Ok(Action::Replicate)
         } else if self.parse_keyword(Keyword::ROLE) {
@@ -20090,6 +20174,8 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::Schema)
         } else if self.parse_keyword(Keyword::SHARE) {
             Some(ActionCreateObjectType::Share)
+        } else if self.parse_keyword(Keyword::TABLE) {
+            Some(ActionCreateObjectType::Table)
         } else if self.parse_keyword(Keyword::USER) {
             Some(ActionCreateObjectType::User)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
