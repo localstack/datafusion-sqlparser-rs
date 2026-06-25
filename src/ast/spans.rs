@@ -562,6 +562,8 @@ impl Spanned for Statement {
             Statement::DescribeRowAccessPolicy { .. } => Span::empty(),
             Statement::ShowRowAccessPolicies { .. } => Span::empty(),
             Statement::ShowProcedures { .. } => Span::empty(),
+            Statement::ShowConnections { .. } => Span::empty(),
+            Statement::ShowShares { .. } => Span::empty(),
             Statement::CreateCatalogIntegration { .. } => Span::empty(),
             Statement::DropCatalogIntegration { .. } => Span::empty(),
             Statement::ShowCatalogIntegrations { .. } => Span::empty(),

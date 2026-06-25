@@ -514,6 +514,12 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::PROCEDURES) {
                 return Some(parse_show_procedures(parser));
             }
+            if parser.parse_keyword(Keyword::CONNECTIONS) {
+                return Some(parse_show_connections(parser));
+            }
+            if parser.parse_keyword(Keyword::SHARES) {
+                return Some(parse_show_shares(parser));
+            }
             //Give back Keyword::TERSE
             if terse {
                 parser.prev_token();
@@ -2707,6 +2713,18 @@ fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> 
 fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowWarehouses { filter })
+}
+
+/// Parse `SHOW CONNECTIONS [LIKE '<pattern>']`
+fn parse_show_connections(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowConnections { filter })
+}
+
+/// Parse `SHOW SHARES [LIKE '<pattern>']`
+fn parse_show_shares(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowShares { filter })
 }
 
 /// Parse `SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']`

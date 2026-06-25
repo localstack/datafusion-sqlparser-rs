@@ -5200,6 +5200,20 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// SHOW CONNECTIONS [ LIKE '<pattern>' ]
+    /// ```
+    ShowConnections {
+        /// Optional `LIKE` filter.
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// SHOW SHARES [ LIKE '<pattern>' ]
+    /// ```
+    ShowShares {
+        /// Optional `LIKE` filter.
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-catalog-integration>
@@ -7423,6 +7437,20 @@ impl fmt::Display for Statement {
             }
             Statement::ShowProcedures { filter } => {
                 write!(f, "SHOW PROCEDURES")?;
+                if let Some(filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::ShowConnections { filter } => {
+                write!(f, "SHOW CONNECTIONS")?;
+                if let Some(filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::ShowShares { filter } => {
+                write!(f, "SHOW SHARES")?;
                 if let Some(filter) = filter {
                     write!(f, " {filter}")?;
                 }
