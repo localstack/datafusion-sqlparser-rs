@@ -1893,6 +1893,48 @@ fn test_alter_table_add_column_if_not_exists() {
 }
 
 #[test]
+fn test_alter_table_add_multiple_columns() {
+    let sql = "ALTER TABLE tab ADD COLUMN a INT, b TEXT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumns {
+            column_keyword,
+            if_not_exists,
+            column_defs,
+        } => {
+            assert!(column_keyword);
+            assert!(!if_not_exists);
+            assert_eq!(column_defs.len(), 2);
+            assert_eq!(column_defs[0].name.to_string(), "a");
+            assert_eq!(column_defs[1].name.to_string(), "b");
+        }
+        _ => unreachable!(),
+    }
+
+    let sql = "ALTER TABLE tab ADD COLUMN IF NOT EXISTS a INT, b TEXT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumns {
+            column_keyword,
+            if_not_exists,
+            column_defs,
+        } => {
+            assert!(column_keyword);
+            assert!(if_not_exists);
+            assert_eq!(column_defs.len(), 2);
+        }
+        _ => unreachable!(),
+    }
+
+    // A single-column list still parses to the AddColumn variant.
+    let sql = "ALTER TABLE tab ADD COLUMN a INT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumn { column_def, .. } => {
+            assert_eq!(column_def.name.to_string(), "a");
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_alter_iceberg_table() {
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl DROP CLUSTERING KEY");
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl SUSPEND RECLUSTER");

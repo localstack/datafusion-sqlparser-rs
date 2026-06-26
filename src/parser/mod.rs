@@ -10783,15 +10783,38 @@ impl<'a> Parser<'a> {
                         false
                     };
 
-                    let column_def = self.parse_column_def()?;
+                    if self.dialect.supports_comma_separated_add_column_list() {
+                        let mut column_defs = vec![self.parse_column_def()?];
+                        while self.consume_token(&Token::Comma) {
+                            column_defs.push(self.parse_column_def()?);
+                        }
+                        if column_defs.len() == 1 {
+                            let column_def = column_defs.swap_remove(0);
+                            let column_position = self.parse_column_position()?;
+                            AlterTableOperation::AddColumn {
+                                column_keyword,
+                                if_not_exists,
+                                column_def,
+                                column_position,
+                            }
+                        } else {
+                            AlterTableOperation::AddColumns {
+                                column_keyword,
+                                if_not_exists,
+                                column_defs,
+                            }
+                        }
+                    } else {
+                        let column_def = self.parse_column_def()?;
 
-                    let column_position = self.parse_column_position()?;
+                        let column_position = self.parse_column_position()?;
 
-                    AlterTableOperation::AddColumn {
-                        column_keyword,
-                        if_not_exists,
-                        column_def,
-                        column_position,
+                        AlterTableOperation::AddColumn {
+                            column_keyword,
+                            if_not_exists,
+                            column_def,
+                            column_position,
+                        }
                     }
                 }
             }

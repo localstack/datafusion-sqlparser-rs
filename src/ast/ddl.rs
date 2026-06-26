@@ -143,6 +143,18 @@ pub enum AlterTableOperation {
         /// MySQL `ALTER TABLE` only  [FIRST | AFTER column_name]
         column_position: Option<MySQLColumnPosition>,
     },
+    /// `ADD [COLUMN] [IF NOT EXISTS] <column_def> [, <column_def>, ...]`
+    ///
+    /// Snowflake multi-column add: a single `ADD [COLUMN]` keyword followed by
+    /// a comma-separated list of column definitions.
+    AddColumns {
+        /// `[COLUMN]`.
+        column_keyword: bool,
+        /// `[IF NOT EXISTS]`
+        if_not_exists: bool,
+        /// The column definitions to add.
+        column_defs: Vec<ColumnDef>,
+    },
     /// `ADD PROJECTION [IF NOT EXISTS] name ( SELECT <COLUMN LIST EXPR> [GROUP BY] [ORDER BY])`
     ///
     /// Note: this is a ClickHouse-specific operation.
@@ -751,6 +763,21 @@ impl fmt::Display for AlterTableOperation {
                     write!(f, " {position}")?;
                 }
 
+                Ok(())
+            }
+            AlterTableOperation::AddColumns {
+                column_keyword,
+                if_not_exists,
+                column_defs,
+            } => {
+                write!(f, "ADD")?;
+                if *column_keyword {
+                    write!(f, " COLUMN")?;
+                }
+                if *if_not_exists {
+                    write!(f, " IF NOT EXISTS")?;
+                }
+                write!(f, " {}", display_comma_separated(column_defs))?;
                 Ok(())
             }
             AlterTableOperation::AddProjection {

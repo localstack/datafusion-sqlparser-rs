@@ -795,6 +795,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_comma_separated_add_column_list(&self) -> bool {
+        true
+    }
+
     fn is_identifier_generating_function_name(
         &self,
         ident: &Ident,

@@ -1453,6 +1453,12 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports
+    /// `ALTER TABLE tbl ADD [COLUMN] c1 <type1>, ..., cn <typen>`
+    fn supports_comma_separated_add_column_list(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect considers the specified ident as a function
     /// that returns an identifier. Typically used to generate identifiers
     /// programmatically.
