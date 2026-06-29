@@ -6498,6 +6498,41 @@ fn test_create_catalog_integration_minimal_iceberg_rest_oauth() {
 }
 
 #[test]
+fn test_create_catalog_integration_unquoted_oauth_scope_with_colon() {
+    // Snowflake accepts unquoted scopes that embed a colon; they canonicalize
+    // to the quoted form on display.
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'secret' OAUTH_ALLOWED_SCOPES = (PRINCIPAL_ROLE:ALL)) ",
+        "ENABLED = TRUE",
+    );
+    let canonical = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'secret' OAUTH_ALLOWED_SCOPES = ('PRINCIPAL_ROLE:ALL')) ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateCatalogIntegration {
+            rest_authentication,
+            ..
+        } => {
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!(
+                vec!["PRINCIPAL_ROLE:ALL".to_string()],
+                auth.oauth_allowed_scopes
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_create_catalog_integration_full_rest_config() {
     let sql = concat!(
         "CREATE CATALOG INTEGRATION my_cat ",

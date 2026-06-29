@@ -32,14 +32,12 @@ use crate::ast::{
     CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
     ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
     DollarQuotedString, ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident,
-    OperateFunctionArg,
     IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
     IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
-    MultiTableInsertWhenClause, ObjectName, ObjectNamePart, RefreshModeKind, RowAccessPolicy,
-    ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
-    StorageSerializationPolicy,
-    TableObject, TagsColumnOption, Value, WrappedCollection,
+    MultiTableInsertWhenClause, ObjectName, ObjectNamePart, OperateFunctionArg, RefreshModeKind,
+    RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
+    StorageSerializationPolicy, TableObject, TagsColumnOption, Value, WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -306,7 +304,12 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_stage(parser));
         }
 
-        if parser.parse_keywords(&[Keyword::ALTER, Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+        if parser.parse_keywords(&[
+            Keyword::ALTER,
+            Keyword::ROW,
+            Keyword::ACCESS,
+            Keyword::POLICY,
+        ]) {
             // ALTER ROW ACCESS POLICY
             return Some(parse_alter_row_access_policy(parser));
         }
@@ -336,7 +339,12 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_file_format(parser));
         }
 
-        if parser.parse_keywords(&[Keyword::DROP, Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+        if parser.parse_keywords(&[
+            Keyword::DROP,
+            Keyword::ROW,
+            Keyword::ACCESS,
+            Keyword::POLICY,
+        ]) {
             // DROP ROW ACCESS POLICY
             return Some(parse_drop_row_access_policy(parser));
         }
@@ -2889,6 +2897,29 @@ fn parse_catalog_rest_config(parser: &mut Parser) -> Result<CatalogRestConfig, P
     })
 }
 
+/// Parse one `OAUTH_ALLOWED_SCOPES` value. Snowflake accepts unquoted scopes
+/// that embed a colon (e.g. `PRINCIPAL_ROLE:ALL`); the tokenizer splits those
+/// across `:`, so reassemble the colon-joined segments into one scope string.
+fn parse_oauth_scope(parser: &mut Parser) -> Result<String, ParserError> {
+    let mut scope = parse_oauth_scope_segment(parser)?;
+    while parser.consume_token(&Token::Colon) {
+        scope.push(':');
+        scope.push_str(&parse_oauth_scope_segment(parser)?);
+    }
+    Ok(scope)
+}
+
+/// A single segment of an OAuth scope: a bare word (keyword or not) or a
+/// quoted string.
+fn parse_oauth_scope_segment(parser: &mut Parser) -> Result<String, ParserError> {
+    let token = parser.next_token();
+    match token.token {
+        Token::Word(w) => Ok(w.value),
+        Token::SingleQuotedString(s) | Token::DoubleQuotedString(s) => Ok(s),
+        _ => parser.expected("OAUTH scope", token),
+    }
+}
+
 /// Parse the body of `REST_AUTHENTICATION = ( … )`.
 fn parse_catalog_rest_authentication(
     parser: &mut Parser,
@@ -2917,7 +2948,7 @@ fn parse_catalog_rest_authentication(
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
             loop {
-                oauth_allowed_scopes.push(parser.parse_literal_string()?);
+                oauth_allowed_scopes.push(parse_oauth_scope(parser)?);
                 if !parser.consume_token(&Token::Comma) {
                     break;
                 }
