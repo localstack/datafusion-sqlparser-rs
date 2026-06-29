@@ -1246,9 +1246,18 @@ pub fn parse_create_table(
 
     builder = builder.table_options(table_options);
 
-    // Managed Iceberg tables require BASE_LOCATION; externally-managed ones
-    // (identified by CATALOG_TABLE_NAME) do not.
-    if iceberg && builder.base_location.is_none() && builder.catalog_table_name.is_none() {
+    // Snowflake-managed Iceberg tables require BASE_LOCATION. Tables bound to
+    // an external catalog integration (an explicit non-SNOWFLAKE CATALOG, or
+    // CATALOG_TABLE_NAME for externally-managed reads) do not.
+    let external_catalog = builder
+        .catalog
+        .as_deref()
+        .is_some_and(|c| !c.eq_ignore_ascii_case("SNOWFLAKE"));
+    if iceberg
+        && builder.base_location.is_none()
+        && builder.catalog_table_name.is_none()
+        && !external_catalog
+    {
         return Err(ParserError::ParserError(
             "BASE_LOCATION is required for ICEBERG tables".to_string(),
         ));

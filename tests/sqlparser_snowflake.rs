@@ -1107,6 +1107,27 @@ fn test_snowflake_create_iceberg_table_externally_managed() {
 }
 
 #[test]
+fn test_snowflake_create_iceberg_table_external_catalog_no_base_location() {
+    match snowflake()
+        .verified_stmt("CREATE ICEBERG TABLE my_table (c1 TEXT) CATALOG='my_catalog_integration'")
+    {
+        Statement::CreateTable(CreateTable {
+            iceberg,
+            catalog,
+            catalog_table_name,
+            base_location,
+            ..
+        }) => {
+            assert!(iceberg);
+            assert_eq!("my_catalog_integration", catalog.unwrap());
+            assert!(catalog_table_name.is_none());
+            assert!(base_location.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_snowflake_create_iceberg_table_ctas() {
     match snowflake().verified_stmt(
         "CREATE ICEBERG TABLE my_table EXTERNAL_VOLUME='volume' CATALOG='SNOWFLAKE' \
