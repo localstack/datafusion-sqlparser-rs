@@ -1337,6 +1337,15 @@ pub enum AlterColumnOperation {
         had_set: bool,
     },
 
+    /// `COMMENT '<comment>'`
+    ///
+    /// Snowflake: set the column comment
+    /// (`ALTER TABLE t ALTER COLUMN c COMMENT '<string>'`).
+    Comment {
+        /// The comment text.
+        comment: String,
+    },
+
     /// `ADD GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY [ ( sequence_options ) ]`
     ///
     /// Note: this is a PostgreSQL-specific operation.
@@ -1372,6 +1381,9 @@ impl fmt::Display for AlterColumnOperation {
                     write!(f, " USING {expr}")?;
                 }
                 Ok(())
+            }
+            AlterColumnOperation::Comment { comment } => {
+                write!(f, "COMMENT '{}'", escape_single_quote_string(comment))
             }
             AlterColumnOperation::AddGenerated {
                 generated_as,

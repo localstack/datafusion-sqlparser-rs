@@ -799,6 +799,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_alter_column_comment(&self) -> bool {
+        true
+    }
+
     fn is_identifier_generating_function_name(
         &self,
         ident: &Ident,

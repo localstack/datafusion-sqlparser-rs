@@ -996,6 +996,7 @@ impl Spanned for AlterColumnOperation {
                 using,
                 had_set: _,
             } => using.as_ref().map_or(Span::empty(), |u| u.span()),
+            AlterColumnOperation::Comment { .. } => Span::empty(),
             AlterColumnOperation::AddGenerated { .. } => Span::empty(),
         }
     }

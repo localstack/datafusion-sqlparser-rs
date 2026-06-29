@@ -11055,6 +11055,20 @@ impl<'a> Parser<'a> {
                 options,
                 column_position,
             }
+        } else if self.dialect.supports_alter_column_comment()
+            && self.parse_keyword(Keyword::COLUMN)
+        {
+            // Continuation of a comma-separated `ALTER COLUMN ... COMMENT` list,
+            // e.g. `... ALTER COLUMN c1 COMMENT 's1', COLUMN c2 COMMENT 's2'`.
+            // The second and later items carry `COLUMN` without a leading `ALTER`.
+            let column_name = self.parse_identifier()?;
+            self.expect_keyword_is(Keyword::COMMENT)?;
+            AlterTableOperation::AlterColumn {
+                column_name,
+                op: AlterColumnOperation::Comment {
+                    comment: self.parse_literal_string()?,
+                },
+            }
         } else if self.parse_keyword(Keyword::ALTER) {
             if self.peek_keyword(Keyword::SORTKEY) {
                 self.prev_token();
@@ -11083,6 +11097,12 @@ impl<'a> Parser<'a> {
                 self.parse_set_data_type(true)?
             } else if self.parse_keyword(Keyword::TYPE) {
                 self.parse_set_data_type(false)?
+            } else if self.dialect.supports_alter_column_comment()
+                && self.parse_keyword(Keyword::COMMENT)
+            {
+                AlterColumnOperation::Comment {
+                    comment: self.parse_literal_string()?,
+                }
             } else if self.parse_keywords(&[Keyword::ADD, Keyword::GENERATED]) {
                 let generated_as = if self.parse_keyword(Keyword::ALWAYS) {
                     Some(GeneratedAs::Always)

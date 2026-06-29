@@ -1954,6 +1954,62 @@ fn test_alter_table_add_multiple_columns() {
 }
 
 #[test]
+fn test_alter_table_alter_column_comment() {
+    let sql = "ALTER TABLE tab ALTER COLUMN c COMMENT 'hello'";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AlterColumn {
+            column_name,
+            op: AlterColumnOperation::Comment { comment },
+        } => {
+            assert_eq!(column_name.to_string(), "c");
+            assert_eq!(comment, "hello");
+        }
+        _ => unreachable!(),
+    }
+
+    // Dollar-quoted comment values are accepted as plain string literals and
+    // canonicalise to single-quoted form on Display.
+    let sql = "ALTER TABLE tab ALTER COLUMN c COMMENT $$hi$$";
+    let canonical = "ALTER TABLE tab ALTER COLUMN c COMMENT 'hi'";
+    match alter_table_op(snowflake().one_statement_parses_to(sql, canonical)) {
+        AlterTableOperation::AlterColumn {
+            op: AlterColumnOperation::Comment { comment },
+            ..
+        } => assert_eq!(comment, "hi"),
+        _ => unreachable!(),
+    }
+
+    // Multi-column form: later items carry `COLUMN` without `ALTER`; Display
+    // canonicalises each item to the full `ALTER COLUMN` spelling.
+    let sql = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', COLUMN c2 COMMENT 's2'";
+    let canonical = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', ALTER COLUMN c2 COMMENT 's2'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(operations.len(), 2);
+            match (&operations[0], &operations[1]) {
+                (
+                    AlterTableOperation::AlterColumn {
+                        column_name: n1,
+                        op: AlterColumnOperation::Comment { comment: c1 },
+                    },
+                    AlterTableOperation::AlterColumn {
+                        column_name: n2,
+                        op: AlterColumnOperation::Comment { comment: c2 },
+                    },
+                ) => {
+                    assert_eq!(n1.to_string(), "c1");
+                    assert_eq!(c1, "s1");
+                    assert_eq!(n2.to_string(), "c2");
+                    assert_eq!(c2, "s2");
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_alter_iceberg_table() {
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl DROP CLUSTERING KEY");
     snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl SUSPEND RECLUSTER");

@@ -1459,6 +1459,14 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports setting a column comment via
+    /// `ALTER TABLE tbl ALTER COLUMN c COMMENT '<string>'`, including the
+    /// comma-separated multi-column form
+    /// `ALTER COLUMN c1 COMMENT '<s1>', COLUMN c2 COMMENT '<s2>'`.
+    fn supports_alter_column_comment(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect considers the specified ident as a function
     /// that returns an identifier. Typically used to generate identifiers
     /// programmatically.
