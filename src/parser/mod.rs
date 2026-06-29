@@ -12911,6 +12911,7 @@ impl<'a> Parser<'a> {
                 Ok(s)
             }
             Token::UnicodeStringLiteral(s) => Ok(s),
+            Token::DollarQuotedString(s) if dialect_of!(self is SnowflakeDialect) => Ok(s.value),
             _ => self.expected("literal string", next_token),
         }
     }

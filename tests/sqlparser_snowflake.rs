@@ -1254,6 +1254,25 @@ fn parse_sf_create_table_or_view_with_dollar_quoted_comment() {
 }
 
 #[test]
+fn parse_sf_dollar_quoted_literal_string() {
+    // Dollar-quoted text is accepted wherever a literal string is expected.
+    snowflake().one_statement_parses_to(
+        "COMMENT ON TABLE my_table IS $$table comment$$",
+        "COMMENT ON TABLE my_table IS 'table comment'",
+    );
+    snowflake().one_statement_parses_to(
+        "COMMENT ON COLUMN my_table.col IS $$$$",
+        "COMMENT ON COLUMN my_table.col IS ''",
+    );
+
+    // Other dialects keep rejecting dollar-quoted text in a literal-string
+    // position.
+    assert!(TestedDialects::new(vec![Box::new(GenericDialect {})])
+        .parse_sql_statements("COMMENT ON TABLE my_table IS $$table comment$$")
+        .is_err());
+}
+
+#[test]
 fn parse_create_dynamic_table() {
     snowflake().verified_stmt(r#"CREATE OR REPLACE DYNAMIC TABLE my_dynamic_table TARGET_LAG='20 minutes' WAREHOUSE=mywh AS SELECT product_id, product_name FROM staging_table"#);
     snowflake().verified_stmt(concat!(
