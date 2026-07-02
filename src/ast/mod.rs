@@ -4471,8 +4471,8 @@ pub enum Statement {
     ///
     /// Note: this is a Presto-specific statement.
     ShowFunctions {
-        /// Optional filter for which functions to display.
-        filter: Option<ShowStatementFilter>,
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
     },
     /// ```sql
     /// SHOW <variable>
@@ -5265,11 +5265,11 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
-    /// SHOW PROCEDURES [ LIKE '<pattern>' ]
+    /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
-        /// Optional `LIKE` filter.
-        filter: Option<ShowStatementFilter>,
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
     },
     /// ```sql
     /// SHOW CONNECTIONS [ LIKE '<pattern>' ]
@@ -6855,11 +6855,8 @@ impl fmt::Display for Statement {
                 )?;
                 Ok(())
             }
-            Statement::ShowFunctions { filter } => {
-                write!(f, "SHOW FUNCTIONS")?;
-                if let Some(filter) = filter {
-                    write!(f, " {filter}")?;
-                }
+            Statement::ShowFunctions { show_options } => {
+                write!(f, "SHOW FUNCTIONS{show_options}")?;
                 Ok(())
             }
             Statement::Use(use_expr) => use_expr.fmt(f),
@@ -7518,11 +7515,8 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::ShowProcedures { filter } => {
-                write!(f, "SHOW PROCEDURES")?;
-                if let Some(filter) = filter {
-                    write!(f, " {filter}")?;
-                }
+            Statement::ShowProcedures { show_options } => {
+                write!(f, "SHOW PROCEDURES{show_options}")?;
                 Ok(())
             }
             Statement::ShowConnections { filter } => {
