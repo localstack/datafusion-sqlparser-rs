@@ -16465,10 +16465,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse `SHOW FUNCTIONS` and optional filter.
+    /// Parse `SHOW FUNCTIONS` with optional filter and `IN <scope>` clause.
     pub fn parse_show_functions(&mut self) -> Result<Statement, ParserError> {
-        let filter = self.parse_show_statement_filter()?;
-        Ok(Statement::ShowFunctions { filter })
+        let show_options = self.parse_show_stmt_options()?;
+        Ok(Statement::ShowFunctions { show_options })
     }
 
     /// Parse `SHOW COLLATION` and optional filter.

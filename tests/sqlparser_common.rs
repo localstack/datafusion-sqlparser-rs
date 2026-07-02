@@ -10937,10 +10937,21 @@ fn parse_cursor() {
 
 #[test]
 fn parse_show_functions() {
+    // Dialects that do not support `LIKE` before `IN` place the filter in the
+    // suffix position.
     assert_eq!(
-        verified_stmt("SHOW FUNCTIONS LIKE 'pattern'"),
+        all_dialects_where(|d| !d.supports_show_like_before_in())
+            .verified_stmt("SHOW FUNCTIONS LIKE 'pattern'"),
         Statement::ShowFunctions {
-            filter: Some(ShowStatementFilter::Like("pattern".into())),
+            show_options: ShowStatementOptions {
+                show_in: None,
+                starts_with: None,
+                limit: None,
+                limit_from: None,
+                filter_position: Some(ShowStatementFilterPosition::Suffix(
+                    ShowStatementFilter::Like("pattern".into())
+                )),
+            },
         }
     );
 }

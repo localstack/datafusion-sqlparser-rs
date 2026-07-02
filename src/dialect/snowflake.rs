@@ -2728,10 +2728,10 @@ fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, Pars
     Ok(Statement::ShowRowAccessPolicies { filter })
 }
 
-/// Parse `SHOW PROCEDURES [LIKE '<pattern>']`
+/// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`
 fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> {
-    let filter = parser.parse_show_statement_filter()?;
-    Ok(Statement::ShowProcedures { filter })
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowProcedures { show_options })
 }
 
 /// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`
