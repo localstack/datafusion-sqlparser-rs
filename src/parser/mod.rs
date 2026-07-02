@@ -6052,6 +6052,7 @@ impl<'a> Parser<'a> {
             body.called_on_null = Some(FunctionCalledOnNull::Strict);
         }
         let mut set_params: Vec<FunctionDefinitionSetParam> = Vec::new();
+        let mut options: Vec<SqlOption> = Vec::new();
         loop {
             fn ensure_not_set<T>(field: &Option<T>, name: &str) -> Result<(), ParserError> {
                 if field.is_some() {
@@ -6145,6 +6146,10 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::RETURN) {
                 ensure_not_set(&body.function_body, "RETURN")?;
                 body.function_body = Some(CreateFunctionBody::Return(self.parse_expr()?));
+            } else if dialect_of!(self is SnowflakeDialect | GenericDialect)
+                && self.peek_snowflake_function_property()
+            {
+                options.push(self.parse_snowflake_function_property()?);
             } else {
                 break;
             }
@@ -6168,9 +6173,42 @@ impl<'a> Parser<'a> {
             if_not_exists: false,
             using: None,
             determinism_specifier: None,
-            options: None,
+            options: if options.is_empty() {
+                None
+            } else {
+                Some(options)
+            },
             remote_connection: None,
         })
+    }
+
+    /// True when the next token is a Snowflake Python-UDF property name
+    /// (`RUNTIME_VERSION`, `HANDLER`, `IMPORTS`, `PACKAGES`). None of these are
+    /// reserved keywords, so they are recognised by their bare-word spelling.
+    fn peek_snowflake_function_property(&self) -> bool {
+        matches!(&self.peek_token_ref().token, Token::Word(w)
+            if w.quote_style.is_none()
+                && matches!(
+                    w.value.to_ascii_uppercase().as_str(),
+                    "RUNTIME_VERSION" | "HANDLER" | "IMPORTS" | "PACKAGES"
+                ))
+    }
+
+    /// Parse a Snowflake Python-UDF property clause `key = value` or
+    /// `key = ('a' [, 'b' …])` into an [`SqlOption::KeyValue`]. Parenthesised
+    /// lists are stored as an [`Expr::Tuple`].
+    fn parse_snowflake_function_property(&mut self) -> Result<SqlOption, ParserError> {
+        let key = self.parse_identifier()?;
+        self.expect_token(&Token::Eq)?;
+        let value = if self.peek_token_ref().token == Token::LParen {
+            self.expect_token(&Token::LParen)?;
+            let values = self.parse_comma_separated(Parser::parse_expr)?;
+            self.expect_token(&Token::RParen)?;
+            Expr::Tuple(values)
+        } else {
+            self.parse_expr()?
+        };
+        Ok(SqlOption::KeyValue { key, value })
     }
 
     /// Parse `CREATE FUNCTION` for [Hive]
