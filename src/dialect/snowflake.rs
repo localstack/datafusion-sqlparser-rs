@@ -1795,7 +1795,14 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
             copy_options = parser.parse_key_value_options(true, &[], false)?.options;
         } else {
             match parser.next_token().token {
-                Token::SemiColon | Token::EOF => break,
+                // Leave the statement terminator for the caller: inside a
+                // `BEGIN … END` body the surrounding statement list expects to
+                // consume the `;` itself.
+                Token::SemiColon => {
+                    parser.prev_token();
+                    break;
+                }
+                Token::EOF => break,
                 Token::Comma => continue,
                 // In `COPY INTO <location>` the copy options do not have a shared key
                 // like in `COPY INTO <table>`
