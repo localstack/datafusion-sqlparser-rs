@@ -299,6 +299,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_file_format(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::TAG]) {
+            // ALTER TAG
+            return Some(parse_alter_tag(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
@@ -337,6 +342,11 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
             // DROP FILE FORMAT
             return Some(parse_drop_file_format(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::TAG]) {
+            // DROP TAG
+            return Some(parse_drop_tag(parser));
         }
 
         if parser.parse_keywords(&[
@@ -431,6 +441,11 @@ impl Dialect for SnowflakeDialect {
                 ));
             }
 
+            // CREATE [OR REPLACE] TAG
+            if parser.parse_keyword(Keyword::TAG) {
+                return Some(parse_create_tag(or_replace, parser));
+            }
+
             if parser.parse_keyword(Keyword::STAGE) {
                 // OK - this is CREATE STAGE statement
                 return Some(parse_create_stage(or_replace, temporary, parser));
@@ -503,6 +518,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::STAGES) {
                 return Some(parse_show_stages(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::TAGS) {
+                return Some(parse_show_tags(terse, parser));
             }
             if parser.parse_keyword(Keyword::SEQUENCES) {
                 return Some(parse_show_sequences(terse, parser));
@@ -2630,6 +2648,67 @@ fn parse_show_file_formats(terse: bool, parser: &mut Parser) -> Result<Statement
 fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowStages {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `CREATE [OR REPLACE] TAG [IF NOT EXISTS] <name>
+///   [ ALLOWED_VALUES '<val>' [ , ... ] ] [ COMMENT = '<comment>' ]`
+fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut allowed_values = Vec::new();
+    if parser.parse_keyword(Keyword::ALLOWED_VALUES) {
+        loop {
+            allowed_values.push(parser.parse_literal_string()?);
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+    }
+
+    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_comment_value()?)
+    } else {
+        None
+    };
+
+    Ok(Statement::CreateTag {
+        or_replace,
+        if_not_exists,
+        name,
+        allowed_values,
+        comment,
+    })
+}
+
+/// Parse `ALTER TAG [IF EXISTS] <name> RENAME TO <new_name>`
+fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+    let new_name = parser.parse_object_name(false)?;
+    Ok(Statement::AlterTag {
+        if_exists,
+        name,
+        new_name,
+    })
+}
+
+/// Parse `DROP TAG [IF EXISTS] <name>`
+fn parse_drop_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropTag { name, if_exists })
+}
+
+/// Parse `SHOW [TERSE] TAGS [ ... ]`
+fn parse_show_tags(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowTags {
         terse,
         show_options,
     })

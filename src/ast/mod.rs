@@ -5118,6 +5118,52 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] TAG [IF NOT EXISTS] <name>
+    ///   [ ALLOWED_VALUES '<val>' [ , '<val>' ... ] ] [ COMMENT = '<comment>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-tag>
+    CreateTag {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Tag name.
+        name: ObjectName,
+        /// Optional `ALLOWED_VALUES` list (stored for SHOW fidelity only).
+        allowed_values: Vec<String>,
+        /// Optional comment.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER TAG [IF EXISTS] <name> RENAME TO <new_name>
+    /// ```
+    AlterTag {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Tag name.
+        name: ObjectName,
+        /// New tag name.
+        new_name: ObjectName,
+    },
+    /// ```sql
+    /// DROP TAG [IF EXISTS] <name>
+    /// ```
+    DropTag {
+        /// Tag name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// SHOW TAGS [ LIKE '<pattern>' ] [ IN ... ]
+    /// ```
+    ShowTags {
+        /// Whether to show terse output.
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `IN` / ...).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// SHOW [TERSE] SEQUENCES [ LIKE '<pattern>' ] [ IN ... ] ...
     /// ```
     ShowSequences {
@@ -7368,6 +7414,61 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "SHOW {terse}STAGES{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
+            }
+            Statement::CreateTag {
+                or_replace,
+                if_not_exists,
+                name,
+                allowed_values,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}TAG {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !allowed_values.is_empty() {
+                    write!(f, " ALLOWED_VALUES ")?;
+                    for (i, v) in allowed_values.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "'{}'", value::escape_single_quote_string(v))?;
+                    }
+                }
+                if let Some(ref c) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
+                }
+                Ok(())
+            }
+            Statement::AlterTag {
+                if_exists,
+                name,
+                new_name,
+            } => {
+                write!(
+                    f,
+                    "ALTER TAG {if_exists}{name} RENAME TO {new_name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropTag { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP TAG {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::ShowTags {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}TAGS{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }
