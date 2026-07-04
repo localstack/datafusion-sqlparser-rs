@@ -1613,6 +1613,10 @@ pub fn parse_snowflake_stage_name(parser: &mut Parser) -> Result<ObjectName, Par
             }
             Ok(ObjectName::from(idents))
         }
+        // A wire placeholder (`?`, `$n`, `?name`) in stage-name position: the
+        // bound value is a stage reference resolved server-side, so carry the
+        // placeholder text through as a single identifier part.
+        Token::Placeholder(s) => Ok(ObjectName::from(vec![Ident::new(s)])),
         _ => {
             parser.prev_token();
             Ok(parser.parse_object_name(false)?)
