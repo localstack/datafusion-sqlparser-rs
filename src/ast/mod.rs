@@ -5823,6 +5823,23 @@ pub enum Statement {
     /// branches.
     /// [Snowflake](https://docs.snowflake.com/en/developer-guide/snowflake-scripting/snowflake-scripting)
     Null,
+    /// A `PUT` / `GET` file-transfer statement appearing inside a Snowflake
+    /// Scripting block (procedure / anonymous-block body).
+    ///
+    /// ```sql
+    /// PUT file:///tmp/x.csv @my_stage AUTO_COMPRESS = FALSE;
+    /// GET @my_stage file:///tmp/dir;
+    /// ```
+    ///
+    /// Snowflake recognises these inside a body only so the block parses; it
+    /// rejects executing them ("Unsupported statement type 'PUT_FILES'"). The
+    /// operands are not modelled — an unquoted `file://` path triggers the `//`
+    /// single-line-comment lexer rule, so the tail is not tokenizable — only
+    /// the `get` discriminant is kept. `get = true` for `GET`.
+    PutGetFiles {
+        /// `true` for `GET`, `false` for `PUT`.
+        get: bool,
+    },
 }
 
 impl From<Analyze> for Statement {
@@ -7864,6 +7881,9 @@ impl fmt::Display for Statement {
                 write!(f, " := {value}")
             }
             Statement::Null => write!(f, "NULL"),
+            Statement::PutGetFiles { get } => {
+                write!(f, "{}", if *get { "GET" } else { "PUT" })
+            }
         }
     }
 }

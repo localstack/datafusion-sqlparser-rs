@@ -575,6 +575,7 @@ impl Spanned for Statement {
             Statement::Assignment { .. } => Span::empty(),
             Statement::Let { .. } => Span::empty(),
             Statement::Null => Span::empty(),
+            Statement::PutGetFiles { .. } => Span::empty(),
         }
     }
 }

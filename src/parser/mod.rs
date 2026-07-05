@@ -1063,6 +1063,19 @@ impl<'a> Parser<'a> {
                 _ => {}
             }
 
+            // A `PUT` / `GET` file-transfer statement inside a scripting body.
+            // These are recognised so the block parses, but never tokenize
+            // cleanly: an unquoted `file://` path triggers the Snowflake `//`
+            // single-line-comment rule, which eats the statement's `;`
+            // terminator and the rest of the line. Scan the raw token stream
+            // (comments included) to the terminator rather than parse operands,
+            // and skip the shared `;` expectation below.
+            if let Some(get) = self.peek_put_get_files() {
+                self.consume_put_get_files();
+                values.push(Statement::PutGetFiles { get });
+                continue;
+            }
+
             let stmt = if self.peek_keyword(Keyword::LET) {
                 self.next_token(); // consume LET
                 let name = self.parse_identifier()?;
@@ -1117,6 +1130,54 @@ impl<'a> Parser<'a> {
             self.expect_token(&Token::SemiColon)?;
         }
         Ok(values)
+    }
+
+    /// If the next scripting statement is a `PUT` / `GET` file-transfer
+    /// statement, return `Some(get)` (`get = true` for `GET`). A `GET`
+    /// followed by `STACKED` / `DIAGNOSTICS` is `GET DIAGNOSTICS`, not a
+    /// file transfer, and yields `None`.
+    fn peek_put_get_files(&self) -> Option<bool> {
+        let Token::Word(w) = &self.peek_nth_token_ref(0).token else {
+            return None;
+        };
+        if w.quote_style.is_some() {
+            return None;
+        }
+        if w.value.eq_ignore_ascii_case("PUT") {
+            return Some(false);
+        }
+        if w.keyword == Keyword::GET {
+            if let Token::Word(next) = &self.peek_nth_token_ref(1).token {
+                if next.value.eq_ignore_ascii_case("STACKED")
+                    || next.value.eq_ignore_ascii_case("DIAGNOSTICS")
+                {
+                    return None;
+                }
+            }
+            return Some(true);
+        }
+        None
+    }
+
+    /// Consume the raw tokens of a `PUT` / `GET` file-transfer statement up to
+    /// and including its terminator — either a real `;` (quoted paths keep it)
+    /// or the `//` single-line comment that swallowed it (unquoted `file://`
+    /// paths), scanning whitespace/comment tokens directly.
+    fn consume_put_get_files(&mut self) {
+        while let Some(tok) = self.tokens.get(self.index) {
+            match &tok.token {
+                Token::EOF => break,
+                Token::SemiColon => {
+                    self.index += 1;
+                    break;
+                }
+                Token::Whitespace(Whitespace::SingleLineComment { .. }) => {
+                    self.index += 1;
+                    break;
+                }
+                _ => self.index += 1,
+            }
+        }
     }
 
     /// Parse a `RAISE` statement.
@@ -6187,11 +6248,11 @@ impl<'a> Parser<'a> {
     /// reserved keywords, so they are recognised by their bare-word spelling.
     fn peek_snowflake_function_property(&self) -> bool {
         matches!(&self.peek_token_ref().token, Token::Word(w)
-            if w.quote_style.is_none()
-                && matches!(
-                    w.value.to_ascii_uppercase().as_str(),
-                    "RUNTIME_VERSION" | "HANDLER" | "IMPORTS" | "PACKAGES"
-                ))
+        if w.quote_style.is_none()
+            && matches!(
+                w.value.to_ascii_uppercase().as_str(),
+                "RUNTIME_VERSION" | "HANDLER" | "IMPORTS" | "PACKAGES"
+            ))
     }
 
     /// Parse a Snowflake Python-UDF property clause `key = value` or
