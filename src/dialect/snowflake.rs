@@ -37,7 +37,7 @@ use crate::ast::{
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
     MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType, OperateFunctionArg,
     RefreshModeKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption, Statement,
-    StorageLifecyclePolicy, StorageSerializationPolicy, Tag, TableObject, TagsColumnOption, Value,
+    StorageLifecyclePolicy, StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value,
     WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
@@ -1441,6 +1441,8 @@ pub fn parse_create_stage(
         comment,
     } = parse_stage_properties(parser)?;
 
+    let with_tags = parse_optional_with_tags(parser)?;
+
     Ok(Statement::CreateStage {
         or_replace,
         temporary,
@@ -1451,7 +1453,27 @@ pub fn parse_create_stage(
         file_format,
         copy_options,
         comment,
+        with_tags,
     })
+}
+
+/// Parse an optional Snowflake `[ WITH ] TAG ( tag = 'value', ... )` clause.
+///
+/// `WITH` is optional across the object-creation grammars, so both
+/// `WITH TAG (...)` and bare `TAG (...)` are accepted. `parse_keywords`
+/// backtracks when the full `WITH TAG` sequence is absent, so a lone `WITH`
+/// used by another clause (e.g. `WITH MANAGED ACCESS`) is left untouched.
+pub(crate) fn parse_optional_with_tags(
+    parser: &mut Parser,
+) -> Result<Option<Vec<Tag>>, ParserError> {
+    if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG]) || parser.parse_keyword(Keyword::TAG) {
+        parser.expect_token(&Token::LParen)?;
+        let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+        parser.expect_token(&Token::RParen)?;
+        Ok(Some(tags))
+    } else {
+        Ok(None)
+    }
 }
 
 /// The shared property groups parsed by both `CREATE STAGE` and

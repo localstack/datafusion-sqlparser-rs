@@ -5595,8 +5595,14 @@ impl<'a> Parser<'a> {
     fn parse_create_warehouse(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        // Skip any warehouse parameters (SIZE, MAX_CLUSTER_COUNT, etc.)
+        let mut with_tags = None;
+        // Skip any warehouse parameters (SIZE, MAX_CLUSTER_COUNT, etc.), but
+        // capture a `[WITH] TAG (...)` clause so object-creation tags survive.
         loop {
+            if let Some(tags) = crate::dialect::parse_optional_with_tags(self)? {
+                with_tags = Some(tags);
+                continue;
+            }
             match self.peek_token().token {
                 Token::SemiColon | Token::EOF => break,
                 _ => {
@@ -5608,6 +5614,7 @@ impl<'a> Parser<'a> {
             or_replace,
             if_not_exists,
             name,
+            with_tags,
         })
     }
 
@@ -5891,6 +5898,11 @@ impl<'a> Parser<'a> {
         let with_managed_access =
             self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
 
+        // Consume a Snowflake `WITH TAG (...)` before probing the Trino `WITH
+        // (key='value')` option list, so the tag clause is not mis-parsed as
+        // an option list.
+        let with_tags = crate::dialect::parse_optional_with_tags(self)?;
+
         let with = if !with_managed_access && self.peek_keyword(Keyword::WITH) {
             Some(self.parse_options(Keyword::WITH)?)
         } else {
@@ -5922,6 +5934,7 @@ impl<'a> Parser<'a> {
             default_collate_spec,
             clone,
             comment,
+            with_tags,
         })
     }
 
@@ -7382,6 +7395,10 @@ impl<'a> Parser<'a> {
             }?
         }
 
+        // Snowflake `CREATE ROLE <name> [WITH] TAG (...)`. The optional leading
+        // `WITH` may already have been consumed above, so accept a bare `TAG`.
+        let with_tags = crate::dialect::parse_optional_with_tags(self)?;
+
         Ok(CreateRole {
             names,
             or_replace,
@@ -7402,6 +7419,7 @@ impl<'a> Parser<'a> {
             user,
             admin,
             authorization_owner,
+            with_tags,
         })
     }
 

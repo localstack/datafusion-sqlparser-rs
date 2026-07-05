@@ -51,6 +51,7 @@ pub use self::mysql::MySqlDialect;
 pub use self::oracle::OracleDialect;
 pub use self::postgresql::PostgreSqlDialect;
 pub use self::redshift::RedshiftSqlDialect;
+pub(crate) use self::snowflake::parse_optional_with_tags;
 pub use self::snowflake::parse_snowflake_stage_name;
 pub use self::snowflake::SnowflakeDialect;
 pub use self::spark::SparkSqlDialect;

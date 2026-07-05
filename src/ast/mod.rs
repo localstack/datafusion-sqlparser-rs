@@ -4701,6 +4701,8 @@ pub enum Statement {
         clone: Option<ObjectName>,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
+        /// Snowflake `WITH TAG (tag = 'value', ...)` clause.
+        with_tags: Option<Vec<Tag>>,
     },
     /// ```sql
     /// CREATE DATABASE
@@ -4834,6 +4836,8 @@ pub enum Statement {
         copy_options: KeyValueOptions,
         /// Optional comment.
         comment: Option<String>,
+        /// Snowflake `WITH TAG (tag = 'value', ...)` clause.
+        with_tags: Option<Vec<Tag>>,
     },
     /// ```sql
     /// ALTER STAGE [IF EXISTS] <name> { SET ... | RENAME TO <new_name> }
@@ -4857,6 +4861,8 @@ pub enum Statement {
         if_not_exists: bool,
         /// Warehouse name.
         name: ObjectName,
+        /// Snowflake `WITH TAG (tag = 'value', ...)` clause.
+        with_tags: Option<Vec<Tag>>,
     },
     /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
@@ -6944,6 +6950,7 @@ impl fmt::Display for Statement {
                 default_collate_spec,
                 clone,
                 comment,
+                with_tags,
             } => {
                 write!(
                     f,
@@ -6979,6 +6986,9 @@ impl fmt::Display for Statement {
                         CommentDef::WithEq(c) => write!(f, " COMMENT = '{c}'")?,
                         CommentDef::WithoutEq(c) => write!(f, " COMMENT '{c}'")?,
                     }
+                }
+                if let Some(tags) = with_tags {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
                 }
                 Ok(())
             }
@@ -7147,6 +7157,7 @@ impl fmt::Display for Statement {
                 file_format,
                 copy_options,
                 comment,
+                with_tags,
                 ..
             } => {
                 write!(
@@ -7168,6 +7179,9 @@ impl fmt::Display for Statement {
                 if comment.is_some() {
                     write!(f, " COMMENT='{}'", comment.as_ref().unwrap())?;
                 }
+                if let Some(tags) = with_tags {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
+                }
                 Ok(())
             }
             Statement::AlterStage {
@@ -7185,13 +7199,18 @@ impl fmt::Display for Statement {
                 or_replace,
                 if_not_exists,
                 name,
+                with_tags,
             } => {
                 write!(
                     f,
                     "CREATE {or_replace}WAREHOUSE {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
-                )
+                )?;
+                if let Some(tags) = with_tags {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
+                }
+                Ok(())
             }
             Statement::AlterWarehouse {
                 name,
