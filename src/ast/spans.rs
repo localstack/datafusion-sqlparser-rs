@@ -567,6 +567,7 @@ impl Spanned for Statement {
             Statement::CreateTag { .. } => Span::empty(),
             Statement::AlterTag { .. } => Span::empty(),
             Statement::DropTag { .. } => Span::empty(),
+            Statement::SetTags { .. } => Span::empty(),
             Statement::ShowTags { .. } => Span::empty(),
             Statement::ShowSequences { .. } => Span::empty(),
             Statement::ShowKeys { .. } => Span::empty(),
