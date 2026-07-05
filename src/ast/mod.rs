@@ -5155,6 +5155,23 @@ pub enum Statement {
         if_exists: bool,
     },
     /// ```sql
+    /// ALTER <object_type> <name> SET TAG <tag> = '<value>' [, ...]
+    /// ALTER <object_type> <name> UNSET TAG <tag> [, ...]
+    /// ```
+    /// Object-level tag assignment / removal.
+    SetTags {
+        /// The domain of the target object (e.g. `DATABASE`).
+        object_type: ObjectType,
+        /// The target object name.
+        object_name: ObjectName,
+        /// Whether this is `UNSET TAG` (`true`) or `SET TAG` (`false`).
+        unset: bool,
+        /// Tags to set (`SET TAG`); empty for `UNSET TAG`.
+        set_tags: Vec<Tag>,
+        /// Tag names to unset (`UNSET TAG`); empty for `SET TAG`.
+        unset_tags: Vec<ObjectName>,
+    },
+    /// ```sql
     /// SHOW TAGS [ LIKE '<pattern>' ] [ IN ... ]
     /// ```
     ShowTags {
@@ -7461,6 +7478,20 @@ impl fmt::Display for Statement {
                     "DROP TAG {if_exists}{name}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )
+            }
+            Statement::SetTags {
+                object_type,
+                object_name,
+                unset,
+                set_tags,
+                unset_tags,
+            } => {
+                write!(f, "ALTER {object_type} {object_name} ")?;
+                if *unset {
+                    write!(f, "UNSET TAG {}", display_comma_separated(unset_tags))
+                } else {
+                    write!(f, "SET TAG {}", display_comma_separated(set_tags))
+                }
             }
             Statement::ShowTags {
                 terse,

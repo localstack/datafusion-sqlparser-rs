@@ -35,9 +35,10 @@ use crate::ast::{
     IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
     IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
-    MultiTableInsertWhenClause, ObjectName, ObjectNamePart, OperateFunctionArg, RefreshModeKind,
-    RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
-    StorageSerializationPolicy, TableObject, TagsColumnOption, Value, WrappedCollection,
+    MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType, OperateFunctionArg,
+    RefreshModeKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption, Statement,
+    StorageLifecyclePolicy, StorageSerializationPolicy, Tag, TableObject, TagsColumnOption, Value,
+    WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -302,6 +303,11 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::TAG]) {
             // ALTER TAG
             return Some(parse_alter_tag(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATABASE]) {
+            // ALTER DATABASE <name> { SET TAG | UNSET TAG }
+            return Some(parse_alter_object_set_tags(parser, ObjectType::Database));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
@@ -2703,6 +2709,49 @@ fn parse_drop_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     Ok(Statement::DropTag { name, if_exists })
+}
+
+/// Parse the tail of `ALTER <object_type> <name> { SET TAG <t> = '<v>' [, ...]
+/// | UNSET TAG <t> [, ...] }` after the object-type keyword has been consumed.
+fn parse_alter_object_set_tags(
+    parser: &mut Parser,
+    object_type: ObjectType,
+) -> Result<Statement, ParserError> {
+    let object_name = parser.parse_object_name(false)?;
+    let unset = match parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])? {
+        Keyword::UNSET => true,
+        _ => false,
+    };
+    parser.expect_keyword(Keyword::TAG)?;
+
+    let mut set_tags = Vec::new();
+    let mut unset_tags = Vec::new();
+    if unset {
+        loop {
+            unset_tags.push(parser.parse_object_name(false)?);
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+    } else {
+        loop {
+            let key = parser.parse_object_name(false)?;
+            parser.expect_token(&Token::Eq)?;
+            let value = parser.parse_literal_string()?;
+            set_tags.push(Tag::new(key, value));
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+    }
+
+    Ok(Statement::SetTags {
+        object_type,
+        object_name,
+        unset,
+        set_tags,
+        unset_tags,
+    })
 }
 
 /// Parse `SHOW [TERSE] TAGS [ ... ]`
