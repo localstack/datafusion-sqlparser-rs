@@ -310,6 +310,17 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_object_set_tags(parser, ObjectType::Database));
         }
 
+        // ALTER SCHEMA <name> { SET TAG | UNSET TAG } — intercept only the tag
+        // form; every other ALTER SCHEMA form (RENAME TO, SET OPTIONS, SET
+        // DEFAULT COLLATE, ADD/DROP REPLICA, OWNER TO) fails the closure and
+        // falls through to the generic parse_alter_schema.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::SCHEMA])?;
+            parse_alter_object_set_tags(p, ObjectType::Schema)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
