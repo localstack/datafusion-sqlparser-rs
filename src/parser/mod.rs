@@ -5521,9 +5521,11 @@ impl<'a> Parser<'a> {
             self.parse_create_schema(or_replace, transient)
         } else if self.parse_keyword(Keyword::ROLE) {
             self.parse_create_role(or_replace).map(Into::into)
+        } else if self.parse_keyword(Keyword::SEQUENCE) {
+            self.parse_create_sequence(or_replace, temporary)
         } else if or_replace {
             self.expected_ref(
-                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA or ROLE after CREATE OR REPLACE",
+                "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA or ROLE or SEQUENCE after CREATE OR REPLACE",
                 self.peek_token_ref(),
             )
         } else if self.parse_keyword(Keyword::EXTENSION) {
@@ -5540,8 +5542,6 @@ impl<'a> Parser<'a> {
             } else {
                 self.parse_create_database()
             }
-        } else if self.parse_keyword(Keyword::SEQUENCE) {
-            self.parse_create_sequence(temporary)
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
         } else if self.parse_keyword(Keyword::TYPE) {
@@ -20679,7 +20679,11 @@ impl<'a> Parser<'a> {
     /// ```
     ///
     /// See [Postgres docs](https://www.postgresql.org/docs/current/sql-createsequence.html) for more details.
-    pub fn parse_create_sequence(&mut self, temporary: bool) -> Result<Statement, ParserError> {
+    pub fn parse_create_sequence(
+        &mut self,
+        or_replace: bool,
+        temporary: bool,
+    ) -> Result<Statement, ParserError> {
         //[ IF NOT EXISTS ]
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         //name
@@ -20702,6 +20706,7 @@ impl<'a> Parser<'a> {
         };
         Ok(Statement::CreateSequence {
             temporary,
+            or_replace,
             if_not_exists,
             name,
             data_type,
