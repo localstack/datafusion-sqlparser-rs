@@ -519,6 +519,7 @@ define_keywords!(
     HOUR,
     HOURS,
     HUGEINT,
+    HYBRID,
     IAM_ROLE,
     ICEBERG,
     ICEBERG_REST,

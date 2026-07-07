@@ -452,6 +452,11 @@ impl Dialect for SnowflakeDialect {
                 _ => {}
             }
 
+            // CREATE [OR REPLACE] HYBRID TABLE — the "hybrid" property has no
+            // observable effect here, so the modifier is discarded and the
+            // statement is parsed as an ordinary table.
+            let hybrid = parser.parse_keyword(Keyword::HYBRID);
+
             // CREATE [OR REPLACE] [ TEMP | TEMPORARY | VOLATILE ] FILE FORMAT.
             // For file formats VOLATILE is a synonym of TEMPORARY.
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
@@ -496,6 +501,9 @@ impl Dialect for SnowflakeDialect {
                     back += 2
                 }
                 if temporary || volatile || transient || iceberg {
+                    back += 1
+                }
+                if hybrid {
                     back += 1
                 }
                 for _i in 0..back {
