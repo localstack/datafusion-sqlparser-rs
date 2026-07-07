@@ -543,6 +543,7 @@ define_keywords!(
     HOUR,
     HOURS,
     HUGEINT,
+    HYBRID,
     HYPOTHETICAL,
     IAM_ROLE,
     ICEBERG,
