@@ -5648,6 +5648,8 @@ pub enum Statement {
     CreateSequence {
         /// Whether the sequence is temporary.
         temporary: bool,
+        /// `OR REPLACE` flag.
+        or_replace: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Sequence name.
@@ -7239,13 +7241,15 @@ impl fmt::Display for Statement {
             }
             Statement::CreateSequence {
                 temporary,
+                or_replace,
                 if_not_exists,
                 name,
                 sequence_options,
             } => {
                 write!(
                     f,
-                    "CREATE {temporary}SEQUENCE {if_not_exists}{name}",
+                    "CREATE {or_replace}{temporary}SEQUENCE {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     temporary = if *temporary { "TEMPORARY " } else { "" },
                     name = name,
