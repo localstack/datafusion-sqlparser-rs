@@ -22696,11 +22696,13 @@ impl<'a> Parser<'a> {
             let (option, name) = if self.parse_keyword(Keyword::INCREMENT) {
                 //[ INCREMENT [ BY ] increment ]
                 let by = self.parse_keyword(Keyword::BY);
+                let _ = self.consume_token(&Token::Eq);
                 (
                     SequenceOptions::IncrementBy(self.parse_number()?, by),
                     "INCREMENT",
                 )
             } else if self.parse_keyword(Keyword::MINVALUE) {
+                let _ = self.consume_token(&Token::Eq);
                 //[ MINVALUE minvalue | NO MINVALUE ]
                 (
                     SequenceOptions::MinValue(Some(self.parse_number()?)),
@@ -22709,6 +22711,7 @@ impl<'a> Parser<'a> {
             } else if self.parse_keywords(&[Keyword::NO, Keyword::MINVALUE]) {
                 (SequenceOptions::MinValue(None), "MINVALUE | NO MINVALUE")
             } else if self.parse_keyword(Keyword::MAXVALUE) {
+                let _ = self.consume_token(&Token::Eq);
                 //[ MAXVALUE maxvalue | NO MAXVALUE ]
                 (
                     SequenceOptions::MaxValue(Some(self.parse_number()?)),
@@ -22719,11 +22722,13 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::START) {
                 //[ START [ WITH ] start ]
                 let with = self.parse_keyword(Keyword::WITH);
+                let _ = self.consume_token(&Token::Eq);
                 (
                     SequenceOptions::StartWith(self.parse_number()?, with),
                     "START",
                 )
             } else if self.parse_keyword(Keyword::CACHE) {
+                let _ = self.consume_token(&Token::Eq);
                 //[ CACHE cache ]
                 (SequenceOptions::Cache(self.parse_number()?), "CACHE")
             } else if self.parse_keywords(&[Keyword::NO, Keyword::CYCLE]) {
@@ -22747,6 +22752,8 @@ impl<'a> Parser<'a> {
                     SequenceOptions::OwnedBy((!is_none).then_some(owner)),
                     "OWNED BY",
                 )
+            } else if self.parse_keyword(Keyword::ORDER) || self.parse_keyword(Keyword::NOORDER) {
+                continue;
             } else {
                 break;
             };
