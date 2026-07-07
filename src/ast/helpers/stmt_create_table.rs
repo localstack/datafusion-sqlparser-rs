@@ -171,8 +171,14 @@ pub struct CreateTableBuilder {
     pub table_options: CreateTableOptions,
     /// Optional target lag configuration.
     pub target_lag: Option<String>,
-    /// Optional warehouse identifier.
-    pub warehouse: Option<Ident>,
+    /// Optional warehouse name, stored verbatim.
+    pub warehouse: Option<String>,
+    /// Optional initialization warehouse name, stored verbatim.
+    pub initialization_warehouse: Option<String>,
+    /// Optional scheduler value (quoted string or bare keyword).
+    pub scheduler: Option<String>,
+    /// Optional `IMMUTABLE WHERE` predicate text.
+    pub immutable_where: Option<String>,
     /// Optional refresh mode for materialized tables.
     pub refresh_mode: Option<RefreshModeKind>,
     /// Optional initialization kind for the table.
@@ -247,6 +253,9 @@ impl CreateTableBuilder {
             table_options: CreateTableOptions::None,
             target_lag: None,
             warehouse: None,
+            initialization_warehouse: None,
+            scheduler: None,
+            immutable_where: None,
             refresh_mode: None,
             initialize: None,
             require_user: false,
@@ -522,9 +531,24 @@ impl CreateTableBuilder {
         self.target_lag = target_lag;
         self
     }
-    /// Associate the table with a warehouse identifier.
-    pub fn warehouse(mut self, warehouse: Option<Ident>) -> Self {
+    /// Associate the table with a warehouse name (stored verbatim).
+    pub fn warehouse(mut self, warehouse: Option<String>) -> Self {
         self.warehouse = warehouse;
+        self
+    }
+    /// Set the initialization warehouse name (stored verbatim).
+    pub fn initialization_warehouse(mut self, initialization_warehouse: Option<String>) -> Self {
+        self.initialization_warehouse = initialization_warehouse;
+        self
+    }
+    /// Set the scheduler value (quoted string or bare keyword).
+    pub fn scheduler(mut self, scheduler: Option<String>) -> Self {
+        self.scheduler = scheduler;
+        self
+    }
+    /// Set the `IMMUTABLE WHERE` predicate text.
+    pub fn immutable_where(mut self, immutable_where: Option<String>) -> Self {
+        self.immutable_where = immutable_where;
         self
     }
     /// Set refresh mode for materialized/managed tables.
@@ -619,6 +643,9 @@ impl CreateTableBuilder {
             table_options: self.table_options,
             target_lag: self.target_lag,
             warehouse: self.warehouse,
+            initialization_warehouse: self.initialization_warehouse,
+            scheduler: self.scheduler,
+            immutable_where: self.immutable_where,
             refresh_mode: self.refresh_mode,
             initialize: self.initialize,
             require_user: self.require_user,
@@ -702,6 +729,9 @@ impl From<CreateTable> for CreateTableBuilder {
             table_options: table.table_options,
             target_lag: table.target_lag,
             warehouse: table.warehouse,
+            initialization_warehouse: table.initialization_warehouse,
+            scheduler: table.scheduler,
+            immutable_where: table.immutable_where,
             refresh_mode: table.refresh_mode,
             initialize: table.initialize,
             require_user: table.require_user,

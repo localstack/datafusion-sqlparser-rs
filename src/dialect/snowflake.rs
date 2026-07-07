@@ -431,12 +431,23 @@ impl Dialect for SnowflakeDialect {
                 _ => None,
             };
 
-            let dynamic = parser.parse_keyword(Keyword::DYNAMIC);
-
             let mut temporary = false;
             let mut volatile = false;
             let mut transient = false;
             let mut iceberg = false;
+
+            // Snowflake allows a leading `TRANSIENT` before `DYNAMIC`
+            // (`CREATE [OR REPLACE] [TRANSIENT] DYNAMIC [ICEBERG] TABLE`); the
+            // standalone `TRANSIENT` modifier for plain tables is still handled
+            // by the modifier group below.
+            let dynamic = if parser.parse_keyword(Keyword::DYNAMIC) {
+                true
+            } else if parser.parse_keywords(&[Keyword::TRANSIENT, Keyword::DYNAMIC]) {
+                transient = true;
+                true
+            } else {
+                false
+            };
 
             match parser.parse_one_of_keywords(&[
                 Keyword::TEMP,
@@ -1221,13 +1232,43 @@ pub fn parse_create_table(
                 }
                 Keyword::TARGET_LAG => {
                     parser.expect_token(&Token::Eq)?;
-                    let target_lag = parser.parse_literal_string()?;
+                    // TARGET_LAG accepts a quoted duration ('1 minute') or the
+                    // bare keyword DOWNSTREAM.
+                    let target_lag = if parser.parse_keyword(Keyword::DOWNSTREAM) {
+                        "DOWNSTREAM".to_string()
+                    } else {
+                        parser.parse_literal_string()?
+                    };
                     builder = builder.target_lag(Some(target_lag));
                 }
                 Keyword::WAREHOUSE => {
                     parser.expect_token(&Token::Eq)?;
                     let warehouse = parser.parse_identifier()?;
-                    builder = builder.warehouse(Some(warehouse));
+                    builder = builder.warehouse(Some(warehouse.value));
+                }
+                Keyword::INITIALIZATION_WAREHOUSE => {
+                    parser.expect_token(&Token::Eq)?;
+                    let warehouse = parser.parse_identifier()?;
+                    builder = builder.initialization_warehouse(Some(warehouse.value));
+                }
+                Keyword::SCHEDULER => {
+                    parser.expect_token(&Token::Eq)?;
+                    // SCHEDULER accepts a quoted string ('DISABLE') or a bare
+                    // keyword (the GET_DDL spelling, e.g. DISABLE).
+                    let value_token = parser.next_token();
+                    let scheduler = match &value_token.token {
+                        Token::SingleQuotedString(s) => s.clone(),
+                        Token::Word(w) => w.value.clone(),
+                        _ => return parser.expected("a scheduler value", value_token),
+                    };
+                    builder = builder.scheduler(Some(scheduler));
+                }
+                Keyword::IMMUTABLE => {
+                    parser.expect_keyword_is(Keyword::WHERE)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let predicate = parser.parse_expr()?;
+                    parser.expect_token(&Token::RParen)?;
+                    builder = builder.immutable_where(Some(predicate.to_string()));
                 }
                 Keyword::AT | Keyword::BEFORE => {
                     parser.prev_token();

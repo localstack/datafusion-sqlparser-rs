@@ -1367,6 +1367,47 @@ fn parse_create_dynamic_table() {
 }
 
 #[test]
+fn parse_create_dynamic_table_snowflake_clauses() {
+    // Leading TRANSIENT, bare TARGET_LAG = DOWNSTREAM, INITIALIZATION_WAREHOUSE,
+    // SCHEDULER (quoted + bare), and IMMUTABLE WHERE all carry their values in
+    // the AST.
+    let sql = concat!(
+        "CREATE OR REPLACE TRANSIENT DYNAMIC TABLE t",
+        " TARGET_LAG='1 minute'",
+        " WAREHOUSE=my_wh",
+        " INITIALIZATION_WAREHOUSE=init_wh",
+        " SCHEDULER='DISABLE'",
+        " IMMUTABLE WHERE (id > 5)",
+        " AS SELECT id FROM staging_table"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(ct) => {
+            assert!(ct.transient);
+            assert!(ct.dynamic);
+            assert!(ct.or_replace);
+            assert_eq!(Some("1 minute".to_string()), ct.target_lag);
+            assert_eq!(Some("my_wh".to_string()), ct.warehouse);
+            assert_eq!(Some("init_wh".to_string()), ct.initialization_warehouse);
+            assert_eq!(Some("DISABLE".to_string()), ct.scheduler);
+            assert_eq!(Some("id > 5".to_string()), ct.immutable_where);
+        }
+        other => panic!("expected CreateTable, got {other:?}"),
+    }
+
+    // Bare TARGET_LAG = DOWNSTREAM and bare SCHEDULER value.
+    match snowflake().one_statement_parses_to(
+        "CREATE DYNAMIC TABLE t TARGET_LAG=DOWNSTREAM WAREHOUSE=wh SCHEDULER=disable AS SELECT id FROM s",
+        "CREATE DYNAMIC TABLE t TARGET_LAG='DOWNSTREAM' WAREHOUSE=wh SCHEDULER='disable' AS SELECT id FROM s",
+    ) {
+        Statement::CreateTable(ct) => {
+            assert_eq!(Some("DOWNSTREAM".to_string()), ct.target_lag);
+            assert_eq!(Some("disable".to_string()), ct.scheduler);
+        }
+        other => panic!("expected CreateTable, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_sf_derived_table_in_parenthesis() {
     // Nesting a subquery in an extra set of parentheses is non-standard,
     // but supported in Snowflake SQL

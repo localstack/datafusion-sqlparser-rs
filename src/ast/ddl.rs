@@ -3127,9 +3127,23 @@ pub struct CreateTable {
     /// Snowflake "TARGET_LAG" clause for dybamic tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub target_lag: Option<String>,
-    /// Snowflake "WAREHOUSE" clause for dybamic tables
+    /// Snowflake "WAREHOUSE" clause for dybamic tables. Stored verbatim (not
+    /// as an `Ident`) so the user's original casing survives — SHOW / GET_DDL
+    /// echo the warehouse exactly as written.
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
-    pub warehouse: Option<Ident>,
+    pub warehouse: Option<String>,
+    /// Snowflake "INITIALIZATION_WAREHOUSE" clause for dynamic tables. Stored
+    /// verbatim for the same case-fidelity reason as `warehouse`.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
+    pub initialization_warehouse: Option<String>,
+    /// Snowflake "SCHEDULER" clause for dynamic tables (a quoted string or a
+    /// bare keyword such as `DISABLE`); the value is stored verbatim.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
+    pub scheduler: Option<String>,
+    /// Snowflake "IMMUTABLE WHERE (<predicate>)" clause for dynamic tables.
+    /// Stored as the serialized predicate text so its casing survives.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
+    pub immutable_where: Option<String>,
     /// Snowflake "REFRESH_MODE" clause for dybamic tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub refresh_mode: Option<RefreshModeKind>,
@@ -3443,6 +3457,18 @@ impl fmt::Display for CreateTable {
 
         if let Some(warehouse) = &self.warehouse {
             write!(f, " WAREHOUSE={warehouse}")?;
+        }
+
+        if let Some(initialization_warehouse) = &self.initialization_warehouse {
+            write!(f, " INITIALIZATION_WAREHOUSE={initialization_warehouse}")?;
+        }
+
+        if let Some(scheduler) = &self.scheduler {
+            write!(f, " SCHEDULER='{scheduler}'")?;
+        }
+
+        if let Some(immutable_where) = &self.immutable_where {
+            write!(f, " IMMUTABLE WHERE ({immutable_where})")?;
         }
 
         if let Some(refresh_mode) = &self.refresh_mode {
