@@ -6896,12 +6896,14 @@ impl fmt::Display for Statement {
             }
             Statement::ShowObjects(ShowObjects {
                 terse,
+                dynamic,
                 show_options,
             }) => {
                 write!(
                     f,
-                    "SHOW {terse}OBJECTS{show_options}",
+                    "SHOW {terse}{kind}{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
+                    kind = if *dynamic { "DYNAMIC TABLES" } else { "OBJECTS" },
                 )?;
                 Ok(())
             }
@@ -10252,6 +10254,9 @@ pub enum ObjectType {
     View,
     /// A materialized view.
     MaterializedView,
+    /// A dynamic table (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-dynamic-table>
+    DynamicTable,
     /// An index.
     Index,
     /// A schema.
@@ -10285,6 +10290,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Table => "TABLE",
             ObjectType::View => "VIEW",
             ObjectType::MaterializedView => "MATERIALIZED VIEW",
+            ObjectType::DynamicTable => "DYNAMIC TABLE",
             ObjectType::Index => "INDEX",
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
@@ -10456,6 +10462,9 @@ impl fmt::Display for HiveDescribeFormat {
 pub enum DescribeObjectType {
     /// `TABLE`
     Table,
+    /// `DYNAMIC TABLE` (Snowflake)
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-dynamic-table>
+    DynamicTable,
     /// `VIEW`
     View,
     /// `DATABASE`
@@ -10472,6 +10481,7 @@ impl fmt::Display for DescribeObjectType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             DescribeObjectType::Table => "TABLE",
+            DescribeObjectType::DynamicTable => "DYNAMIC TABLE",
             DescribeObjectType::View => "VIEW",
             DescribeObjectType::Database => "DATABASE",
             DescribeObjectType::Schema => "SCHEMA",
@@ -12746,6 +12756,9 @@ impl fmt::Display for ShowCharset {
 pub struct ShowObjects {
     /// Whether to show terse output.
     pub terse: bool,
+    /// Whether this is `SHOW DYNAMIC TABLES` rather than `SHOW OBJECTS`
+    /// (Snowflake). Both share the option grammar (`LIKE` / `IN` / …).
+    pub dynamic: bool,
     /// Additional options controlling the SHOW output.
     pub show_options: ShowStatementOptions,
 }
