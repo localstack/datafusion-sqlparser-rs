@@ -152,6 +152,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_create_table_optional_column_type(&self) -> bool {
+        true
+    }
+
     // Snowflake supports double-dot notation when the schema name is not specified
     // In this case the default PUBLIC schema is used
     //

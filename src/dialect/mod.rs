@@ -641,6 +641,14 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect allows a column in a `CREATE TABLE`
+    /// column list to omit its data type, deferring type inference to an
+    /// `AS <query>` clause.
+    /// Example: `CREATE TABLE t (id) AS SELECT 123`
+    fn supports_create_table_optional_column_type(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports double dot notation for object names
     ///
     /// Example

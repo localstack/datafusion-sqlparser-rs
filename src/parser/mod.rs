@@ -9747,7 +9747,25 @@ impl<'a> Parser<'a> {
             if let Some(constraint) = self.parse_optional_table_constraint()? {
                 constraints.push(constraint);
             } else if let Token::Word(_) = &self.peek_token_ref().token {
-                columns.push(self.parse_column_def()?);
+                // A bare column name with no data type (`CREATE TABLE t(id) AS
+                // SELECT ...`) is only accepted when the dialect opts in and the
+                // name is immediately followed by a column-list terminator, so a
+                // genuinely malformed data type still surfaces its own error.
+                if self.dialect.supports_create_table_optional_column_type()
+                    && matches!(
+                        self.peek_nth_token_ref(1).token,
+                        Token::Comma | Token::RParen
+                    )
+                {
+                    let name = self.parse_identifier()?;
+                    columns.push(ColumnDef {
+                        name,
+                        data_type: DataType::Unspecified,
+                        options: vec![],
+                    });
+                } else {
+                    columns.push(self.parse_column_def()?);
+                }
             } else {
                 return self.expected_ref(
                     "column name or constraint definition",
