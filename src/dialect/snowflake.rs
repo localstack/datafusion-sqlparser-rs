@@ -550,8 +550,11 @@ impl Dialect for SnowflakeDialect {
                 return Some(parse_show_accounts(parser));
             }
             let terse = parser.parse_keyword(Keyword::TERSE);
+            if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLES]) {
+                return Some(parse_show_objects(terse, true, parser));
+            }
             if parser.parse_keyword(Keyword::OBJECTS) {
-                return Some(parse_show_objects(terse, parser));
+                return Some(parse_show_objects(terse, false, parser));
             }
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMATS]) {
                 return Some(parse_show_file_formats(terse, parser));
@@ -2183,10 +2186,15 @@ fn parse_column_tags(parser: &mut Parser, with: bool) -> Result<TagsColumnOption
 
 /// Parse snowflake show objects.
 /// <https://docs.snowflake.com/en/sql-reference/sql/show-objects>
-fn parse_show_objects(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+fn parse_show_objects(
+    terse: bool,
+    dynamic: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowObjects(ShowObjects {
         terse,
+        dynamic,
         show_options,
     }))
 }

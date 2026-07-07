@@ -7893,7 +7893,9 @@ impl<'a> Parser<'a> {
         let persistent = dialect_of!(self is DuckDbDialect)
             && self.parse_one_of_keywords(&[Keyword::PERSISTENT]).is_some();
 
-        let object_type = if self.parse_keyword(Keyword::TABLE)
+        let object_type = if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+            ObjectType::DynamicTable
+        } else if self.parse_keyword(Keyword::TABLE)
             || self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE])
         {
             ObjectType::Table
@@ -14852,6 +14854,14 @@ impl<'a> Parser<'a> {
                         return Ok(Statement::DescribeResult {
                             describe_alias,
                             query_id: Box::new(query_id),
+                        });
+                    }
+                    if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+                        let object_name = self.parse_object_name(false)?;
+                        return Ok(Statement::DescribeObject {
+                            describe_alias,
+                            object_type: DescribeObjectType::DynamicTable,
+                            object_name,
                         });
                     }
                     if let Some(kw) = self.parse_one_of_keywords(&[
