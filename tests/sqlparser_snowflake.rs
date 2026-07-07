@@ -1652,6 +1652,21 @@ fn snowflake() -> TestedDialects {
     TestedDialects::new(vec![Box::new(SnowflakeDialect {})])
 }
 
+#[test]
+fn parse_create_sequence_snowflake_options() {
+    // Snowflake accepts the `=` assignment form, options in any order, and a
+    // trailing ORDER/NOORDER guarantee.
+    for sql in [
+        "CREATE SEQUENCE seq0 START = 1 INCREMENT = 1 ORDER",
+        "CREATE SEQUENCE seq0 INCREMENT = 2 START = 5 NOORDER",
+        "CREATE SEQUENCE seq0 START WITH 1 INCREMENT 1",
+    ] {
+        snowflake()
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+    }
+}
+
 fn snowflake_with_recursion_limit(recursion_limit: usize) -> TestedDialects {
     TestedDialects::new(vec![Box::new(SnowflakeDialect {})]).with_recursion_limit(recursion_limit)
 }

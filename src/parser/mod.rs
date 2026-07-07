@@ -20716,45 +20716,46 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_create_sequence_options(&mut self) -> Result<Vec<SequenceOptions>, ParserError> {
+        // Options may appear in any order (Snowflake) and each keyword may use an
+        // optional `=` assignment form (`START = 1`, `INCREMENT = 1`). Snowflake's
+        // `ORDER`/`NOORDER` ordering guarantee is accepted and ignored.
         let mut sequence_options = vec![];
-        //[ INCREMENT [ BY ] increment ]
-        if self.parse_keywords(&[Keyword::INCREMENT]) {
-            if self.parse_keywords(&[Keyword::BY]) {
-                sequence_options.push(SequenceOptions::IncrementBy(self.parse_number()?, true));
+        loop {
+            if self.parse_keyword(Keyword::INCREMENT) {
+                //[ INCREMENT [ BY ] [ = ] increment ]
+                let by = self.parse_keyword(Keyword::BY);
+                let _ = self.consume_token(&Token::Eq);
+                sequence_options.push(SequenceOptions::IncrementBy(self.parse_number()?, by));
+            } else if self.parse_keywords(&[Keyword::NO, Keyword::MINVALUE]) {
+                sequence_options.push(SequenceOptions::MinValue(None));
+            } else if self.parse_keyword(Keyword::MINVALUE) {
+                //[ MINVALUE [ = ] minvalue ]
+                let _ = self.consume_token(&Token::Eq);
+                sequence_options.push(SequenceOptions::MinValue(Some(self.parse_number()?)));
+            } else if self.parse_keywords(&[Keyword::NO, Keyword::MAXVALUE]) {
+                sequence_options.push(SequenceOptions::MaxValue(None));
+            } else if self.parse_keyword(Keyword::MAXVALUE) {
+                //[ MAXVALUE [ = ] maxvalue ]
+                let _ = self.consume_token(&Token::Eq);
+                sequence_options.push(SequenceOptions::MaxValue(Some(self.parse_number()?)));
+            } else if self.parse_keyword(Keyword::START) {
+                //[ START [ WITH ] [ = ] start ]
+                let with = self.parse_keyword(Keyword::WITH);
+                let _ = self.consume_token(&Token::Eq);
+                sequence_options.push(SequenceOptions::StartWith(self.parse_number()?, with));
+            } else if self.parse_keyword(Keyword::CACHE) {
+                //[ CACHE [ = ] cache ]
+                let _ = self.consume_token(&Token::Eq);
+                sequence_options.push(SequenceOptions::Cache(self.parse_number()?));
+            } else if self.parse_keywords(&[Keyword::NO, Keyword::CYCLE]) {
+                sequence_options.push(SequenceOptions::Cycle(true));
+            } else if self.parse_keyword(Keyword::CYCLE) {
+                sequence_options.push(SequenceOptions::Cycle(false));
+            } else if self.parse_keyword(Keyword::ORDER) || self.parse_keyword(Keyword::NOORDER) {
+                // Snowflake ordering guarantee — accepted, no effect on emulation.
             } else {
-                sequence_options.push(SequenceOptions::IncrementBy(self.parse_number()?, false));
+                break;
             }
-        }
-        //[ MINVALUE minvalue | NO MINVALUE ]
-        if self.parse_keyword(Keyword::MINVALUE) {
-            sequence_options.push(SequenceOptions::MinValue(Some(self.parse_number()?)));
-        } else if self.parse_keywords(&[Keyword::NO, Keyword::MINVALUE]) {
-            sequence_options.push(SequenceOptions::MinValue(None));
-        }
-        //[ MAXVALUE maxvalue | NO MAXVALUE ]
-        if self.parse_keywords(&[Keyword::MAXVALUE]) {
-            sequence_options.push(SequenceOptions::MaxValue(Some(self.parse_number()?)));
-        } else if self.parse_keywords(&[Keyword::NO, Keyword::MAXVALUE]) {
-            sequence_options.push(SequenceOptions::MaxValue(None));
-        }
-
-        //[ START [ WITH ] start ]
-        if self.parse_keywords(&[Keyword::START]) {
-            if self.parse_keywords(&[Keyword::WITH]) {
-                sequence_options.push(SequenceOptions::StartWith(self.parse_number()?, true));
-            } else {
-                sequence_options.push(SequenceOptions::StartWith(self.parse_number()?, false));
-            }
-        }
-        //[ CACHE cache ]
-        if self.parse_keywords(&[Keyword::CACHE]) {
-            sequence_options.push(SequenceOptions::Cache(self.parse_number()?));
-        }
-        // [ [ NO ] CYCLE ]
-        if self.parse_keywords(&[Keyword::NO, Keyword::CYCLE]) {
-            sequence_options.push(SequenceOptions::Cycle(true));
-        } else if self.parse_keywords(&[Keyword::CYCLE]) {
-            sequence_options.push(SequenceOptions::Cycle(false));
         }
 
         Ok(sequence_options)
