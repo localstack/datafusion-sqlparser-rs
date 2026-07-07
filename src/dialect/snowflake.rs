@@ -31,12 +31,13 @@ use crate::ast::{
     AlterTableOperation, AlterTableType, CatalogRestAuthentication, CatalogRestConfig,
     CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
     ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
-    DollarQuotedString, ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident,
+    DollarQuotedString, Expr, ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident,
     IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
     IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
     MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType, OperateFunctionArg,
-    RefreshModeKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption, Statement,
+    RefreshModeKind, RenameTableNameKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption,
+    Statement,
     StorageLifecyclePolicy, StorageSerializationPolicy, Tag, TableObject, TagsColumnOption, Value,
     WrappedCollection,
 };
@@ -955,21 +956,43 @@ fn parse_file_staging_command(kw: Keyword, parser: &mut Parser) -> Result<Statem
 }
 
 /// Parse snowflake alter dynamic table.
-/// <https://docs.snowflake.com/en/sql-reference/sql/alter-table>
+/// <https://docs.snowflake.com/en/sql-reference/sql/alter-dynamic-table>
 fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     // Use parse_object_name(true) to support IDENTIFIER() function
     let table_name = parser.parse_object_name(true)?;
 
-    // Parse the operation (REFRESH, SUSPEND, or RESUME)
     let operation = if parser.parse_keyword(Keyword::REFRESH) {
         AlterTableOperation::Refresh { subpath: None }
     } else if parser.parse_keyword(Keyword::SUSPEND) {
         AlterTableOperation::Suspend
     } else if parser.parse_keyword(Keyword::RESUME) {
         AlterTableOperation::Resume
+    } else if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterTableOperation::RenameTable {
+            table_name: RenameTableNameKind::To(new_name),
+        }
+    } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
+        parser.expect_token(&Token::LParen)?;
+        let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+        parser.expect_token(&Token::RParen)?;
+        AlterTableOperation::ClusterBy { exprs }
+    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
+        AlterTableOperation::DropClusteringKey
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_dynamic_table_properties(parser, false)?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_dynamic_table_properties(parser, true)?,
+        }
     } else {
         return parser.expected_ref(
-            "REFRESH, SUSPEND, or RESUME after ALTER DYNAMIC TABLE",
+            "REFRESH, SUSPEND, RESUME, RENAME, SET, UNSET, CLUSTER BY, \
+             or DROP CLUSTERING KEY after ALTER DYNAMIC TABLE",
             parser.peek_token_ref(),
         );
     };
@@ -982,7 +1005,7 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
 
     Ok(Statement::AlterTable(AlterTable {
         name: table_name,
-        if_exists: false,
+        if_exists,
         only: false,
         operations: vec![operation],
         location: None,
@@ -990,6 +1013,99 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         table_type: Some(AlterTableType::Dynamic),
         end_token: AttachedToken(end_token),
     }))
+}
+
+/// Parse the property list of `ALTER DYNAMIC TABLE … SET/UNSET`. Properties are
+/// space- or comma-separated. Each becomes an [`SqlOption::KeyValue`] whose
+/// value is a string literal — including identifier values (`WAREHOUSE = wh`)
+/// and keyword values (`TARGET_LAG = DOWNSTREAM`) — so the identifier
+/// canonicalizer never rewrites the user's casing (SHOW echoes it verbatim).
+/// `UNSET <prop>` is encoded as `<prop> = NULL`.
+fn parse_alter_dynamic_table_properties(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<Vec<SqlOption>, ParserError> {
+    let mut options = vec![parse_alter_dynamic_table_property(parser, unset)?];
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+            break;
+        }
+        options.push(parse_alter_dynamic_table_property(parser, unset)?);
+    }
+    Ok(options)
+}
+
+/// Parse one `ALTER DYNAMIC TABLE … SET/UNSET` property into an
+/// [`SqlOption::KeyValue`]. See [`parse_alter_dynamic_table_properties`].
+fn parse_alter_dynamic_table_property(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<SqlOption, ParserError> {
+    let key_token = parser.next_token();
+    let key = match &key_token.token {
+        Token::Word(w) if w.quote_style.is_none() => w.value.to_uppercase(),
+        _ => return parser.expected("a dynamic table property name", key_token),
+    };
+
+    if key == "IMMUTABLE" {
+        parser.expect_keyword_is(Keyword::WHERE)?;
+        let value = if unset {
+            Value::Null
+        } else {
+            parser.expect_token(&Token::LParen)?;
+            let predicate = parser.parse_expr()?;
+            parser.expect_token(&Token::RParen)?;
+            Value::SingleQuotedString(predicate.to_string())
+        };
+        return Ok(SqlOption::KeyValue {
+            key: Ident::new("IMMUTABLE_WHERE"),
+            value: Expr::Value(value.into()),
+        });
+    }
+
+    if unset {
+        if !matches!(
+            key.as_str(),
+            "COMMENT" | "INITIALIZATION_WAREHOUSE" | "SCHEDULER"
+        ) {
+            return parser.expected(
+                "COMMENT, INITIALIZATION_WAREHOUSE, SCHEDULER, or IMMUTABLE WHERE after UNSET",
+                key_token,
+            );
+        }
+        return Ok(SqlOption::KeyValue {
+            key: Ident::new(key),
+            value: Expr::Value(Value::Null.into()),
+        });
+    }
+
+    if !matches!(
+        key.as_str(),
+        "TARGET_LAG" | "WAREHOUSE" | "INITIALIZATION_WAREHOUSE" | "COMMENT" | "SCHEDULER"
+    ) {
+        return parser.expected("a dynamic table property name", key_token);
+    }
+    parser.expect_token(&Token::Eq)?;
+    let value_token = parser.next_token();
+    let value = match &value_token.token {
+        Token::SingleQuotedString(s) => s.clone(),
+        // WAREHOUSE / INITIALIZATION_WAREHOUSE keep the user's verbatim
+        // spelling; other keyword values (bare DOWNSTREAM) are uppercased.
+        Token::Word(w)
+            if w.quote_style.is_none()
+                && key != "WAREHOUSE"
+                && key != "INITIALIZATION_WAREHOUSE" =>
+        {
+            w.value.to_uppercase()
+        }
+        Token::Word(w) if w.quote_style.is_none() => w.value.clone(),
+        _ => return parser.expected("a property value", value_token),
+    };
+    Ok(SqlOption::KeyValue {
+        key: Ident::new(key),
+        value: Expr::Value(Value::SingleQuotedString(value).into()),
+    })
 }
 
 /// Parse snowflake alter external table.
