@@ -4026,9 +4026,11 @@ fn test_parse_show_objects() {
     match snowflake().verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc") {
         Statement::ShowObjects(ShowObjects {
             terse,
+            dynamic,
             show_options,
         }) => {
             assert!(terse);
+            assert!(!dynamic);
             let name = match show_options.show_in {
                 Some(ShowStatementIn {
                     parent_name: Some(val),
