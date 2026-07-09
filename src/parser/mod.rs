@@ -17800,8 +17800,12 @@ impl<'a> Parser<'a> {
     fn parse_table_version_changes(&mut self) -> Result<TableVersion, ParserError> {
         let changes_name = self.parse_object_name(true)?;
         let changes = self.parse_function(changes_name)?;
-        let at_name = self.parse_object_name(true)?;
-        let at = self.parse_function(at_name)?;
+        let at = if self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE) {
+            let at_name = self.parse_object_name(true)?;
+            Some(self.parse_function(at_name)?)
+        } else {
+            None
+        };
         let end = if self.peek_keyword(Keyword::END) {
             let end_name = self.parse_object_name(true)?;
             Some(self.parse_function(end_name)?)

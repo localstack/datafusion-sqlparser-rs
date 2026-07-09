@@ -2630,8 +2630,10 @@ pub enum TableVersion {
     Changes {
         /// The `CHANGES(INFORMATION => ...)` function-call expression.
         changes: Expr,
-        /// The `AT(TIMESTAMP => ...)` function-call expression.
-        at: Expr,
+        /// The optional `AT(TIMESTAMP => ...)` / `BEFORE(...)` function-call
+        /// expression. Absent when `CHANGES` is used without an `AT`/`BEFORE`
+        /// bound.
+        at: Option<Expr>,
         /// The optional `END(TIMESTAMP => ...)` function-call expression.
         end: Option<Expr>,
     },
@@ -2645,7 +2647,10 @@ impl Display for TableVersion {
             TableVersion::VersionAsOf(e) => write!(f, "VERSION AS OF {e}")?,
             TableVersion::Function(func) => write!(f, "{func}")?,
             TableVersion::Changes { changes, at, end } => {
-                write!(f, "{changes} {at}")?;
+                write!(f, "{changes}")?;
+                if let Some(at) = at {
+                    write!(f, " {at}")?;
+                }
                 if let Some(end) = end {
                     write!(f, " {end}")?;
                 }
