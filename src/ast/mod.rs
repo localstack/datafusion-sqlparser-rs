@@ -5011,6 +5011,29 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW [TERSE] STREAMS [LIKE '<pattern>']
+    ///     [IN { ACCOUNT | DATABASE <db> | SCHEMA <schema> }]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-streams>
+    ShowStreams {
+        /// `true` when terse output format was requested.
+        terse: bool,
+        /// Additional options for `SHOW` statements.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
+    /// ALTER STREAM [IF EXISTS] <name> { SET COMMENT = '<string>' | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-stream>
+    AlterStream {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Stream name.
+        name: ObjectName,
+        /// The alter action.
+        operation: AlterStreamOperation,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] EXTERNAL VOLUME [IF NOT EXISTS] <name>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-external-volume>
@@ -7352,6 +7375,28 @@ impl fmt::Display for Statement {
                     terse = if *terse { "TERSE " } else { "" },
                 )?;
                 Ok(())
+            }
+            Statement::ShowStreams {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}STREAMS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )?;
+                Ok(())
+            }
+            Statement::AlterStream {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(f, "ALTER STREAM")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {name} {operation}")
             }
             Statement::CreateExternalVolume {
                 or_replace,
@@ -10337,6 +10382,8 @@ pub enum DescribeObjectType {
     Task,
     /// `STAGE`
     Stage,
+    /// `STREAM`
+    Stream,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -10349,6 +10396,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Schema => "SCHEMA",
             DescribeObjectType::Task => "TASK",
             DescribeObjectType::Stage => "STAGE",
+            DescribeObjectType::Stream => "STREAM",
         })
     }
 }
@@ -13017,6 +13065,28 @@ impl fmt::Display for AlterTaskAction {
         match self {
             AlterTaskAction::Resume => write!(f, "RESUME"),
             AlterTaskAction::Suspend => write!(f, "SUSPEND"),
+        }
+    }
+}
+
+/// Action for [`Statement::AlterStream`].
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-stream>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterStreamOperation {
+    /// `SET COMMENT = '<string>'`
+    SetComment(String),
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterStreamOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterStreamOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
+            AlterStreamOperation::UnsetComment => write!(f, "UNSET COMMENT"),
         }
     }
 }
