@@ -537,6 +537,7 @@ impl Spanned for Statement {
             Statement::Vacuum(..) => Span::empty(),
             Statement::AlterUser(..) => Span::empty(),
             Statement::Reset(..) => Span::empty(),
+            Statement::CreateStream { .. } => Span::empty(),
             Statement::AlterWarehouse { .. } => Span::empty(),
             Statement::DescribeWarehouse { .. } => Span::empty(),
             Statement::ShowWarehouses { .. } => Span::empty(),
