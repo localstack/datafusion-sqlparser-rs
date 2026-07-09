@@ -11881,6 +11881,7 @@ impl<'a> Parser<'a> {
             Keyword::WAREHOUSE,
             Keyword::ACCOUNT,
             Keyword::TASK,
+            Keyword::STREAM,
         ])?;
         match object_type {
             Keyword::SCHEMA => {
@@ -11935,9 +11936,10 @@ impl<'a> Parser<'a> {
             Keyword::WAREHOUSE => self.parse_alter_warehouse(),
             Keyword::ACCOUNT => self.parse_alter_account(),
             Keyword::TASK => self.parse_alter_task(),
+            Keyword::STREAM => self.parse_alter_stream(),
             // unreachable because expect_one_of_keywords used above
             unexpected_keyword => Err(ParserError::ParserError(
-                format!("Internal parser error: expected any of {{TEXT SEARCH, VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, TASK, ACCOUNT}}, got {unexpected_keyword:?}"),
+                format!("Internal parser error: expected any of {{TEXT SEARCH, VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, TASK, ACCOUNT, STREAM}}, got {unexpected_keyword:?}"),
             )),
         }
     }
@@ -12271,6 +12273,27 @@ impl<'a> Parser<'a> {
             if_exists,
             name,
             action,
+        })
+    }
+
+    /// Parse `ALTER STREAM [IF EXISTS] <name> { SET COMMENT = '<s>' | UNSET COMMENT }`.
+    pub fn parse_alter_stream(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let operation = if self.parse_keyword(Keyword::SET) {
+            self.expect_keyword(Keyword::COMMENT)?;
+            self.expect_token(&Token::Eq)?;
+            AlterStreamOperation::SetComment(self.parse_literal_string()?)
+        } else if self.parse_keyword(Keyword::UNSET) {
+            self.expect_keyword(Keyword::COMMENT)?;
+            AlterStreamOperation::UnsetComment
+        } else {
+            return self.expected("SET or UNSET after ALTER STREAM", self.peek_token());
+        };
+        Ok(Statement::AlterStream {
+            if_exists,
+            name,
+            operation,
         })
     }
 
@@ -15361,6 +15384,15 @@ impl<'a> Parser<'a> {
                             object_name,
                         });
                     }
+                    // `DESCRIBE TABLE STREAM <name>` is not valid Snowflake
+                    // syntax (a client such as sqlglot may emit it). Real
+                    // Snowflake consumes the whole statement and then reports an
+                    // unexpected end-of-input; mirror that by draining the name
+                    // and failing at EOF rather than at the second identifier.
+                    if self.parse_keywords(&[Keyword::TABLE, Keyword::STREAM]) {
+                        let _ = self.parse_object_name(false)?;
+                        return self.expected("end of statement", self.peek_token());
+                    }
                     if let Some(kw) = self.parse_one_of_keywords(&[
                         Keyword::TABLE,
                         Keyword::VIEW,
@@ -15368,6 +15400,7 @@ impl<'a> Parser<'a> {
                         Keyword::SCHEMA,
                         Keyword::TASK,
                         Keyword::STAGE,
+                        Keyword::STREAM,
                     ]) {
                         let object_type = match kw {
                             Keyword::TABLE => DescribeObjectType::Table,
@@ -15376,6 +15409,7 @@ impl<'a> Parser<'a> {
                             Keyword::SCHEMA => DescribeObjectType::Schema,
                             Keyword::TASK => DescribeObjectType::Task,
                             Keyword::STAGE => DescribeObjectType::Stage,
+                            Keyword::STREAM => DescribeObjectType::Stream,
                             _ => return self.expected("a describe object type", self.peek_token()),
                         };
                         let object_name = self.parse_object_name(false)?;
@@ -16894,6 +16928,8 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
         } else if self.parse_keyword(Keyword::TASKS) {
             Ok(self.parse_show_tasks(terse)?)
+        } else if self.parse_keyword(Keyword::STREAMS) {
+            Ok(self.parse_show_streams(terse)?)
         } else if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEWS]) {
             Ok(self.parse_show_views(terse, true)?)
         } else if self.parse_keyword(Keyword::VIEWS) {
@@ -17043,6 +17079,14 @@ impl<'a> Parser<'a> {
     fn parse_show_tasks(&mut self, terse: bool) -> Result<Statement, ParserError> {
         let show_options = self.parse_show_stmt_options()?;
         Ok(Statement::ShowTasks {
+            terse,
+            show_options,
+        })
+    }
+
+    fn parse_show_streams(&mut self, terse: bool) -> Result<Statement, ParserError> {
+        let show_options = self.parse_show_stmt_options()?;
+        Ok(Statement::ShowStreams {
             terse,
             show_options,
         })

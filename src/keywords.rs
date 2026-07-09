@@ -1073,6 +1073,7 @@ define_keywords!(
     STORED,
     STRAIGHT_JOIN,
     STREAM,
+    STREAMS,
     STRICT,
     STRING,
     STRUCT,
