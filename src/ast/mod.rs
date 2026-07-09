@@ -4859,6 +4859,19 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON TABLE <table>
+    /// ```
+    CreateStream {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Stream name.
+        name: ObjectName,
+        /// The source table the stream tracks (`ON TABLE <table>`).
+        source_table: ObjectName,
+    },
+    /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse>
@@ -7195,6 +7208,19 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "CREATE {or_replace}WAREHOUSE {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )
+            }
+            Statement::CreateStream {
+                or_replace,
+                if_not_exists,
+                name,
+                source_table,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}STREAM {if_not_exists}{name} ON TABLE {source_table}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )

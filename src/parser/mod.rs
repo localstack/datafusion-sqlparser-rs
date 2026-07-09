@@ -5523,6 +5523,8 @@ impl<'a> Parser<'a> {
             self.parse_create_role(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(or_replace, temporary)
+        } else if self.parse_keyword(Keyword::STREAM) {
+            self.parse_create_stream(or_replace)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA or ROLE or SEQUENCE after CREATE OR REPLACE",
@@ -5589,6 +5591,20 @@ impl<'a> Parser<'a> {
                 options: tags,
                 delimiter: KeyValueOptionsDelimiter::Comma,
             },
+        })
+    }
+
+    /// `CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON TABLE <table>`
+    fn parse_create_stream(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        self.expect_keywords(&[Keyword::ON, Keyword::TABLE])?;
+        let source_table = self.parse_object_name(false)?;
+        Ok(Statement::CreateStream {
+            or_replace,
+            if_not_exists,
+            name,
+            source_table,
         })
     }
 
