@@ -543,6 +543,7 @@ impl Spanned for Statement {
             Statement::AlterUser(..) => Span::empty(),
             Statement::Reset(..) => Span::empty(),
             Statement::RefreshMaterializedView(refresh) => refresh.span(),
+            Statement::CreateStream { .. } => Span::empty(),
             Statement::AlterWarehouse { .. } => Span::empty(),
             Statement::DescribeWarehouse { .. } => Span::empty(),
             Statement::ShowWarehouses { .. } => Span::empty(),
