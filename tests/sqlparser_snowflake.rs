@@ -2907,6 +2907,128 @@ fn test_copy_into_with_transformations() {
 }
 
 #[test]
+fn test_copy_into_data_load_dotted_subpaths_and_casts() {
+    // Extended data-load projection shapes that the dedicated item parser does not
+    // cover — dotted sub-paths (`$N:a.b`), `::TYPE` casts (with or without a colon
+    // element, and bare `$N::TYPE`), and their combinations — must fall back to the
+    // general select-item parser instead of failing at the stray `.`/`::`.
+    fn transformations(sql: &str) -> Vec<StageLoadSelectItemKind> {
+        match snowflake().verified_stmt(sql) {
+            Statement::CopyIntoSnowflake {
+                from_transformations,
+                ..
+            } => from_transformations.unwrap(),
+            _ => unreachable!(),
+        }
+    }
+
+    // Dotted sub-path with a cast and alias, mixed with a single-word colon element and
+    // a bare `$N`. The extended item parses as a general SelectItem; the plain ones stay
+    // StageLoadSelectItem.
+    let items = transformations(
+        "COPY INTO t FROM (SELECT $1:country.name::TEXT AS country_name, $1:id, $2 FROM @stage)",
+    );
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+    assert_eq!(
+        items[1],
+        StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+            alias: None,
+            file_col_num: 1,
+            element: Some(Ident::new("id")),
+            item_as: None,
+        })
+    );
+    assert_eq!(
+        items[2],
+        StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+            alias: None,
+            file_col_num: 2,
+            element: None,
+            item_as: None,
+        })
+    );
+
+    // Bare `$N::TYPE` cast, mixed with a plain `$N`.
+    let items = transformations("COPY INTO t FROM (SELECT $1::INT, $2 FROM @stage)");
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+    assert_eq!(
+        items[1],
+        StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+            alias: None,
+            file_col_num: 2,
+            element: None,
+            item_as: None,
+        })
+    );
+
+    // Colon element with a cast, no dotted sub-path.
+    let items = transformations("COPY INTO t FROM (SELECT $1:id::INT AS id FROM @stage)");
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+
+    // Dotted sub-path without a cast.
+    let items = transformations("COPY INTO t FROM (SELECT $1:a.b FROM @stage)");
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+}
+
+#[test]
+fn test_copy_into_data_load_accepted_shapes_preserved() {
+    // The currently-accepted data-load item shapes must keep parsing as dedicated
+    // StageLoadSelectItems and keep round-tripping.
+    let sql = concat!(
+        "COPY INTO t FROM ",
+        "(SELECT $1, alias.$2, $3:element, $4:element AS a FROM @stage AS alias)"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            from_transformations,
+            ..
+        } => {
+            let items = from_transformations.unwrap();
+            assert_eq!(
+                items[0],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 1,
+                    element: None,
+                    item_as: None,
+                })
+            );
+            assert_eq!(
+                items[1],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: Some(Ident::new("alias")),
+                    file_col_num: 2,
+                    element: None,
+                    item_as: None,
+                })
+            );
+            assert_eq!(
+                items[2],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 3,
+                    element: Some(Ident::new("element")),
+                    item_as: None,
+                })
+            );
+            assert_eq!(
+                items[3],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 4,
+                    element: Some(Ident::new("element")),
+                    item_as: Some(Ident::new("a")),
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // SELECT * remains handled by the general fallback.
+    snowflake().verified_stmt("COPY INTO t FROM (SELECT * FROM @stage)");
+}
+
+#[test]
 fn test_copy_into_file_format() {
     let sql = concat!(
         "COPY INTO my_company.emp_basic ",

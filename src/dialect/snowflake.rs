@@ -37,9 +37,8 @@ use crate::ast::{
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
     MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType, OperateFunctionArg,
     RefreshModeKind, RenameTableNameKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption,
-    Statement,
-    StorageLifecyclePolicy, StorageSerializationPolicy, Tag, TableObject, TagsColumnOption, Value,
-    WrappedCollection,
+    Statement, StorageLifecyclePolicy, StorageSerializationPolicy, TableObject, Tag,
+    TagsColumnOption, Value, WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -2127,6 +2126,16 @@ fn parse_select_item_for_data_load(
             Token::Word(w) => Ok(Ident::new(w.value)),
             _ => parser.expected_ref("column item alias", parser.peek_token_ref()),
         }?);
+    }
+
+    // The data-load item grammar only covers [<alias>.]$<num>[:<element>] [AS <alias>].
+    // If the item was not fully consumed here — e.g. a dotted sub-path (`$1:a.b`) or a
+    // `::TYPE` cast follows — roll back by failing so the caller's general select-item
+    // fallback parses the extended shape. Items are separated by `,` and terminated by
+    // the trailing `FROM @stage`, so anything else means the item continues.
+    if !matches!(parser.peek_token_ref().token, Token::Comma) && !parser.peek_keyword(Keyword::FROM)
+    {
+        return parser.expected_ref("end of data load select item", parser.peek_token_ref());
     }
 
     Ok(StageLoadSelectItem {
