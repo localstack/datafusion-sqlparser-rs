@@ -4028,6 +4028,7 @@ fn test_parse_show_objects() {
             terse,
             dynamic,
             show_options,
+            ..
         }) => {
             assert!(terse);
             assert!(!dynamic);
