@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
+use crate::ast::helpers::key_value_options::KeyValueOptions;
 use crate::ast::value::escape_single_quote_string;
 use crate::ast::{
     display_comma_separated, display_separated,
@@ -3102,6 +3103,9 @@ pub struct CreateTable {
     /// Snowflake "CHANGE_TRACKING" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub change_tracking: Option<bool>,
+    /// Snowflake table-level "STAGE_FILE_FORMAT" clause
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
+    pub stage_file_format: Option<KeyValueOptions>,
     /// Snowflake "DATA_RETENTION_TIME_IN_DAYS" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub data_retention_time_in_days: Option<u64>,
@@ -3462,6 +3466,10 @@ impl fmt::Display for CreateTable {
                 " CHANGE_TRACKING={}",
                 if is_enabled { "TRUE" } else { "FALSE" }
             )?;
+        }
+
+        if let Some(stage_file_format) = &self.stage_file_format {
+            write!(f, " STAGE_FILE_FORMAT=({stage_file_format})")?;
         }
 
         if let Some(data_retention_time_in_days) = self.data_retention_time_in_days {
