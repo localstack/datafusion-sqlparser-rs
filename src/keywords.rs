@@ -1094,6 +1094,7 @@ define_keywords!(
     STABLE,
     STAGE,
     STAGES,
+    STAGE_FILE_FORMAT,
     START,
     STARTS,
     STATEMENT,
