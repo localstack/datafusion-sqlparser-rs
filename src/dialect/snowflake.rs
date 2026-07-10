@@ -1880,6 +1880,10 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
                 parser.prev_token();
                 break;
             }
+            Token::Comma => {
+                parser.prev_token();
+                break;
+            }
             Token::AtSign => ident.push('@'),
             Token::Tilde => ident.push('~'),
             Token::Mod => ident.push('%'),
