@@ -3868,6 +3868,7 @@ fn test_parse_show_objects() {
         Statement::ShowObjects(ShowObjects {
             terse,
             show_options,
+            ..
         }) => {
             assert!(terse);
             let name = match show_options.show_in {
