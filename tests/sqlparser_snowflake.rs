@@ -5719,6 +5719,34 @@ fn test_select_dollar_column_from_stage() {
     snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1(file_format => 'myformat')");
 }
 
+#[test]
+fn test_select_from_stage_comma_join_lateral() {
+    // Comma immediately abutting the stage path, followed by LATERAL FLATTEN.
+    snowflake().one_statement_parses_to(
+        "SELECT value FROM @stage/test.jsonl, LATERAL FLATTEN(input => $1, path => 'attr1')",
+        "SELECT value FROM @stage/test.jsonl, LATERAL FLATTEN(input => $1, path => 'attr1')",
+    );
+    // Space before the comma parses to the same canonical form.
+    snowflake().one_statement_parses_to(
+        "SELECT value FROM @stage/test.jsonl , LATERAL FLATTEN(input => $1, path => 'attr1')",
+        "SELECT value FROM @stage/test.jsonl, LATERAL FLATTEN(input => $1, path => 'attr1')",
+    );
+    // Comma abutting the path, with a table alias on the stage factor.
+    let stmt = snowflake()
+        .parse_sql_statements("SELECT value FROM @stage/test.jsonl t, LATERAL FLATTEN(input => $1)")
+        .expect("stage factor with alias and comma join should parse");
+    assert_eq!(
+        stmt[0].to_string(),
+        "SELECT value FROM @stage/test.jsonl t, LATERAL FLATTEN(input => $1)"
+    );
+    // Explicit `AS` alias round-trips.
+    snowflake()
+        .verified_stmt("SELECT value FROM @stage/test.jsonl AS t, LATERAL FLATTEN(input => $1)");
+    // Plain comma join of a stage factor with an ordinary table.
+    snowflake().verified_stmt("SELECT * FROM @stage, other_table");
+    snowflake().verified_stmt("SELECT * FROM @stage/test.jsonl, other_table");
+}
+
 /// Bare assignment `var := expr` inside `BEGIN...END` scripting blocks.
 #[test]
 fn test_scripting_bare_assignment() {
