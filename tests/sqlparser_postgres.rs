@@ -6700,6 +6700,7 @@ fn parse_trigger_related_functions() {
             copy_grants: false,
             enable_schema_evolution: None,
             change_tracking: None,
+            stage_file_format: None,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             default_ddl_collation: None,

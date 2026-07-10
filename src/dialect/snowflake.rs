@@ -1249,6 +1249,11 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.change_tracking(Some(parser.parse_boolean_string()?));
                 }
+                Keyword::STAGE_FILE_FORMAT => {
+                    parser.expect_token(&Token::Eq)?;
+                    let options = parser.parse_key_value_options(true, &[], false)?;
+                    builder = builder.stage_file_format(Some(options));
+                }
                 Keyword::DATA_RETENTION_TIME_IN_DAYS => {
                     parser.expect_token(&Token::Eq)?;
                     let data_retention_time_in_days = parser.parse_literal_uint()?;

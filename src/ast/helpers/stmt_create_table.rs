@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
+use crate::ast::helpers::key_value_options::KeyValueOptions;
 use crate::ast::{
     ClusteredBy, ColumnDef, CommentDef, CreateTable, CreateTableLikeKind, CreateTableOptions,
     DistStyle, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat, Ident,
@@ -139,6 +140,8 @@ pub struct CreateTableBuilder {
     pub enable_schema_evolution: Option<bool>,
     /// Optional change tracking flag.
     pub change_tracking: Option<bool>,
+    /// Optional table-level stage file format options.
+    pub stage_file_format: Option<KeyValueOptions>,
     /// Optional data retention time in days.
     pub data_retention_time_in_days: Option<u64>,
     /// Optional max data extension time in days.
@@ -236,6 +239,7 @@ impl CreateTableBuilder {
             copy_grants: false,
             enable_schema_evolution: None,
             change_tracking: None,
+            stage_file_format: None,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             default_ddl_collation: None,
@@ -449,6 +453,11 @@ impl CreateTableBuilder {
         self.change_tracking = change_tracking;
         self
     }
+    /// Set the table-level stage file format options.
+    pub fn stage_file_format(mut self, stage_file_format: Option<KeyValueOptions>) -> Self {
+        self.stage_file_format = stage_file_format;
+        self
+    }
     /// Set data retention time (in days).
     pub fn data_retention_time_in_days(mut self, data_retention_time_in_days: Option<u64>) -> Self {
         self.data_retention_time_in_days = data_retention_time_in_days;
@@ -626,6 +635,7 @@ impl CreateTableBuilder {
             copy_grants: self.copy_grants,
             enable_schema_evolution: self.enable_schema_evolution,
             change_tracking: self.change_tracking,
+            stage_file_format: self.stage_file_format,
             data_retention_time_in_days: self.data_retention_time_in_days,
             max_data_extension_time_in_days: self.max_data_extension_time_in_days,
             default_ddl_collation: self.default_ddl_collation,
@@ -712,6 +722,7 @@ impl From<CreateTable> for CreateTableBuilder {
             copy_grants: table.copy_grants,
             enable_schema_evolution: table.enable_schema_evolution,
             change_tracking: table.change_tracking,
+            stage_file_format: table.stage_file_format,
             data_retention_time_in_days: table.data_retention_time_in_days,
             max_data_extension_time_in_days: table.max_data_extension_time_in_days,
             default_ddl_collation: table.default_ddl_collation,

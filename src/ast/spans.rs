@@ -642,6 +642,7 @@ impl Spanned for CreateTable {
             copy_grants: _,                     // bool
             enable_schema_evolution: _,         // bool
             change_tracking: _,                 // bool
+            stage_file_format: _,                // key-value options, no span
             data_retention_time_in_days: _,     // u64, no span
             max_data_extension_time_in_days: _, // u64, no span
             default_ddl_collation: _,           // string, no span
