@@ -1925,7 +1925,22 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         if parser.parse_keyword(Keyword::FILE_FORMAT) {
             parser.expect_token(&Token::Eq)?;
             if parser.peek_token().token == Token::LParen {
+                let paren_span = parser.peek_token().span;
                 file_format = parser.parse_key_value_options(true, &[], false)?.options;
+                if file_format.is_empty() {
+                    // Snowflake parses an empty `FILE_FORMAT = ()` as a reference
+                    // to its internal empty-constant-list token and then resolves
+                    // that as a format name, so the clause fails with
+                    // "File format 'TOK_CONSTANT_LIST' does not exist". Mirror
+                    // that by lowering `()` to `FORMAT_NAME = TOK_CONSTANT_LIST`.
+                    file_format = vec![KeyValueOption {
+                        option_name: "FORMAT_NAME".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("TOK_CONSTANT_LIST".to_string())
+                                .with_span(paren_span),
+                        ),
+                    }];
+                }
             } else {
                 // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>`
                 // is sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` —
