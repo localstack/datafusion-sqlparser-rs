@@ -10664,6 +10664,10 @@ impl<'a> Parser<'a> {
         } else if self.parse_keywords(&[Keyword::VALIDATE, Keyword::CONSTRAINT]) {
             let name = self.parse_identifier()?;
             AlterTableOperation::ValidateConstraint { name }
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::OPTIONS]) {
+            self.prev_token();
+            let options = self.parse_options(Keyword::OPTIONS)?;
+            AlterTableOperation::SetOptionsParens { options }
         } else {
             let mut options =
                 self.parse_options_with_keywords(&[Keyword::SET, Keyword::TBLPROPERTIES])?;
