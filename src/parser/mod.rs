@@ -20944,14 +20944,23 @@ impl<'a> Parser<'a> {
         self.expect_keyword_is(Keyword::AS)?;
 
         // Snowflake encloses the procedure body in a dollar-quoted string
-        // (e.g. `AS $$ BEGIN … END $$`). Re-parse its content as a
-        // conditional-statements block so the body is always typed as
-        // `ConditionalStatements` regardless of how it was written.
+        // (e.g. `AS $$ BEGIN … END $$`) or, equivalently, a single-quoted
+        // string with interior quotes doubled (`AS ' … '`). In both cases
+        // re-parse the string content as a conditional-statements block so
+        // the body is always typed as `ConditionalStatements` regardless of
+        // how it was written. The tokenizer already unescapes doubled `''`
+        // quotes, so the string value is the plain scripting text.
         let body = match self.peek_token().token.clone() {
             Token::DollarQuotedString(dqs) => {
                 self.next_token(); // consume the dollar-quoted string token
                 Parser::new(self.dialect)
                     .try_with_sql(&dqs.value)?
+                    .parse_conditional_statements(&[Keyword::END])?
+            }
+            Token::SingleQuotedString(body) => {
+                self.next_token(); // consume the single-quoted string token
+                Parser::new(self.dialect)
+                    .try_with_sql(&body)?
                     .parse_conditional_statements(&[Keyword::END])?
             }
             _ => self.parse_conditional_statements(&[Keyword::END])?,
