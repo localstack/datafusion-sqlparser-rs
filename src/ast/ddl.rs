@@ -1278,6 +1278,11 @@ pub enum AlterColumnOperation {
     },
     /// `DROP DEFAULT`
     DropDefault,
+    /// `SET OPTIONS(...)` (BigQuery column-level options).
+    SetOptions {
+        /// Options supplied to `SET OPTIONS(...)`.
+        options: Vec<SqlOption>,
+    },
     /// `[SET DATA] TYPE <data_type> [USING <expr>]`
     SetDataType {
         /// Target data type for the column.
@@ -1309,6 +1314,9 @@ impl fmt::Display for AlterColumnOperation {
             }
             AlterColumnOperation::DropDefault => {
                 write!(f, "DROP DEFAULT")
+            }
+            AlterColumnOperation::SetOptions { options } => {
+                write!(f, "SET OPTIONS({})", display_comma_separated(options))
             }
             AlterColumnOperation::SetDataType {
                 data_type,

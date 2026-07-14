@@ -10509,6 +10509,10 @@ impl<'a> Parser<'a> {
                 }
             } else if self.parse_keywords(&[Keyword::DROP, Keyword::DEFAULT]) {
                 AlterColumnOperation::DropDefault {}
+            } else if self.parse_keywords(&[Keyword::SET, Keyword::OPTIONS]) {
+                self.prev_token();
+                let options = self.parse_options(Keyword::OPTIONS)?;
+                AlterColumnOperation::SetOptions { options }
             } else if self.parse_keywords(&[Keyword::SET, Keyword::DATA, Keyword::TYPE]) {
                 self.parse_set_data_type(true)?
             } else if self.parse_keyword(Keyword::TYPE) {

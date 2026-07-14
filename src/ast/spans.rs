@@ -894,6 +894,7 @@ impl Spanned for AlterColumnOperation {
             AlterColumnOperation::DropNotNull => Span::empty(),
             AlterColumnOperation::SetDefault { value } => value.span(),
             AlterColumnOperation::DropDefault => Span::empty(),
+            AlterColumnOperation::SetOptions { .. } => Span::empty(),
             AlterColumnOperation::SetDataType {
                 data_type: _,
                 using,
