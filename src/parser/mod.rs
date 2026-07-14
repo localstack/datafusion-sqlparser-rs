@@ -23452,6 +23452,12 @@ impl<'a> Parser<'a> {
                                 .try_with_sql(&quoted.value)?
                                 .parse_conditional_statements(&[Keyword::END])?
                         }
+                        Token::SingleQuotedString(body) => {
+                            self.next_token();
+                            Parser::new(self.dialect)
+                                .try_with_sql(&body)?
+                                .parse_conditional_statements(&[Keyword::END])?
+                        }
                         _ => self.parse_conditional_statements(&[Keyword::END])?,
                     };
                     CreateProcedureBody::As(statements)
