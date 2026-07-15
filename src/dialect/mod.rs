@@ -283,6 +283,16 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Determine if the dialect recognizes backslash escape sequences inside
+    /// quoted (delimited) identifiers, as GoogleSQL does. When true, the
+    /// escapes are resolved (e.g. `` \` `` becomes a literal backtick) and an
+    /// unrecognized escape is a tokenizer error rather than a stripped
+    /// backslash.
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_identifiers)
+    fn supports_identifier_backslash_escape(&self) -> bool {
+        false
+    }
+
     /// Determine whether the dialect strips the backslash when escaping LIKE wildcards (%, _).
     ///
     /// [MySQL] has a special case when escaping single quoted strings which leaves these unescaped
@@ -2000,6 +2010,10 @@ mod tests {
 
             fn supports_string_literal_backslash_escape(&self) -> bool {
                 self.0.supports_string_literal_backslash_escape()
+            }
+
+            fn supports_identifier_backslash_escape(&self) -> bool {
+                self.0.supports_identifier_backslash_escape()
             }
 
             fn supports_filter_during_aggregation(&self) -> bool {

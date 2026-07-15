@@ -2069,7 +2069,7 @@ impl<'a> Tokenizer<'a> {
         let error_loc = chars.location();
         chars.next(); // consume the opening quote
         let quote_end = Word::matching_end_quote(quote_start);
-        let (s, last_char) = self.parse_quoted_ident(chars, quote_end);
+        let (s, last_char) = self.parse_quoted_ident(chars, quote_end)?;
 
         if last_char == Some(quote_end) {
             Ok(s)
@@ -2368,11 +2368,17 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn parse_quoted_ident(&self, chars: &mut State, quote_end: char) -> (String, Option<char>) {
+    fn parse_quoted_ident(
+        &self,
+        chars: &mut State,
+        quote_end: char,
+    ) -> Result<(String, Option<char>), TokenizerError> {
+        let backslash_escape = self.dialect.supports_identifier_backslash_escape();
         let mut last_char = None;
         let mut s = String::new();
-        while let Some(ch) = chars.next() {
+        while let Some(&ch) = chars.peek() {
             if ch == quote_end {
+                chars.next();
                 if chars.peek() == Some(&quote_end) {
                     chars.next();
                     s.push(ch);
@@ -2384,11 +2390,35 @@ impl<'a> Tokenizer<'a> {
                     last_char = Some(quote_end);
                     break;
                 }
+            } else if ch == '\\' && backslash_escape {
+                let escape_loc = chars.location();
+                chars.next(); // consume the backslash
+                let Some(escaped) = chars.next() else {
+                    // EOF right after the backslash: leave the loop so the
+                    // caller reports the missing close delimiter.
+                    break;
+                };
+                if self.unescape {
+                    match unescape_identifier_escape(escaped) {
+                        Some(resolved) => s.push(resolved),
+                        None => {
+                            return self.tokenizer_error(
+                                escape_loc,
+                                format!("Syntax error: Illegal escape sequence: \\{escaped}"),
+                            );
+                        }
+                    }
+                } else {
+                    // In no-escape mode, keep the query text verbatim.
+                    s.push('\\');
+                    s.push(escaped);
+                }
             } else {
+                chars.next();
                 s.push(ch);
             }
         }
-        (s, last_char)
+        Ok((s, last_char))
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -2405,6 +2435,24 @@ impl<'a> Tokenizer<'a> {
 /// Read from `chars` until `predicate` returns `false` or EOF is hit.
 /// Return the characters read as String, and keep the first non-matching
 /// char available as `chars.next()`.
+/// Resolve a single-character GoogleSQL escape sequence inside a quoted
+/// identifier. Returns `None` for an unrecognized escape, which the caller
+/// reports as an illegal escape sequence.
+/// See <https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#escape_sequences>
+fn unescape_identifier_escape(ch: char) -> Option<char> {
+    match ch {
+        'a' => Some('\u{7}'),
+        'b' => Some('\u{8}'),
+        'f' => Some('\u{c}'),
+        'n' => Some('\n'),
+        'r' => Some('\r'),
+        't' => Some('\t'),
+        'v' => Some('\u{b}'),
+        '\\' | '?' | '"' | '\'' | '`' => Some(ch),
+        _ => None,
+    }
+}
+
 fn peeking_take_while(chars: &mut State, mut predicate: impl FnMut(char) -> bool) -> String {
     let mut s = String::new();
     while let Some(&ch) = chars.peek() {
@@ -3711,6 +3759,54 @@ mod tests {
             Token::make_word(r#"c """""#, Some('"')),
             Token::Whitespace(Whitespace::Space),
         ];
+        compare(expected, tokens);
+    }
+
+    #[test]
+    fn tokenize_bigquery_quoted_identifier_backslash_escape() {
+        // GoogleSQL resolves backslash escapes inside backtick identifiers:
+        // `\`` -> a literal backtick, raw double quotes pass through.
+        let sql = r#"`a "very" weird \`name\``"#;
+        let dialect = BigQueryDialect {};
+        let tokens = Tokenizer::new(&dialect, sql).tokenize().unwrap();
+        let expected = vec![Token::make_word(r#"a "very" weird `name`"#, Some('`'))];
+        compare(expected, tokens);
+    }
+
+    #[test]
+    fn tokenize_bigquery_quoted_identifier_backslash_escape_no_unescape() {
+        // With unescaping disabled the identifier text is preserved verbatim.
+        let sql = r#"`a \`b`"#;
+        let dialect = BigQueryDialect {};
+        let tokens = Tokenizer::new(&dialect, sql)
+            .with_unescape(false)
+            .tokenize()
+            .unwrap();
+        let expected = vec![Token::make_word(r#"a \`b"#, Some('`'))];
+        compare(expected, tokens);
+    }
+
+    #[test]
+    fn tokenize_bigquery_quoted_identifier_illegal_escape() {
+        let sql = r#"`bad\qescape`"#;
+        let dialect = BigQueryDialect {};
+        let mut tokenizer = Tokenizer::new(&dialect, sql);
+        assert_eq!(
+            tokenizer.tokenize(),
+            Err(TokenizerError {
+                message: r#"Syntax error: Illegal escape sequence: \q"#.to_string(),
+                location: Location { line: 1, column: 5 },
+            })
+        );
+    }
+
+    #[test]
+    fn tokenize_generic_quoted_identifier_no_backslash_escape() {
+        // Dialects without GoogleSQL escapes leave the backslash untouched.
+        let sql = r#"`a\b`"#;
+        let dialect = GenericDialect {};
+        let tokens = Tokenizer::new(&dialect, sql).tokenize().unwrap();
+        let expected = vec![Token::make_word(r"a\b", Some('`'))];
         compare(expected, tokens);
     }
 
