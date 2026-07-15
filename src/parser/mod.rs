@@ -12726,6 +12726,15 @@ impl<'a> Parser<'a> {
                 Keyword::TSQUERY if dialect_is!(dialect is PostgreSqlDialect | GenericDialect) => {
                     Ok(DataType::TsQuery)
                 }
+                Keyword::RANGE if dialect_is!(dialect is BigQueryDialect | GenericDialect) => {
+                    self.expect_token(&Token::Lt)?;
+                    let (element_type, _trailing_bracket) = self.parse_data_type_helper()?;
+                    trailing_bracket = self.expect_closing_angle_bracket(_trailing_bracket)?;
+                    Ok(DataType::Custom(
+                        ObjectName::from(vec![Ident::new("RANGE")]),
+                        vec![element_type.to_string()],
+                    ))
+                }
                 _ => {
                     self.prev_token();
                     let type_name = self.parse_object_name(false)?;
