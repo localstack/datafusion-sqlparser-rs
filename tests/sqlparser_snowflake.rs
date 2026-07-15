@@ -2084,6 +2084,45 @@ fn test_alter_table_alter_column_comment() {
         }
         _ => unreachable!(),
     }
+
+    // Bare multi-column form: `COLUMN` omitted on every clause (the shape dbt
+    // `persist_docs` emits). Canonicalises to the full `ALTER COLUMN` spelling.
+    let sql = "ALTER TABLE tab ALTER \"ID\" COMMENT 's1', \"NAME\" COMMENT $$$$";
+    let canonical = "ALTER TABLE tab ALTER COLUMN \"ID\" COMMENT 's1', ALTER COLUMN \"NAME\" COMMENT ''";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(operations.len(), 2);
+            match (&operations[0], &operations[1]) {
+                (
+                    AlterTableOperation::AlterColumn {
+                        column_name: n1,
+                        op: AlterColumnOperation::Comment { comment: c1 },
+                    },
+                    AlterTableOperation::AlterColumn {
+                        column_name: n2,
+                        op: AlterColumnOperation::Comment { comment: c2 },
+                    },
+                ) => {
+                    assert_eq!(n1.to_string(), "\"ID\"");
+                    assert_eq!(c1, "s1");
+                    assert_eq!(n2.to_string(), "\"NAME\"");
+                    assert_eq!(c2, "");
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    // Mixed form: `COLUMN` on the first clause, omitted on the second.
+    let sql = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', c2 COMMENT 's2'";
+    let canonical = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', ALTER COLUMN c2 COMMENT 's2'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(operations.len(), 2);
+        }
+        _ => unreachable!(),
+    }
 }
 
 #[test]

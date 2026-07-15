@@ -10878,6 +10878,18 @@ impl<'a> Parser<'a> {
         Ok(AlterTableOperation::AlterSortKey { columns })
     }
 
+    /// Peek whether the upcoming tokens are a bare `<identifier> COMMENT ...`
+    /// continuation of a comma-separated `ALTER COLUMN ... COMMENT` list, i.e.
+    /// with the `COLUMN` keyword omitted. This shape is unambiguous against
+    /// every other `ALTER TABLE` operation, which are all keyword-led.
+    fn peek_bare_column_comment_continuation(&self) -> bool {
+        matches!(self.peek_nth_token(0).token, Token::Word(_))
+            && matches!(
+                self.peek_nth_token(1).token,
+                Token::Word(w) if w.keyword == Keyword::COMMENT
+            )
+    }
+
     /// Parse a single `ALTER TABLE` operation and return an `AlterTableOperation`.
     pub fn parse_alter_table_operation(&mut self) -> Result<AlterTableOperation, ParserError> {
         let operation = if self.parse_keyword(Keyword::ADD) {
@@ -11191,11 +11203,14 @@ impl<'a> Parser<'a> {
                 column_position,
             }
         } else if self.dialect.supports_alter_column_comment()
-            && self.parse_keyword(Keyword::COLUMN)
+            && (self.parse_keyword(Keyword::COLUMN)
+                || self.peek_bare_column_comment_continuation())
         {
             // Continuation of a comma-separated `ALTER COLUMN ... COMMENT` list,
             // e.g. `... ALTER COLUMN c1 COMMENT 's1', COLUMN c2 COMMENT 's2'`.
-            // The second and later items carry `COLUMN` without a leading `ALTER`.
+            // The second and later items carry `COLUMN` without a leading `ALTER`,
+            // and Snowflake also accepts the bare form with `COLUMN` omitted:
+            // `... ALTER c1 COMMENT 's1', c2 COMMENT 's2'`.
             let column_name = self.parse_identifier()?;
             self.expect_keyword_is(Keyword::COMMENT)?;
             AlterTableOperation::AlterColumn {
