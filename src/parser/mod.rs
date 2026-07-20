@@ -20606,7 +20606,20 @@ impl<'a> Parser<'a> {
             .is_some();
         let unlogged = self.parse_keyword(Keyword::UNLOGGED);
         let table = self.parse_keyword(Keyword::TABLE);
-        let name = self.parse_object_name(false)?;
+        let name = if self.dialect.supports_select_into_placeholder_target()
+            && self.peek_token_ref().token == Token::Colon
+        {
+            // Snowflake scripting: `SELECT ... INTO :var` targets a local
+            // variable. Keep the `:name` placeholder text as the object-name
+            // part so the round-trip is preserved and downstream can tell it
+            // apart from a bare table target.
+            let placeholder = self.parse_value()?;
+            ObjectName(vec![ObjectNamePart::Identifier(Ident::new(
+                placeholder.to_string(),
+            ))])
+        } else {
+            self.parse_object_name(false)?
+        };
 
         Ok(SelectInto {
             temporary,

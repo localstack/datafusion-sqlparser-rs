@@ -195,6 +195,12 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// Snowflake scripting accepts `SELECT ... INTO :var` where the target is a
+    /// local variable placeholder rather than a table name.
+    fn supports_select_into_placeholder_target(&self) -> bool {
+        true
+    }
+
     /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
     fn supports_for_loop_over_cursor(&self) -> bool {
         true

@@ -8625,3 +8625,29 @@ fn test_show_terse_stages() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn test_select_into_placeholder_target() {
+    // Snowflake scripting: a colon placeholder is a valid `SELECT ... INTO`
+    // target (a local variable), and it round-trips as `:res`.
+    let stmt = snowflake().verified_stmt("SELECT :res + t.hmy INTO :res FROM tbl AS t");
+    let Statement::Query(query) = stmt else {
+        unreachable!()
+    };
+    let SetExpr::Select(select) = *query.body else {
+        unreachable!()
+    };
+    let into = select.into.expect("expected SELECT ... INTO clause");
+    assert_eq!(into.name.to_string(), ":res");
+    assert!(!into.table);
+
+    // Bare-identifier targets are unaffected.
+    let stmt = snowflake().verified_stmt("SELECT 1 INTO res FROM tbl");
+    let Statement::Query(query) = stmt else {
+        unreachable!()
+    };
+    let SetExpr::Select(select) = *query.body else {
+        unreachable!()
+    };
+    assert_eq!(select.into.unwrap().name.to_string(), "res");
+}

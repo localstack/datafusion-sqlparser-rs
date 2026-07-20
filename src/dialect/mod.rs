@@ -1115,6 +1115,13 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if this dialect accepts a colon placeholder as a
+    /// `SELECT ... INTO` target, e.g. `SELECT ... INTO :var` in Snowflake
+    /// scripting, where the target is a local variable rather than a table.
+    fn supports_select_into_placeholder_target(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports `$` as a prefix for money literals
     /// e.g. `SELECT $123.45` (SQL Server)
     fn supports_dollar_as_money_prefix(&self) -> bool {
