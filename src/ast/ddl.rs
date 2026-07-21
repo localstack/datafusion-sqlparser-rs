@@ -4683,6 +4683,9 @@ pub struct Truncate {
     pub partitions: Option<Vec<Expr>>,
     /// TABLE - optional keyword
     pub table: bool,
+    /// Snowflake-specific: `MATERIALIZED VIEW` target instead of a table.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/truncate-materialized-view>
+    pub materialized_view: bool,
     /// Snowflake/Redshift-specific option: [ IF EXISTS ]
     pub if_exists: bool,
     /// Postgres-specific option: [ RESTART IDENTITY | CONTINUE IDENTITY ]
@@ -4696,7 +4699,13 @@ pub struct Truncate {
 
 impl fmt::Display for Truncate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let table = if self.table { "TABLE " } else { "" };
+        let table = if self.materialized_view {
+            "MATERIALIZED VIEW "
+        } else if self.table {
+            "TABLE "
+        } else {
+            ""
+        };
         let if_exists = if self.if_exists { "IF EXISTS " } else { "" };
 
         write!(
@@ -5300,6 +5309,9 @@ pub enum AlterTableType {
     /// Foreign table type
     /// <https://www.postgresql.org/docs/current/sql-alterforeigntable.html>
     Foreign,
+    /// Materialized view type
+    /// <https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view>
+    MaterializedView,
 }
 
 /// ALTER TABLE statement
@@ -5335,6 +5347,7 @@ impl fmt::Display for AlterTable {
             Some(AlterTableType::Dynamic) => write!(f, "ALTER DYNAMIC TABLE ")?,
             Some(AlterTableType::External) => write!(f, "ALTER EXTERNAL TABLE ")?,
             Some(AlterTableType::Foreign) => write!(f, "ALTER FOREIGN TABLE ")?,
+            Some(AlterTableType::MaterializedView) => write!(f, "ALTER MATERIALIZED VIEW ")?,
             None => write!(f, "ALTER TABLE ")?,
         }
 
