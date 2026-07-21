@@ -10540,6 +10540,9 @@ pub enum DescribeObjectType {
     DynamicTable,
     /// `VIEW`
     View,
+    /// `MATERIALIZED VIEW` (Snowflake)
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-materialized-view>
+    MaterializedView,
     /// `DATABASE`
     Database,
     /// `SCHEMA`
@@ -10558,6 +10561,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Table => "TABLE",
             DescribeObjectType::DynamicTable => "DYNAMIC TABLE",
             DescribeObjectType::View => "VIEW",
+            DescribeObjectType::MaterializedView => "MATERIALIZED VIEW",
             DescribeObjectType::Database => "DATABASE",
             DescribeObjectType::Schema => "SCHEMA",
             DescribeObjectType::Task => "TASK",
