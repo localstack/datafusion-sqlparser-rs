@@ -17847,6 +17847,7 @@ fn parse_truncate_only() {
             table_names,
             partitions: None,
             table: true,
+            materialized_view: false,
             if_exists: false,
             identity: None,
             cascade: None,

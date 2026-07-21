@@ -1418,7 +1418,8 @@ impl<'a> Parser<'a> {
 
     /// Parse `TRUNCATE` statement.
     pub fn parse_truncate(&mut self) -> Result<Truncate, ParserError> {
-        let table = self.parse_keyword(Keyword::TABLE);
+        let materialized_view = self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW]);
+        let table = !materialized_view && self.parse_keyword(Keyword::TABLE);
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
 
         let table_names = self.parse_comma_separated(|p| {
@@ -1460,6 +1461,7 @@ impl<'a> Parser<'a> {
             table_names,
             partitions,
             table,
+            materialized_view,
             if_exists,
             identity,
             cascade,
@@ -15396,6 +15398,14 @@ impl<'a> Parser<'a> {
                         return Ok(Statement::DescribeObject {
                             describe_alias,
                             object_type: DescribeObjectType::DynamicTable,
+                            object_name,
+                        });
+                    }
+                    if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW]) {
+                        let object_name = self.parse_object_name(false)?;
+                        return Ok(Statement::DescribeObject {
+                            describe_alias,
+                            object_type: DescribeObjectType::MaterializedView,
                             object_name,
                         });
                     }
