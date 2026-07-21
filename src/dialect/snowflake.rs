@@ -295,6 +295,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_dynamic_table(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::MATERIALIZED, Keyword::VIEW]) {
+            // ALTER MATERIALIZED VIEW
+            return Some(parse_alter_materialized_view(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::EXTERNAL, Keyword::VOLUME]) {
             // ALTER EXTERNAL VOLUME
             return Some(parse_alter_external_volume(parser));
@@ -1110,6 +1115,121 @@ fn parse_alter_dynamic_table_property(
     Ok(SqlOption::KeyValue {
         key: Ident::new(key),
         value: Expr::Value(Value::SingleQuotedString(value).into()),
+    })
+}
+
+/// Parse snowflake alter materialized view.
+/// <https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view>
+///
+/// Every clause except `RENAME TO` is an accept-and-no-op downstream; only the
+/// object identity and, for `RENAME TO`, the new name carry meaning. The
+/// operation is tagged [`AlterTableType::MaterializedView`] so the emulator can
+/// route it to the view machinery.
+fn parse_alter_materialized_view(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(true)?;
+
+    let operation = if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterTableOperation::RenameTable {
+            table_name: RenameTableNameKind::To(new_name),
+        }
+    } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
+        parser.expect_token(&Token::LParen)?;
+        let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+        parser.expect_token(&Token::RParen)?;
+        AlterTableOperation::ClusterBy { exprs }
+    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
+        AlterTableOperation::DropClusteringKey
+    } else if parser.parse_keyword(Keyword::SUSPEND) {
+        let _ = parser.parse_keyword(Keyword::RECLUSTER);
+        AlterTableOperation::Suspend
+    } else if parser.parse_keyword(Keyword::RESUME) {
+        let _ = parser.parse_keyword(Keyword::RECLUSTER);
+        AlterTableOperation::Resume
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_materialized_view_properties(parser, false)?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_materialized_view_properties(parser, true)?,
+        }
+    } else {
+        return parser.expected_ref(
+            "RENAME, CLUSTER BY, DROP CLUSTERING KEY, SUSPEND, RESUME, SET, \
+             or UNSET after ALTER MATERIALIZED VIEW",
+            parser.peek_token_ref(),
+        );
+    };
+
+    let end_token = if parser.peek_token_ref().token == Token::SemiColon {
+        parser.peek_token_ref().clone()
+    } else {
+        parser.get_current_token().clone()
+    };
+
+    Ok(Statement::AlterTable(AlterTable {
+        name,
+        if_exists,
+        only: false,
+        operations: vec![operation],
+        location: None,
+        on_cluster: None,
+        table_type: Some(AlterTableType::MaterializedView),
+        end_token: AttachedToken(end_token),
+    }))
+}
+
+/// Parse the comma-separated property list of `ALTER MATERIALIZED VIEW …
+/// SET/UNSET { SECURE | COMMENT | CONTACT | DATA_METRIC_SCHEDULE }`. The list is
+/// only preserved for round-tripping; the emulator treats every property as a
+/// no-op.
+fn parse_alter_materialized_view_properties(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<Vec<SqlOption>, ParserError> {
+    let mut options = vec![parse_alter_materialized_view_property(parser, unset)?];
+    while parser.consume_token(&Token::Comma) {
+        options.push(parse_alter_materialized_view_property(parser, unset)?);
+    }
+    Ok(options)
+}
+
+/// Parse one `SET`/`UNSET` property. `SECURE` is a bare flag; `CONTACT` takes a
+/// `purpose[= contact]` pair; everything else takes `= <value>` on SET.
+fn parse_alter_materialized_view_property(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<SqlOption, ParserError> {
+    let key_token = parser.next_token();
+    let key = match &key_token.token {
+        Token::Word(w) => w.value.to_uppercase(),
+        _ => return parser.expected("a materialized view property name", key_token),
+    };
+
+    let value = if key == "SECURE" {
+        Expr::Value(Value::Boolean(!unset).into())
+    } else if key == "CONTACT" {
+        let purpose = parser.parse_identifier()?;
+        if unset {
+            Expr::Value(Value::SingleQuotedString(purpose.value).into())
+        } else {
+            parser.expect_token(&Token::Eq)?;
+            let contact = parser.parse_object_name(false)?;
+            Expr::Value(Value::SingleQuotedString(format!("{}={contact}", purpose.value)).into())
+        }
+    } else if unset {
+        Expr::Value(Value::Null.into())
+    } else {
+        parser.expect_token(&Token::Eq)?;
+        parser.parse_expr()?
+    };
+
+    Ok(SqlOption::KeyValue {
+        key: Ident::new(key),
+        value,
     })
 }
 
