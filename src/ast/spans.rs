@@ -1645,6 +1645,16 @@ impl Spanned for Expr {
                 escape_char: _,
                 any: _,
             } => expr.span().union(&pattern.span()),
+            Expr::LikeAnyAll {
+                negated: _,
+                ilike: _,
+                all: _,
+                expr,
+                patterns,
+                escape_char: _,
+            } => union_spans(
+                core::iter::once(expr.span()).chain(patterns.iter().map(|p| p.span())),
+            ),
             Expr::RLike { .. } => Span::empty(),
             Expr::IsNormalized {
                 expr,

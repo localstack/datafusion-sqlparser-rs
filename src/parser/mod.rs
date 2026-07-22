@@ -4365,25 +4365,9 @@ impl<'a> Parser<'a> {
                     } else if self.parse_keyword(Keyword::BETWEEN) {
                         self.parse_between(expr, negated)
                     } else if self.parse_keyword(Keyword::LIKE) {
-                        Ok(Expr::Like {
-                            negated,
-                            any: self.parse_keyword(Keyword::ANY),
-                            expr: Box::new(expr),
-                            pattern: Box::new(
-                                self.parse_subexpr(self.dialect.prec_value(Precedence::Like))?,
-                            ),
-                            escape_char: self.parse_escape_char()?,
-                        })
+                        self.parse_like_expr(negated, false, expr)
                     } else if self.parse_keyword(Keyword::ILIKE) {
-                        Ok(Expr::ILike {
-                            negated,
-                            any: self.parse_keyword(Keyword::ANY),
-                            expr: Box::new(expr),
-                            pattern: Box::new(
-                                self.parse_subexpr(self.dialect.prec_value(Precedence::Like))?,
-                            ),
-                            escape_char: self.parse_escape_char()?,
-                        })
+                        self.parse_like_expr(negated, true, expr)
                     } else if self.parse_keywords(&[Keyword::SIMILAR, Keyword::TO]) {
                         Ok(Expr::SimilarTo {
                             negated,
@@ -4443,6 +4427,54 @@ impl<'a> Parser<'a> {
                 format!("No infix parser for token {:?}", tok.token),
                 tok.span.start
             )
+        }
+    }
+
+    /// Parse the tail of a `LIKE` / `ILIKE` predicate after the keyword has
+    /// been consumed. Handles Snowflake's `{ANY|ALL} (<p1>, ..., <pN>)`
+    /// multi-pattern list form as well as the ordinary single-pattern form.
+    fn parse_like_expr(
+        &mut self,
+        negated: bool,
+        ilike: bool,
+        expr: Expr,
+    ) -> Result<Expr, ParserError> {
+        let quantifier = self.parse_one_of_keywords(&[Keyword::ANY, Keyword::ALL]);
+        if let Some(kw) = quantifier {
+            if self.consume_token(&Token::LParen) {
+                let patterns = self.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
+                self.expect_token(&Token::RParen)?;
+                return Ok(Expr::LikeAnyAll {
+                    negated,
+                    ilike,
+                    all: kw == Keyword::ALL,
+                    expr: Box::new(expr),
+                    patterns,
+                    escape_char: self.parse_escape_char()?,
+                });
+            }
+            // `ANY` without a parenthesized list falls back to the legacy
+            // single-pattern form (`ALL` has no single-pattern meaning here).
+        }
+        let any = quantifier == Some(Keyword::ANY);
+        let pattern = Box::new(self.parse_subexpr(self.dialect.prec_value(Precedence::Like))?);
+        let escape_char = self.parse_escape_char()?;
+        if ilike {
+            Ok(Expr::ILike {
+                negated,
+                any,
+                expr: Box::new(expr),
+                pattern,
+                escape_char,
+            })
+        } else {
+            Ok(Expr::Like {
+                negated,
+                any,
+                expr: Box::new(expr),
+                pattern,
+                escape_char,
+            })
         }
     }
 

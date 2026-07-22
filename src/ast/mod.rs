@@ -1031,6 +1031,23 @@ pub enum Expr {
         /// Optional escape character.
         escape_char: Option<ValueWithSpan>,
     },
+    /// Snowflake `<expr> [NOT] {LIKE|ILIKE} {ANY|ALL} (<p1>, ..., <pN>) [ESCAPE <char>]`
+    /// matching a subject against a parenthesized list of patterns.
+    /// <https://docs.snowflake.com/en/sql-reference/functions/like_any>
+    LikeAnyAll {
+        /// `true` when `NOT` is present.
+        negated: bool,
+        /// `true` for `ILIKE`, `false` for `LIKE`.
+        ilike: bool,
+        /// `true` for the `ALL` quantifier, `false` for `ANY`.
+        all: bool,
+        /// Subject expression to match.
+        expr: Box<Expr>,
+        /// List of pattern expressions.
+        patterns: Vec<Expr>,
+        /// Optional escape character applied to every pattern.
+        escape_char: Option<ValueWithSpan>,
+    },
     /// `SIMILAR TO` regex
     SimilarTo {
         /// `true` when `NOT` is present.
@@ -1853,6 +1870,28 @@ impl fmt::Display for Expr {
                     pattern
                 ),
             },
+            Expr::LikeAnyAll {
+                negated,
+                ilike,
+                all,
+                expr,
+                patterns,
+                escape_char,
+            } => {
+                write!(
+                    f,
+                    "{} {}{} {} ({})",
+                    expr,
+                    if *negated { "NOT " } else { "" },
+                    if *ilike { "ILIKE" } else { "LIKE" },
+                    if *all { "ALL" } else { "ANY" },
+                    display_comma_separated(patterns),
+                )?;
+                if let Some(ch) = escape_char {
+                    write!(f, " ESCAPE {ch}")?;
+                }
+                Ok(())
+            }
             Expr::RLike {
                 negated,
                 expr,
