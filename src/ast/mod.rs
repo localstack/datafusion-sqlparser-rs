@@ -5357,6 +5357,54 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] STORAGE INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-storage-integration>
+    CreateStorageIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Storage integration name.
+        name: ObjectName,
+        /// Configuration parameters (`TYPE`, `ENABLED`, `STORAGE_PROVIDER`, …).
+        params: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER STORAGE INTEGRATION [IF EXISTS] <name> SET ...
+    /// ```
+    AlterStorageIntegration {
+        /// Storage integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET` options.
+        set_options: KeyValueOptions,
+    },
+    /// ```sql
+    /// DROP STORAGE INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropStorageIntegration {
+        /// Storage integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] STORAGE INTEGRATION <name>
+    /// ```
+    DescribeStorageIntegration {
+        /// Storage integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW STORAGE INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowStorageIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// ASSERT <condition> [AS <message>]
     /// ```
     Assert {
@@ -7731,6 +7779,55 @@ impl fmt::Display for Statement {
             }
             Statement::ShowCatalogIntegrations { filter } => {
                 write!(f, "SHOW CATALOG INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateStorageIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                params,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}STORAGE INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !params.options.is_empty() {
+                    write!(f, " {params}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterStorageIntegration {
+                name,
+                if_exists,
+                set_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER STORAGE INTEGRATION {if_exists}{name} SET",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )?;
+                if !set_options.options.is_empty() {
+                    write!(f, " {set_options}")?;
+                }
+                Ok(())
+            }
+            Statement::DropStorageIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP STORAGE INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeStorageIntegration { name } => {
+                write!(f, "DESCRIBE STORAGE INTEGRATION {name}")
+            }
+            Statement::ShowStorageIntegrations { filter } => {
+                write!(f, "SHOW STORAGE INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }

@@ -310,6 +310,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_external_table(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::STORAGE, Keyword::INTEGRATION]) {
+            // ALTER STORAGE INTEGRATION
+            return Some(parse_alter_storage_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
             // ALTER FILE FORMAT
             return Some(parse_alter_file_format(parser));
@@ -371,6 +376,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_catalog_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::STORAGE, Keyword::INTEGRATION]) {
+            // DROP STORAGE INTEGRATION
+            return Some(parse_drop_storage_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
             // DROP FILE FORMAT
             return Some(parse_drop_file_format(parser));
@@ -398,6 +408,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
                 // DESC[RIBE] EXTERNAL VOLUME
                 return Some(parse_describe_external_volume(parser));
+            }
+            if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
+                // DESC[RIBE] STORAGE INTEGRATION
+                return Some(parse_describe_storage_integration(parser));
             }
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 // DESC[RIBE] FILE FORMAT
@@ -428,6 +442,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] CATALOG INTEGRATION
             if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATION]) {
                 return Some(parse_create_catalog_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] STORAGE INTEGRATION
+            if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
+                return Some(parse_create_storage_integration(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] ROW ACCESS POLICY
@@ -553,6 +572,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_catalog_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_storage_integrations(parser));
             }
             if parser.parse_keyword(Keyword::WAREHOUSES) {
                 return Some(parse_show_warehouses(parser));
@@ -3504,4 +3526,60 @@ fn parse_drop_catalog_integration(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_catalog_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowCatalogIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] STORAGE INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`TYPE`, `ENABLED`, `STORAGE_PROVIDER`, `STORAGE_AWS_ROLE_ARN`,
+/// `STORAGE_ALLOWED_LOCATIONS`, `STORAGE_BLOCKED_LOCATIONS`, `COMMENT`, plus
+/// GCS/Azure provider variants) are captured generically as key-value options,
+/// so the parser stays agnostic to the provider-specific property set.
+fn parse_create_storage_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateStorageIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER STORAGE INTEGRATION [IF EXISTS] <name> SET <params>`.
+///
+/// Only the `SET` form is modeled; the emulator consumes it in a follow-up
+/// task. The `SET` options are captured generically as key-value options.
+fn parse_alter_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterStorageIntegration {
+        name,
+        if_exists,
+        set_options,
+    })
+}
+
+/// Parse `DROP STORAGE INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropStorageIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] STORAGE INTEGRATION <name>`.
+fn parse_describe_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeStorageIntegration { name })
+}
+
+/// Parse `SHOW STORAGE INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_storage_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowStorageIntegrations { filter })
 }
