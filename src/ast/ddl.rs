@@ -5723,6 +5723,80 @@ impl Spanned for AlterFunction {
     }
 }
 
+/// Snowflake `ALTER PROCEDURE [IF EXISTS] <name> ( [<arg_type> [, ...]] ) <operation>`.
+///
+/// Kept distinct from [`AlterFunction`] because the procedure grammar carries
+/// the `EXECUTE AS { CALLER | OWNER }` rights operation, which has no function
+/// analog.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AlterProcedure {
+    /// `IF EXISTS` flag.
+    pub if_exists: bool,
+    /// Procedure name.
+    pub name: ObjectName,
+    /// Argument-type signature (`(NUMBER, VARCHAR)`), used to disambiguate
+    /// overloads. Empty when the parentheses hold no arguments.
+    pub args: Vec<DataType>,
+    /// Operation applied to the procedure.
+    pub operation: AlterProcedureOperation,
+}
+
+/// Operation for [`AlterProcedure`].
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterProcedureOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo {
+        /// New procedure name.
+        new_name: ObjectName,
+    },
+    /// `SET COMMENT = <value>`
+    SetComment {
+        /// The comment value expression.
+        comment: Expr,
+    },
+    /// `UNSET COMMENT`
+    UnsetComment,
+    /// `EXECUTE AS { CALLER | OWNER }`
+    ExecuteAs(ProcedureExecuteAs),
+}
+
+impl fmt::Display for AlterProcedure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ALTER PROCEDURE ")?;
+        if self.if_exists {
+            write!(f, "IF EXISTS ")?;
+        }
+        write!(
+            f,
+            "{}({}) {}",
+            self.name,
+            display_comma_separated(&self.args),
+            self.operation
+        )
+    }
+}
+
+impl fmt::Display for AlterProcedureOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterProcedureOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+            AlterProcedureOperation::SetComment { comment } => write!(f, "SET COMMENT = {comment}"),
+            AlterProcedureOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterProcedureOperation::ExecuteAs(execute_as) => write!(f, "EXECUTE AS {execute_as}"),
+        }
+    }
+}
+
+impl Spanned for AlterProcedure {
+    fn span(&self) -> Span {
+        Span::empty()
+    }
+}
+
 /// CREATE POLICY statement.
 ///
 /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createpolicy.html)

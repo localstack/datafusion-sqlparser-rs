@@ -64,7 +64,8 @@ pub use self::dcl::{
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
-    AlterIndexOperation, AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
+    AlterIndexOperation, AlterProcedure, AlterProcedureOperation,
+    AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
     AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy,
     AlterPolicyOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
     AlterTableLock, AlterTableOperation, AlterTableType, AlterType, AlterTypeAddValue,
@@ -4363,6 +4364,48 @@ pub enum Statement {
         /// Optional target table to fetch rows into.
         into: Option<ObjectName>,
     },
+    /// Snowflake scripting `FETCH <cursor> INTO <var> [, <var> ...]`.
+    ///
+    /// Unlike the ISO/PostgreSQL [`Statement::Fetch`], the scripting form has
+    /// no direction and no `FROM`/`IN`; it binds the current cursor row into
+    /// one or more local variables.
+    FetchInto {
+        /// Cursor name.
+        cursor: Ident,
+        /// One or more variable targets.
+        into: Vec<ObjectName>,
+    },
+    /// Snowflake `CALL <proc>(<args>) INTO <var> [, <var> ...]`.
+    ///
+    /// Like [`Statement::Call`] but captures the procedure result into one or
+    /// more local variables.
+    CallInto {
+        /// The procedure call.
+        function: Function,
+        /// One or more variable targets.
+        into: Vec<ObjectName>,
+    },
+    /// Snowflake `ALTER PROCEDURE`.
+    AlterProcedure(AlterProcedure),
+    /// Snowflake anonymous procedure:
+    /// `WITH <name> AS PROCEDURE (<args>) RETURNS <type> LANGUAGE <lang>
+    /// [EXECUTE AS ...] AS <body> CALL <name>(<args>)`.
+    WithProcedure {
+        /// Procedure name introduced by the `WITH` clause.
+        name: Ident,
+        /// Optional procedure parameters.
+        params: Option<Vec<ProcedureParam>>,
+        /// Optional return type.
+        returns: Option<DataType>,
+        /// Optional language identifier.
+        language: Option<Ident>,
+        /// Optional `EXECUTE AS { CALLER | OWNER }` rights clause.
+        execute_as: Option<ProcedureExecuteAs>,
+        /// Procedure body statements.
+        body: ConditionalStatements,
+        /// The trailing `CALL <name>(<args>)` statement.
+        call: Box<Statement>,
+    },
     /// ```sql
     /// FLUSH [NO_WRITE_TO_BINLOG | LOCAL] flush_option [, flush_option] ... | tables_option
     /// ```
@@ -6152,6 +6195,41 @@ impl fmt::Display for Statement {
                 }
 
                 Ok(())
+            }
+            Statement::FetchInto { cursor, into } => {
+                write!(f, "FETCH {cursor} INTO {}", display_comma_separated(into))
+            }
+            Statement::CallInto { function, into } => {
+                write!(
+                    f,
+                    "CALL {function} INTO {}",
+                    display_comma_separated(into)
+                )
+            }
+            Statement::AlterProcedure(alter_procedure) => write!(f, "{alter_procedure}"),
+            Statement::WithProcedure {
+                name,
+                params,
+                returns,
+                language,
+                execute_as,
+                body,
+                call,
+            } => {
+                write!(f, "WITH {name} AS PROCEDURE")?;
+                if let Some(p) = params {
+                    write!(f, " ({})", display_comma_separated(p))?;
+                }
+                if let Some(ret) = returns {
+                    write!(f, " RETURNS {ret}")?;
+                }
+                if let Some(language) = language {
+                    write!(f, " LANGUAGE {language}")?;
+                }
+                if let Some(execute_as) = execute_as {
+                    write!(f, " EXECUTE AS {execute_as}")?;
+                }
+                write!(f, " AS {body} {call}")
             }
             Statement::Directory {
                 overwrite,

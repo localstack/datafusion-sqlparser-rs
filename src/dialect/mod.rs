@@ -1122,6 +1122,12 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if this dialect accepts an `INTO <var> [, ...]` tail after
+    /// a procedure call, e.g. `CALL p(1) INTO :ret` in Snowflake scripting.
+    fn supports_call_into(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports `$` as a prefix for money literals
     /// e.g. `SELECT $123.45` (SQL Server)
     fn supports_dollar_as_money_prefix(&self) -> bool {

@@ -27,11 +27,13 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStageOperation, AlterTable,
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterProcedure,
+    AlterProcedureOperation, AlterStageOperation, AlterTable,
     AlterTableOperation, AlterTableType, CatalogRestAuthentication, CatalogRestConfig,
     CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
     ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
-    DollarQuotedString, Expr, ExternalVolumeEncryption, ExternalVolumeStorageLocation, Ident,
+    DollarQuotedString, Expr, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
+    Ident, ProcedureExecuteAs,
     IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
     IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
     MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
@@ -201,6 +203,12 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// Snowflake scripting accepts `CALL p(...) INTO :var` to capture a
+    /// procedure result into local variables.
+    fn supports_call_into(&self) -> bool {
+        true
+    }
+
     /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
     fn supports_for_loop_over_cursor(&self) -> bool {
         true
@@ -290,6 +298,24 @@ impl Dialect for SnowflakeDialect {
             return Some(parser.parse_begin_exception_end());
         }
 
+        // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
+        // direction and no FROM/IN, so it can't go through the ISO parser.
+        // Intercept only that shape; anything else falls through untouched.
+        if parser.peek_keyword(Keyword::FETCH) {
+            if let Ok(Some(stmt)) = parser.maybe_parse(parse_fetch_into) {
+                return Some(Ok(stmt));
+            }
+        }
+
+        // Snowflake anonymous procedure: `WITH <name> AS PROCEDURE ...`. Every
+        // other `WITH` (ordinary CTE) fails the `AS PROCEDURE` probe and falls
+        // through to the standard query parser.
+        if parser.peek_keyword(Keyword::WITH) {
+            if let Ok(Some(stmt)) = parser.maybe_parse(parse_with_procedure) {
+                return Some(Ok(stmt));
+            }
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::DYNAMIC, Keyword::TABLE]) {
             // ALTER DYNAMIC TABLE
             return Some(parse_alter_dynamic_table(parser));
@@ -313,6 +339,11 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STORAGE, Keyword::INTEGRATION]) {
             // ALTER STORAGE INTEGRATION
             return Some(parse_alter_storage_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
+            // ALTER PROCEDURE
+            return Some(parse_alter_procedure(parser));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
@@ -1137,6 +1168,126 @@ fn parse_alter_dynamic_table_property(
     Ok(SqlOption::KeyValue {
         key: Ident::new(key),
         value: Expr::Value(Value::SingleQuotedString(value).into()),
+    })
+}
+
+/// Parse Snowflake scripting `FETCH <cursor> INTO <var> [, <var> ...]`.
+///
+/// The caller has verified the next keyword is `FETCH` and runs this via
+/// `maybe_parse`, so a non-scripting `FETCH` simply errors out and rewinds.
+fn parse_fetch_into(parser: &mut Parser) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::FETCH)?;
+    let cursor = parser.parse_identifier()?;
+    parser.expect_keyword(Keyword::INTO)?;
+    let into = parser.parse_scripting_into_targets()?;
+    Ok(Statement::FetchInto { cursor, into })
+}
+
+/// Parse `ALTER PROCEDURE [IF EXISTS] <name> ( [<arg_type> [, ...]] )
+/// { RENAME TO ... | SET COMMENT = ... | UNSET COMMENT | EXECUTE AS CALLER|OWNER }`.
+///
+/// The `ALTER PROCEDURE` keywords are already consumed by the caller.
+fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    parser.expect_token(&Token::LParen)?;
+    let args = if parser.peek_token_ref().token == Token::RParen {
+        vec![]
+    } else {
+        parser.parse_comma_separated(Parser::parse_data_type)?
+    };
+    parser.expect_token(&Token::RParen)?;
+
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterProcedureOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+        let execute_as = if parser.parse_keyword(Keyword::CALLER) {
+            ProcedureExecuteAs::Caller
+        } else {
+            parser.expect_keyword_is(Keyword::OWNER)?;
+            ProcedureExecuteAs::Owner
+        };
+        AlterProcedureOperation::ExecuteAs(execute_as)
+    } else if parser.parse_keyword(Keyword::SET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        parser.expect_token(&Token::Eq)?;
+        AlterProcedureOperation::SetComment {
+            comment: parser.parse_expr()?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        AlterProcedureOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "RENAME TO, SET COMMENT, UNSET COMMENT, or EXECUTE AS after ALTER PROCEDURE",
+            parser.peek_token_ref(),
+        );
+    };
+
+    Ok(Statement::AlterProcedure(AlterProcedure {
+        if_exists,
+        name,
+        args,
+        operation,
+    }))
+}
+
+/// Parse Snowflake anonymous procedure:
+/// `WITH <name> AS PROCEDURE (<args>) RETURNS <type> LANGUAGE <lang>
+/// [EXECUTE AS ...] AS <body> CALL <name>(<args>)`.
+///
+/// The caller runs this via `maybe_parse`, so an ordinary CTE fails the
+/// `AS PROCEDURE` probe and rewinds.
+fn parse_with_procedure(parser: &mut Parser) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::WITH)?;
+    let name = parser.parse_identifier()?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    parser.expect_keyword_is(Keyword::PROCEDURE)?;
+
+    let params = parser.parse_optional_procedure_parameters()?;
+
+    let returns = if parser.parse_keyword(Keyword::RETURNS) {
+        Some(parser.parse_data_type()?)
+    } else {
+        None
+    };
+    // Snowflake allows a `NOT NULL` return-type annotation; drop it.
+    let _ = parser.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+
+    let language = if parser.parse_keyword(Keyword::LANGUAGE) {
+        Some(parser.parse_identifier()?)
+    } else {
+        None
+    };
+
+    let execute_as = if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+        if parser.parse_keyword(Keyword::CALLER) {
+            Some(ProcedureExecuteAs::Caller)
+        } else {
+            parser.expect_keyword_is(Keyword::OWNER)?;
+            Some(ProcedureExecuteAs::Owner)
+        }
+    } else {
+        None
+    };
+
+    parser.expect_keyword_is(Keyword::AS)?;
+    let body = parser.parse_procedure_body()?;
+
+    parser.expect_keyword(Keyword::CALL)?;
+    let call = Box::new(parser.parse_call()?);
+
+    Ok(Statement::WithProcedure {
+        name,
+        params,
+        returns,
+        language,
+        execute_as,
+        body,
+        call,
     })
 }
 

@@ -12378,16 +12378,18 @@ impl<'a> Parser<'a> {
     /// or `CALL procedure_name` statement
     pub fn parse_call(&mut self) -> Result<Statement, ParserError> {
         let object_name = self.parse_object_name(false)?;
-        if self.peek_token_ref().token == Token::LParen {
+        let function = if self.peek_token_ref().token == Token::LParen {
             match self.parse_function(object_name)? {
-                Expr::Function(f) => Ok(Statement::Call(f)),
-                other => parser_err!(
-                    format!("Expected a simple procedure call but found: {other}"),
-                    self.peek_token_ref().span.start
-                ),
+                Expr::Function(f) => f,
+                other => {
+                    return parser_err!(
+                        format!("Expected a simple procedure call but found: {other}"),
+                        self.peek_token_ref().span.start
+                    )
+                }
             }
         } else {
-            Ok(Statement::Call(Function {
+            Function {
                 name: object_name,
                 uses_odbc_syntax: false,
                 parameters: FunctionArguments::None,
@@ -12396,7 +12398,38 @@ impl<'a> Parser<'a> {
                 filter: None,
                 null_treatment: None,
                 within_group: vec![],
-            }))
+            }
+        };
+
+        // Snowflake scripting: `CALL p(...) INTO :var [, ...]` captures the
+        // procedure result into local variables.
+        if self.dialect.supports_call_into() && self.parse_keyword(Keyword::INTO) {
+            let into = self.parse_scripting_into_targets()?;
+            return Ok(Statement::CallInto { function, into });
+        }
+
+        Ok(Statement::Call(function))
+    }
+
+    /// Parse a comma-separated list of Snowflake scripting `INTO` targets.
+    ///
+    /// Each target is either a `:placeholder` bind variable — kept verbatim as
+    /// its `:name` text so the round-trip is stable — or a bare local-variable
+    /// name.
+    pub(crate) fn parse_scripting_into_targets(
+        &mut self,
+    ) -> Result<Vec<ObjectName>, ParserError> {
+        self.parse_comma_separated(Parser::parse_scripting_into_target)
+    }
+
+    fn parse_scripting_into_target(&mut self) -> Result<ObjectName, ParserError> {
+        if self.peek_token_ref().token == Token::Colon {
+            let placeholder = self.parse_value()?;
+            Ok(ObjectName(vec![ObjectNamePart::Identifier(Ident::new(
+                placeholder.to_string(),
+            ))]))
+        } else {
+            self.parse_object_name(false)
         }
     }
 
@@ -20981,28 +21014,7 @@ impl<'a> Parser<'a> {
 
         self.expect_keyword_is(Keyword::AS)?;
 
-        // Snowflake encloses the procedure body in a dollar-quoted string
-        // (e.g. `AS $$ BEGIN … END $$`) or, equivalently, a single-quoted
-        // string with interior quotes doubled (`AS ' … '`). In both cases
-        // re-parse the string content as a conditional-statements block so
-        // the body is always typed as `ConditionalStatements` regardless of
-        // how it was written. The tokenizer already unescapes doubled `''`
-        // quotes, so the string value is the plain scripting text.
-        let body = match self.peek_token().token.clone() {
-            Token::DollarQuotedString(dqs) => {
-                self.next_token(); // consume the dollar-quoted string token
-                Parser::new(self.dialect)
-                    .try_with_sql(&dqs.value)?
-                    .parse_conditional_statements(&[Keyword::END])?
-            }
-            Token::SingleQuotedString(body) => {
-                self.next_token(); // consume the single-quoted string token
-                Parser::new(self.dialect)
-                    .try_with_sql(&body)?
-                    .parse_conditional_statements(&[Keyword::END])?
-            }
-            _ => self.parse_conditional_statements(&[Keyword::END])?,
-        };
+        let body = self.parse_procedure_body()?;
 
         Ok(Statement::CreateProcedure {
             name,
@@ -21014,6 +21026,32 @@ impl<'a> Parser<'a> {
             execute_as,
             body,
         })
+    }
+
+    /// Parse a stored-procedure body following the `AS` keyword.
+    ///
+    /// Snowflake encloses the body in a dollar-quoted string
+    /// (e.g. `AS $$ BEGIN … END $$`) or, equivalently, a single-quoted string
+    /// with interior quotes doubled (`AS ' … '`); it may also be written bare
+    /// (`AS BEGIN … END`). In every case the body is typed as
+    /// `ConditionalStatements`. The tokenizer already unescapes doubled `''`
+    /// quotes, so the string value is the plain scripting text.
+    pub(crate) fn parse_procedure_body(&mut self) -> Result<ConditionalStatements, ParserError> {
+        match self.peek_token().token.clone() {
+            Token::DollarQuotedString(dqs) => {
+                self.next_token(); // consume the dollar-quoted string token
+                Parser::new(self.dialect)
+                    .try_with_sql(&dqs.value)?
+                    .parse_conditional_statements(&[Keyword::END])
+            }
+            Token::SingleQuotedString(body) => {
+                self.next_token(); // consume the single-quoted string token
+                Parser::new(self.dialect)
+                    .try_with_sql(&body)?
+                    .parse_conditional_statements(&[Keyword::END])
+            }
+            _ => self.parse_conditional_statements(&[Keyword::END]),
+        }
     }
 
     /// Parse a window specification.

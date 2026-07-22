@@ -8651,3 +8651,131 @@ fn test_select_into_placeholder_target() {
     };
     assert_eq!(select.into.unwrap().name.to_string(), "res");
 }
+
+#[test]
+fn test_fetch_cursor_into_variables() {
+    // Snowflake scripting FETCH has no direction and no FROM/IN; it binds the
+    // current cursor row into one or more local variables.
+    let stmt = snowflake().verified_stmt("FETCH c INTO x, y");
+    match stmt {
+        Statement::FetchInto { cursor, into } => {
+            assert_eq!(cursor.value, "c");
+            let names: Vec<String> = into.iter().map(ToString::to_string).collect();
+            assert_eq!(names, vec!["x".to_string(), "y".to_string()]);
+        }
+        other => panic!("expected FetchInto, got {other:?}"),
+    }
+
+    // Single variable and colon-placeholder targets both round-trip.
+    let stmt = snowflake().verified_stmt("FETCH c INTO :res");
+    match stmt {
+        Statement::FetchInto { cursor, into } => {
+            assert_eq!(cursor.value, "c");
+            assert_eq!(into.len(), 1);
+            assert_eq!(into[0].to_string(), ":res");
+        }
+        other => panic!("expected FetchInto, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_call_into_variable() {
+    let stmt = snowflake().verified_stmt("CALL myproc(1, 'a') INTO :ret");
+    match stmt {
+        Statement::CallInto { function, into } => {
+            assert_eq!(function.name.to_string(), "myproc");
+            assert_eq!(into.len(), 1);
+            assert_eq!(into[0].to_string(), ":ret");
+        }
+        other => panic!("expected CallInto, got {other:?}"),
+    }
+
+    // Multiple targets.
+    let stmt = snowflake().verified_stmt("CALL p() INTO a, b");
+    match stmt {
+        Statement::CallInto { into, .. } => {
+            let names: Vec<String> = into.iter().map(ToString::to_string).collect();
+            assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
+        }
+        other => panic!("expected CallInto, got {other:?}"),
+    }
+
+    // A plain CALL is unaffected.
+    let stmt = snowflake().verified_stmt("CALL myproc(1)");
+    assert!(matches!(stmt, Statement::Call(_)));
+}
+
+#[test]
+fn test_alter_procedure() {
+    let stmt = snowflake().verified_stmt("ALTER PROCEDURE myproc(NUMBER, VARCHAR) RENAME TO newproc");
+    match stmt {
+        Statement::AlterProcedure(AlterProcedure {
+            if_exists,
+            name,
+            args,
+            operation,
+        }) => {
+            assert!(!if_exists);
+            assert_eq!(name.to_string(), "myproc");
+            assert_eq!(args.len(), 2);
+            assert_eq!(
+                operation,
+                AlterProcedureOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("newproc")])
+                }
+            );
+        }
+        other => panic!("expected AlterProcedure, got {other:?}"),
+    }
+
+    // IF EXISTS + EXECUTE AS CALLER.
+    let stmt = snowflake().verified_stmt("ALTER PROCEDURE IF EXISTS p() EXECUTE AS CALLER");
+    match stmt {
+        Statement::AlterProcedure(AlterProcedure {
+            if_exists,
+            args,
+            operation,
+            ..
+        }) => {
+            assert!(if_exists);
+            assert!(args.is_empty());
+            assert_eq!(
+                operation,
+                AlterProcedureOperation::ExecuteAs(ProcedureExecuteAs::Caller)
+            );
+        }
+        other => panic!("expected AlterProcedure, got {other:?}"),
+    }
+
+    // SET / UNSET COMMENT.
+    snowflake().verified_stmt("ALTER PROCEDURE p(NUMBER) SET COMMENT = 'hi'");
+    snowflake().verified_stmt("ALTER PROCEDURE p(NUMBER) UNSET COMMENT");
+    snowflake().verified_stmt("ALTER PROCEDURE p(NUMBER) EXECUTE AS OWNER");
+}
+
+#[test]
+fn test_with_as_procedure() {
+    let sql = "WITH myproc AS PROCEDURE (arg1 INT) RETURNS INT LANGUAGE SQL AS BEGIN RETURN arg1; END CALL myproc(10)";
+    let stmt = snowflake().verified_stmt(sql);
+    match stmt {
+        Statement::WithProcedure {
+            name,
+            params,
+            returns,
+            language,
+            call,
+            ..
+        } => {
+            assert_eq!(name.value, "myproc");
+            assert_eq!(params.as_ref().map(Vec::len), Some(1));
+            assert!(returns.is_some());
+            assert_eq!(language.map(|l| l.value), Some("SQL".to_string()));
+            assert!(matches!(*call, Statement::Call(_)));
+        }
+        other => panic!("expected WithProcedure, got {other:?}"),
+    }
+
+    // An ordinary CTE query is unaffected.
+    let stmt = snowflake().verified_stmt("WITH t AS (SELECT 1) SELECT * FROM t");
+    assert!(matches!(stmt, Statement::Query(_)));
+}
