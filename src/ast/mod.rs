@@ -4038,6 +4038,10 @@ pub enum Statement {
         from_obj: Option<ObjectName>,
         /// Optional alias for the source object.
         from_obj_alias: Option<Ident>,
+        /// Optional inline stage table-function args on the FROM stage
+        /// (`@stage (FILE_FORMAT => …, PATTERN => …)`), as used in a
+        /// `COPY INTO <table> FROM (SELECT … FROM @stage (…))` load.
+        from_obj_args: Option<TableFunctionArgs>,
         /// Stage-specific parameters (e.g., credentials, path).
         stage_params: StageParamsObject,
         /// Optional list of transformations applied when loading.
@@ -8035,6 +8039,7 @@ impl fmt::Display for Statement {
                 into_columns,
                 from_obj,
                 from_obj_alias,
+                from_obj_args,
                 stage_params,
                 from_transformations,
                 from_query,
@@ -8059,6 +8064,9 @@ impl fmt::Display for Statement {
                             from_stage,
                             stage_params
                         )?;
+                        if let Some(args) = from_obj_args {
+                            write!(f, " ({})", display_comma_separated(&args.args))?;
+                        }
                     }
                     if let Some(from_obj_alias) = from_obj_alias {
                         write!(f, " AS {from_obj_alias}")?;
@@ -8067,6 +8075,9 @@ impl fmt::Display for Statement {
                 } else if let Some(from_obj) = from_obj {
                     // Standard data load
                     write!(f, " FROM {from_obj}{stage_params}")?;
+                    if let Some(args) = from_obj_args {
+                        write!(f, " ({})", display_comma_separated(&args.args))?;
+                    }
                     if let Some(from_obj_alias) = from_obj_alias {
                         write!(f, " AS {from_obj_alias}")?;
                     }
