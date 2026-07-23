@@ -2233,6 +2233,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
     let mut from_transformations: Option<Vec<StageLoadSelectItemKind>> = None;
     let mut from_stage_alias = None;
     let mut from_stage = None;
+    let mut from_stage_args = None;
     let mut stage_params = StageParamsObject {
         url: None,
         encryption: KeyValueOptions {
@@ -2272,6 +2273,11 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
 
             parser.expect_keyword_is(Keyword::FROM)?;
             from_stage = Some(parse_snowflake_stage_name(parser)?);
+            // Inline stage table-function args (querying-stage syntax):
+            // `@stage (FILE_FORMAT => …, PATTERN => …)`.
+            if parser.consume_token(&Token::LParen) {
+                from_stage_args = Some(parser.parse_table_function_args()?);
+            }
             stage_params = parse_stage_params(parser)?;
 
             // Parse an optional alias
@@ -2406,6 +2412,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         into_columns,
         from_obj: from_stage,
         from_obj_alias: from_stage_alias,
+        from_obj_args: from_stage_args,
         stage_params,
         from_transformations,
         from_query,
