@@ -19525,7 +19525,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_table_function_args(&mut self) -> Result<TableFunctionArgs, ParserError> {
+    /// Parse the parenthesized argument list of a table-valued function,
+    /// assuming the opening `(` has already been consumed, up to and
+    /// including the closing `)`.
+    pub fn parse_table_function_args(&mut self) -> Result<TableFunctionArgs, ParserError> {
         if self.consume_token(&Token::RParen) {
             return Ok(TableFunctionArgs {
                 args: vec![],

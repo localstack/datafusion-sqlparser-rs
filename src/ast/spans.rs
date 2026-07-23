@@ -361,6 +361,7 @@ impl Spanned for Statement {
                 into_columns: _,
                 from_obj: _,
                 from_obj_alias: _,
+                from_obj_args: _,
                 stage_params: _,
                 from_transformations: _,
                 files: _,
