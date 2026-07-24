@@ -5628,16 +5628,23 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// `CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON TABLE <table>`
+    /// `CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>`
     fn parse_create_stream(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        self.expect_keywords(&[Keyword::ON, Keyword::TABLE])?;
+        self.expect_keyword(Keyword::ON)?;
+        let source_kind = if self.parse_keyword(Keyword::VIEW) {
+            StreamSourceKind::View
+        } else {
+            self.expect_keyword(Keyword::TABLE)?;
+            StreamSourceKind::Table
+        };
         let source_table = self.parse_object_name(false)?;
         Ok(Statement::CreateStream {
             or_replace,
             if_not_exists,
             name,
+            source_kind,
             source_table,
         })
     }

@@ -4945,7 +4945,7 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
-    /// CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON TABLE <table>
+    /// CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>
     /// ```
     CreateStream {
         /// `OR REPLACE` flag.
@@ -4954,7 +4954,10 @@ pub enum Statement {
         if_not_exists: bool,
         /// Stream name.
         name: ObjectName,
-        /// The source table the stream tracks (`ON TABLE <table>`).
+        /// Whether the source is a table (`ON TABLE`) or a view (`ON VIEW`).
+        source_kind: StreamSourceKind,
+        /// The source object the stream tracks (the `<source>` after
+        /// `ON TABLE`/`ON VIEW`).
         source_table: ObjectName,
     },
     /// ```sql
@@ -7408,11 +7411,12 @@ impl fmt::Display for Statement {
                 or_replace,
                 if_not_exists,
                 name,
+                source_kind,
                 source_table,
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}STREAM {if_not_exists}{name} ON TABLE {source_table}",
+                    "CREATE {or_replace}STREAM {if_not_exists}{name} ON {source_kind} {source_table}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )
@@ -10435,6 +10439,28 @@ impl fmt::Display for ObjectType {
             ObjectType::Stream => "STREAM",
             ObjectType::Warehouse => "WAREHOUSE",
             ObjectType::Task => "TASK",
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// The kind of object a Snowflake stream tracks, i.e. whether it was created
+/// with `ON TABLE <name>` or `ON VIEW <name>`.
+/// <https://docs.snowflake.com/en/sql-reference/sql/create-stream>
+pub enum StreamSourceKind {
+    /// `ON TABLE <name>`.
+    Table,
+    /// `ON VIEW <name>`.
+    View,
+}
+
+impl fmt::Display for StreamSourceKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            StreamSourceKind::Table => "TABLE",
+            StreamSourceKind::View => "VIEW",
         })
     }
 }
