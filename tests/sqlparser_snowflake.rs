@@ -72,6 +72,38 @@ fn parse_sf_create_secure_view_and_materialized_view() {
 }
 
 #[test]
+fn parse_sf_create_stream_on_table_and_view() {
+    for (sql, expected_kind) in [
+        ("CREATE STREAM s ON TABLE t", StreamSourceKind::Table),
+        ("CREATE STREAM s ON VIEW v", StreamSourceKind::View),
+        (
+            "CREATE OR REPLACE STREAM s ON TABLE t",
+            StreamSourceKind::Table,
+        ),
+        (
+            "CREATE OR REPLACE STREAM s ON VIEW v",
+            StreamSourceKind::View,
+        ),
+        (
+            "CREATE STREAM IF NOT EXISTS s ON TABLE t",
+            StreamSourceKind::Table,
+        ),
+        (
+            "CREATE STREAM IF NOT EXISTS s ON VIEW v",
+            StreamSourceKind::View,
+        ),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateStream { source_kind, .. } => {
+                assert_eq!(source_kind, expected_kind);
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+}
+
+#[test]
 fn test_snowflake_create_or_replace_table() {
     let sql = "CREATE OR REPLACE TABLE my_table (a number)";
     match snowflake().verified_stmt(sql) {
