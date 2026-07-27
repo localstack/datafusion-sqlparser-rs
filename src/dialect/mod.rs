@@ -1265,6 +1265,21 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect accepts the informational constraint properties
+    /// `{ ENABLE | DISABLE }`, `{ VALIDATE | NOVALIDATE }` and `{ RELY | NORELY }`
+    /// alongside `DEFERRABLE` / `INITIALLY` / `ENFORCED` in constraint
+    /// characteristics.
+    ///
+    /// Example:
+    /// ```sql
+    /// CREATE TABLE t (a INT, CONSTRAINT pk PRIMARY KEY (a) NOT ENFORCED RELY)
+    /// ```
+    ///
+    /// <https://docs.snowflake.com/en/sql-reference/constraints-properties>
+    fn supports_informational_constraint_properties(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the `CONSTRAINT` keyword without a name
     /// in table constraint definitions.
     ///

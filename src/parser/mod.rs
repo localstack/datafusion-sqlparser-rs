@@ -10403,16 +10403,62 @@ impl<'a> Parser<'a> {
                 && self.parse_keywords(&[Keyword::NOT, Keyword::ENFORCED])
             {
                 cc.enforced = Some(false);
-            } else {
+            } else if !self.parse_informational_constraint_property(&mut cc) {
                 break;
             }
         }
 
-        if cc.deferrable.is_some() || cc.initially.is_some() || cc.enforced.is_some() {
-            Ok(Some(cc))
-        } else {
+        if cc == ConstraintCharacteristics::default() {
             Ok(None)
+        } else {
+            Ok(Some(cc))
         }
+    }
+
+    /// Parse one of the informational constraint properties `{ ENABLE | DISABLE }`,
+    /// `{ VALIDATE | NOVALIDATE }` or `{ RELY | NORELY }`, returning whether one was
+    /// consumed. Only dialects opting in via
+    /// [`Dialect::supports_informational_constraint_properties`] accept them, as
+    /// `ENABLE`, `DISABLE` and `VALIDATE` are keywords used elsewhere.
+    fn parse_informational_constraint_property(
+        &mut self,
+        cc: &mut ConstraintCharacteristics,
+    ) -> bool {
+        if !self.dialect.supports_informational_constraint_properties() {
+            return false;
+        }
+
+        if cc.enabled.is_none() {
+            if self.parse_keyword(Keyword::ENABLE) {
+                cc.enabled = Some(true);
+                return true;
+            }
+            if self.parse_keyword(Keyword::DISABLE) {
+                cc.enabled = Some(false);
+                return true;
+            }
+        }
+        if cc.validated.is_none() {
+            if self.parse_keyword(Keyword::VALIDATE) {
+                cc.validated = Some(true);
+                return true;
+            }
+            if self.parse_keyword(Keyword::NOVALIDATE) {
+                cc.validated = Some(false);
+                return true;
+            }
+        }
+        if cc.rely.is_none() {
+            if self.parse_keyword(Keyword::RELY) {
+                cc.rely = Some(true);
+                return true;
+            }
+            if self.parse_keyword(Keyword::NORELY) {
+                cc.rely = Some(false);
+                return true;
+            }
+        }
+        false
     }
 
     /// Parse an optional table constraint (e.g. `PRIMARY KEY`, `UNIQUE`, `FOREIGN KEY`, `CHECK`).

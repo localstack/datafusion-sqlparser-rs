@@ -915,6 +915,11 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// See: <https://docs.snowflake.com/en/sql-reference/constraints-properties>
+    fn supports_informational_constraint_properties(&self) -> bool {
+        true
+    }
+
     /// See: <https://docs.snowflake.com/en/sql-reference/constructs/connect-by>
     fn get_reserved_keywords_for_select_item_operator(&self) -> &[Keyword] {
         &RESERVED_KEYWORDS_FOR_SELECT_ITEM_OPERATOR

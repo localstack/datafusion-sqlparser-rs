@@ -155,6 +155,24 @@ impl From<FullTextOrSpatialConstraint> for TableConstraint {
     }
 }
 
+impl TableConstraint {
+    /// Drop any [`ConstraintCharacteristics`] the constraint carries, so it
+    /// renders as the bare constraint. Useful for dialects whose grammar has no
+    /// counterpart for the characteristics the source dialect accepts.
+    pub fn clear_characteristics(&mut self) {
+        match self {
+            TableConstraint::Unique(constraint) => constraint.characteristics = None,
+            TableConstraint::PrimaryKey(constraint) => constraint.characteristics = None,
+            TableConstraint::ForeignKey(constraint) => constraint.characteristics = None,
+            TableConstraint::PrimaryKeyUsingIndex(constraint)
+            | TableConstraint::UniqueUsingIndex(constraint) => constraint.characteristics = None,
+            TableConstraint::Check(_)
+            | TableConstraint::Index(_)
+            | TableConstraint::FulltextOrSpatial(_) => {}
+        }
+    }
+}
+
 impl fmt::Display for TableConstraint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

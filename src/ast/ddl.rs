@@ -2310,9 +2310,13 @@ pub(crate) fn display_option_spaced<T: fmt::Display>(option: &Option<T>) -> impl
     display_option(" ", "", option)
 }
 
-/// `<constraint_characteristics> = [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ] [ ENFORCED | NOT ENFORCED ]`
+/// `<constraint_characteristics> = [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ] [ ENFORCED | NOT ENFORCED ] [ ENABLE | DISABLE ] [ VALIDATE | NOVALIDATE ] [ RELY | NORELY ]`
 ///
 /// Used in UNIQUE and foreign key constraints. The individual settings may occur in any order.
+///
+/// `ENABLE`/`DISABLE`, `VALIDATE`/`NOVALIDATE` and `RELY`/`NORELY` are only
+/// parsed for dialects returning true from
+/// [`Dialect::supports_informational_constraint_properties`].
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -2323,6 +2327,12 @@ pub struct ConstraintCharacteristics {
     pub initially: Option<DeferrableInitial>,
     /// `[ ENFORCED | NOT ENFORCED ]`
     pub enforced: Option<bool>,
+    /// `[ ENABLE | DISABLE ]`
+    pub enabled: Option<bool>,
+    /// `[ VALIDATE | NOVALIDATE ]`
+    pub validated: Option<bool>,
+    /// `[ RELY | NORELY ]`
+    pub rely: Option<bool>,
 }
 
 /// Initial setting for deferrable constraints (`INITIALLY IMMEDIATE` or `INITIALLY DEFERRED`).
@@ -2366,26 +2376,35 @@ impl ConstraintCharacteristics {
             },
         )
     }
+
+    fn enabled_text(&self) -> Option<&'static str> {
+        self.enabled
+            .map(|enabled| if enabled { "ENABLE" } else { "DISABLE" })
+    }
+
+    fn validated_text(&self) -> Option<&'static str> {
+        self.validated
+            .map(|validated| if validated { "VALIDATE" } else { "NOVALIDATE" })
+    }
+
+    fn rely_text(&self) -> Option<&'static str> {
+        self.rely.map(|rely| if rely { "RELY" } else { "NORELY" })
+    }
 }
 
 impl fmt::Display for ConstraintCharacteristics {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let deferrable = self.deferrable_text();
-        let initially_immediate = self.initially_immediate_text();
-        let enforced = self.enforced_text();
+        let properties = [
+            self.deferrable_text(),
+            self.initially_immediate_text(),
+            self.enforced_text(),
+            self.enabled_text(),
+            self.validated_text(),
+            self.rely_text(),
+        ];
 
-        match (deferrable, initially_immediate, enforced) {
-            (None, None, None) => Ok(()),
-            (None, None, Some(enforced)) => write!(f, "{enforced}"),
-            (None, Some(initial), None) => write!(f, "{initial}"),
-            (None, Some(initial), Some(enforced)) => write!(f, "{initial} {enforced}"),
-            (Some(deferrable), None, None) => write!(f, "{deferrable}"),
-            (Some(deferrable), None, Some(enforced)) => write!(f, "{deferrable} {enforced}"),
-            (Some(deferrable), Some(initial), None) => write!(f, "{deferrable} {initial}"),
-            (Some(deferrable), Some(initial), Some(enforced)) => {
-                write!(f, "{deferrable} {initial} {enforced}")
-            }
-        }
+        let set: Vec<&str> = properties.into_iter().flatten().collect();
+        write!(f, "{}", display_separated(&set, " "))
     }
 }
 

@@ -23,7 +23,7 @@ use sqlparser::ast::helpers::key_value_options::{KeyValueOption, KeyValueOptionK
 use sqlparser::ast::helpers::stmt_data_loading::{StageLoadSelectItem, StageLoadSelectItemKind};
 use sqlparser::ast::*;
 use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
-use sqlparser::parser::{ParserError, ParserOptions};
+use sqlparser::parser::{Parser, ParserError, ParserOptions};
 use sqlparser::tokenizer::*;
 use test_utils::*;
 
@@ -101,6 +101,67 @@ fn parse_sf_create_stream_on_table_and_view() {
         }
         assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
     }
+}
+
+#[test]
+fn parse_sf_informational_constraint_properties() {
+    let canonical = "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) NOT ENFORCED DISABLE NOVALIDATE RELY)";
+    match snowflake().verified_stmt(canonical) {
+        Statement::CreateTable(CreateTable { constraints, .. }) => match &constraints[0] {
+            TableConstraint::PrimaryKey(pk) => assert_eq!(
+                pk.characteristics,
+                Some(ConstraintCharacteristics {
+                    deferrable: None,
+                    initially: None,
+                    enforced: Some(false),
+                    enabled: Some(false),
+                    validated: Some(false),
+                    rely: Some(true),
+                })
+            ),
+            other => panic!("unexpected constraint: {other}"),
+        },
+        other => panic!("unexpected statement: {other}"),
+    }
+
+    // The properties are interchangeable in order.
+    snowflake().one_statement_parses_to(
+        "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) RELY DISABLE NOVALIDATE NOT ENFORCED)",
+        canonical,
+    );
+
+    snowflake().verified_stmt("CREATE TABLE t (id INT PRIMARY KEY NOT ENFORCED RELY)");
+    snowflake().verified_stmt("CREATE TABLE t (id INT UNIQUE ENABLE VALIDATE NORELY)");
+    snowflake()
+        .verified_stmt("CREATE TABLE t (id INT, CONSTRAINT u UNIQUE (id) NOT ENFORCED NORELY)");
+    snowflake().verified_stmt(
+        "CREATE TABLE t (id INT, CONSTRAINT fk FOREIGN KEY (id) REFERENCES p(id) NOT ENFORCED RELY)",
+    );
+    snowflake().verified_stmt("ALTER TABLE t ADD CONSTRAINT u UNIQUE (id) NOT ENFORCED RELY");
+}
+
+#[test]
+fn parse_sf_clear_constraint_characteristics() {
+    let sql = "CREATE TABLE t (id INT, CONSTRAINT u UNIQUE (id) NOT ENFORCED RELY)";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            mut constraints, ..
+        }) => {
+            constraints[0].clear_characteristics();
+            assert_eq!(constraints[0].to_string(), "CONSTRAINT u UNIQUE (id)");
+        }
+        other => panic!("unexpected statement: {other}"),
+    }
+}
+
+#[test]
+fn parse_informational_constraint_properties_are_dialect_gated() {
+    let sql = "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) RELY)";
+    let err = Parser::parse_sql(&GenericDialect {}, sql).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "sql parser error: Expected: \',\' or \')\' after column definition, found: RELY at Line: 1, Column: 56"
+    );
 }
 
 #[test]
