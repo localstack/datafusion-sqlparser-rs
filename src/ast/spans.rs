@@ -1049,6 +1049,9 @@ impl Spanned for ConstraintCharacteristics {
             deferrable: _, // bool
             initially: _,  // enum
             enforced: _,   // bool
+            enabled: _,    // bool
+            validated: _,  // bool
+            rely: _,       // bool
         } = self;
 
         Span::empty()
