@@ -6788,6 +6788,7 @@ fn parse_create_trigger_with_multiple_events_and_deferrable() {
             deferrable: Some(true),
             initially: Some(DeferrableInitial::Deferred),
             enforced: None,
+            ..Default::default()
         }),
     });
 
