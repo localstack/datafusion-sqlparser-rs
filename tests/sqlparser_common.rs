@@ -4414,7 +4414,8 @@ fn parse_create_table_with_constraint_characteristics() {
                         characteristics: Some(ConstraintCharacteristics {
                             deferrable: Some(true),
                             initially: Some(DeferrableInitial::Deferred),
-                            enforced: None
+                            enforced: None,
+                            ..Default::default()
                         }),
                     }
                     .into(),
@@ -4431,6 +4432,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             deferrable: Some(true),
                             initially: Some(DeferrableInitial::Immediate),
                             enforced: None,
+                            ..Default::default()
                         }),
                     }
                     .into(),
@@ -4447,6 +4449,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             deferrable: Some(false),
                             initially: Some(DeferrableInitial::Deferred),
                             enforced: Some(false),
+                            ..Default::default()
                         }),
                     }
                     .into(),
@@ -4463,6 +4466,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             deferrable: Some(false),
                             initially: Some(DeferrableInitial::Immediate),
                             enforced: Some(true),
+                            ..Default::default()
                         }),
                     }
                     .into(),
@@ -4529,6 +4533,7 @@ fn parse_create_table_column_constraint_characteristics() {
                 deferrable,
                 initially,
                 enforced,
+                ..Default::default()
             })
         } else {
             None
