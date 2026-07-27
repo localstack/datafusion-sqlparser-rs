@@ -1625,6 +1625,42 @@ pub struct ColumnDef {
     pub options: Vec<ColumnOptionDef>,
 }
 
+impl ColumnDef {
+    /// Drop any [`ConstraintCharacteristics`] the column's inline constraints
+    /// carry, so they render as bare constraints. Counterpart to
+    /// [`TableConstraint::clear_characteristics`] for dialects whose grammar has
+    /// no equivalent of the characteristics the source dialect accepts.
+    pub fn clear_constraint_characteristics(&mut self) {
+        for option in &mut self.options {
+            match &mut option.option {
+                ColumnOption::PrimaryKey(constraint) => constraint.characteristics = None,
+                ColumnOption::Unique(constraint) => constraint.characteristics = None,
+                ColumnOption::ForeignKey(constraint) => constraint.characteristics = None,
+                ColumnOption::Null
+                | ColumnOption::NotNull
+                | ColumnOption::Default(_)
+                | ColumnOption::Materialized(_)
+                | ColumnOption::Ephemeral(_)
+                | ColumnOption::Alias(_)
+                | ColumnOption::Check(_)
+                | ColumnOption::DialectSpecific(_)
+                | ColumnOption::CharacterSet(_)
+                | ColumnOption::Collation(_)
+                | ColumnOption::Comment(_)
+                | ColumnOption::OnUpdate(_)
+                | ColumnOption::Generated { .. }
+                | ColumnOption::Options(_)
+                | ColumnOption::Identity(_)
+                | ColumnOption::OnConflict(_)
+                | ColumnOption::Policy(_)
+                | ColumnOption::Tags(_)
+                | ColumnOption::Srid(_)
+                | ColumnOption::Invisible => {}
+            }
+        }
+    }
+}
+
 impl fmt::Display for ColumnDef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.data_type == DataType::Unspecified {

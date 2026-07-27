@@ -142,13 +142,17 @@ fn parse_sf_informational_constraint_properties() {
 
 #[test]
 fn parse_sf_clear_constraint_characteristics() {
-    let sql = "CREATE TABLE t (id INT, CONSTRAINT u UNIQUE (id) NOT ENFORCED RELY)";
+    let sql = "CREATE TABLE t (id INT UNIQUE ENABLE VALIDATE RELY, CONSTRAINT u UNIQUE (id) NOT ENFORCED RELY)";
     match snowflake().verified_stmt(sql) {
         Statement::CreateTable(CreateTable {
-            mut constraints, ..
+            mut columns,
+            mut constraints,
+            ..
         }) => {
             constraints[0].clear_characteristics();
             assert_eq!(constraints[0].to_string(), "CONSTRAINT u UNIQUE (id)");
+            columns[0].clear_constraint_characteristics();
+            assert_eq!(columns[0].to_string(), "id INT UNIQUE");
         }
         other => panic!("unexpected statement: {other}"),
     }
