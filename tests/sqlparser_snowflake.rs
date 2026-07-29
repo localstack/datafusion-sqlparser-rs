@@ -8876,3 +8876,291 @@ fn test_with_as_procedure() {
     let stmt = snowflake().verified_stmt("WITH t AS (SELECT 1) SELECT * FROM t");
     assert!(matches!(stmt, Statement::Query(_)));
 }
+
+#[test]
+fn parse_snowflake_create_masking_policy() {
+    match snowflake().verified_stmt(
+        "CREATE MASKING POLICY p AS (a VARCHAR, b VARCHAR) RETURNS VARCHAR -> a",
+    ) {
+        Statement::CreateMaskingPolicy {
+            or_replace,
+            if_not_exists,
+            name,
+            args,
+            return_type,
+            policy_expr,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("p", name.to_string());
+            assert_eq!(2, args.len());
+            assert_eq!(Some(Ident::new("a")), args[0].name);
+            assert_eq!(DataType::Varchar(None), args[0].data_type);
+            assert_eq!(Some(Ident::new("b")), args[1].name);
+            assert_eq!(DataType::Varchar(None), return_type);
+            assert_eq!(Expr::Identifier(Ident::new("a")), policy_expr);
+            assert_eq!(None, comment);
+        }
+        other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+    }
+
+    // OR REPLACE, IF NOT EXISTS, and a COMMENT.
+    match snowflake().verified_stmt(
+        "CREATE OR REPLACE MASKING POLICY p AS (a VARCHAR) RETURNS VARCHAR -> a COMMENT = 'hi'",
+    ) {
+        Statement::CreateMaskingPolicy {
+            or_replace,
+            if_not_exists,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(!if_not_exists);
+            assert_eq!(Some("hi".to_string()), comment);
+        }
+        other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt(
+        "CREATE MASKING POLICY IF NOT EXISTS p AS (a VARCHAR) RETURNS VARCHAR -> a",
+    ) {
+        Statement::CreateMaskingPolicy { if_not_exists, .. } => assert!(if_not_exists),
+        other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+    }
+
+    // A conditional-masking body with multiple arguments round-trips.
+    snowflake().verified_stmt(
+        "CREATE MASKING POLICY p AS (a VARCHAR, b VARCHAR) RETURNS VARCHAR -> \
+         CASE WHEN b = 'x' THEN '***' ELSE a END",
+    );
+}
+
+#[test]
+fn parse_snowflake_alter_masking_policy() {
+    match snowflake().verified_stmt("ALTER MASKING POLICY p SET BODY -> 'true'") {
+        Statement::AlterMaskingPolicy {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("p", name.to_string());
+            assert_eq!(
+                AlterMaskingPolicyOperation::SetBody {
+                    body: Expr::Value(
+                        Value::SingleQuotedString("true".to_string()).with_empty_span()
+                    ),
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("ALTER MASKING POLICY IF EXISTS p RENAME TO q") {
+        Statement::AlterMaskingPolicy {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(
+                AlterMaskingPolicyOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("q")]),
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("ALTER MASKING POLICY p SET COMMENT = 'c'") {
+        Statement::AlterMaskingPolicy { operation, .. } => assert_eq!(
+            AlterMaskingPolicyOperation::SetComment {
+                comment: "c".to_string(),
+            },
+            operation
+        ),
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("ALTER MASKING POLICY p UNSET COMMENT") {
+        Statement::AlterMaskingPolicy { operation, .. } => {
+            assert_eq!(AlterMaskingPolicyOperation::UnsetComment, operation)
+        }
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_drop_masking_policy() {
+    match snowflake().verified_stmt("DROP MASKING POLICY p") {
+        Statement::DropMaskingPolicy { if_exists, name } => {
+            assert!(!if_exists);
+            assert_eq!("p", name.to_string());
+        }
+        other => panic!("expected DropMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("DROP MASKING POLICY IF EXISTS p") {
+        Statement::DropMaskingPolicy { if_exists, .. } => assert!(if_exists),
+        other => panic!("expected DropMaskingPolicy, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_describe_masking_policy() {
+    for sql in [
+        "DESCRIBE MASKING POLICY p",
+        "DESC MASKING POLICY p",
+    ] {
+        match snowflake().one_statement_parses_to(sql, "DESCRIBE MASKING POLICY p") {
+            Statement::DescribeMaskingPolicy { name } => assert_eq!("p", name.to_string()),
+            other => panic!("expected DescribeMaskingPolicy, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn parse_snowflake_show_masking_policies() {
+    match snowflake().verified_stmt("SHOW MASKING POLICIES") {
+        Statement::ShowMaskingPolicies { show_options } => {
+            assert!(show_options.filter_position.is_none());
+        }
+        other => panic!("expected ShowMaskingPolicies, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("SHOW MASKING POLICIES LIKE '%p%'") {
+        Statement::ShowMaskingPolicies { .. } => {}
+        other => panic!("expected ShowMaskingPolicies, got {other:?}"),
+    }
+
+    snowflake().verified_stmt("SHOW MASKING POLICIES IN SCHEMA s");
+}
+
+#[test]
+fn parse_snowflake_alter_table_column_masking_policy() {
+    for keyword in ["MODIFY", "ALTER"] {
+        let sql = format!("ALTER TABLE t {keyword} COLUMN c SET MASKING POLICY p");
+        match snowflake().one_statement_parses_to(
+            &sql,
+            "ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p",
+        ) {
+            Statement::AlterTable(AlterTable { operations, .. }) => match &operations[0] {
+                AlterTableOperation::AlterColumn { column_name, op } => {
+                    assert_eq!("c", column_name.to_string());
+                    assert_eq!(
+                        &AlterColumnOperation::SetMaskingPolicy {
+                            policy_name: ObjectName::from(vec![Ident::new("p")]),
+                            using_columns: None,
+                            force: false,
+                        },
+                        op
+                    );
+                }
+                other => panic!("expected AlterColumn, got {other:?}"),
+            },
+            other => panic!("expected AlterTable, got {other:?}"),
+        }
+    }
+
+    // USING and FORCE.
+    match snowflake()
+        .verified_stmt("ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p USING (c, d) FORCE")
+    {
+        Statement::AlterTable(AlterTable { operations, .. }) => match &operations[0] {
+            AlterTableOperation::AlterColumn {
+                op:
+                    AlterColumnOperation::SetMaskingPolicy {
+                        using_columns,
+                        force,
+                        ..
+                    },
+                ..
+            } => {
+                assert_eq!(
+                    &Some(vec![Ident::new("c"), Ident::new("d")]),
+                    using_columns
+                );
+                assert!(force);
+            }
+            other => panic!("expected SetMaskingPolicy, got {other:?}"),
+        },
+        other => panic!("expected AlterTable, got {other:?}"),
+    }
+
+    // UNSET.
+    match snowflake().verified_stmt("ALTER TABLE t ALTER COLUMN c UNSET MASKING POLICY") {
+        Statement::AlterTable(AlterTable { operations, .. }) => assert_eq!(
+            AlterTableOperation::AlterColumn {
+                column_name: Ident::new("c"),
+                op: AlterColumnOperation::UnsetMaskingPolicy,
+            },
+            operations[0]
+        ),
+        other => panic!("expected AlterTable, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_view_column_masking_policy() {
+    for keyword in ["MODIFY", "ALTER"] {
+        let sql = format!("ALTER VIEW v {keyword} COLUMN c SET MASKING POLICY p");
+        match snowflake()
+            .one_statement_parses_to(&sql, "ALTER VIEW v ALTER COLUMN c SET MASKING POLICY p")
+        {
+            Statement::AlterViewColumn {
+                name,
+                column_name,
+                op,
+            } => {
+                assert_eq!("v", name.to_string());
+                assert_eq!("c", column_name.to_string());
+                assert_eq!(
+                    AlterColumnOperation::SetMaskingPolicy {
+                        policy_name: ObjectName::from(vec![Ident::new("p")]),
+                        using_columns: None,
+                        force: false,
+                    },
+                    op
+                );
+            }
+            other => panic!("expected AlterViewColumn, got {other:?}"),
+        }
+    }
+
+    match snowflake().verified_stmt("ALTER VIEW v ALTER COLUMN c UNSET MASKING POLICY") {
+        Statement::AlterViewColumn { op, .. } => {
+            assert_eq!(AlterColumnOperation::UnsetMaskingPolicy, op)
+        }
+        other => panic!("expected AlterViewColumn, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_create_view_column_masking_policy() {
+    match snowflake().verified_stmt(
+        "CREATE VIEW v (c WITH MASKING POLICY p USING (c, d)) AS SELECT c, d FROM t",
+    ) {
+        Statement::CreateView(CreateView { columns, .. }) => {
+            assert_eq!(1, columns.len());
+            assert_eq!("c", columns[0].name.to_string());
+            match &columns[0].options {
+                Some(ColumnOptions::SpaceSeparated(options)) => match &options[0] {
+                    ColumnOption::Policy(ColumnPolicy::MaskingPolicy(property)) => {
+                        assert!(property.with);
+                        assert_eq!("p", property.policy_name.to_string());
+                        assert_eq!(
+                            Some(vec![Ident::new("c"), Ident::new("d")]),
+                            property.using_columns
+                        );
+                    }
+                    other => panic!("expected MaskingPolicy, got {other:?}"),
+                },
+                other => panic!("expected column options, got {other:?}"),
+            }
+        }
+        other => panic!("expected CreateView, got {other:?}"),
+    }
+}

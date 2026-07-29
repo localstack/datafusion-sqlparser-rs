@@ -1356,6 +1356,61 @@ pub enum AlterColumnOperation {
         /// Optional sequence options for identity generation.
         sequence_options: Option<Vec<SequenceOptions>>,
     },
+
+    /// `SET MASKING POLICY <policy> [USING (<col>, ...)] [FORCE]`
+    ///
+    /// Snowflake: attach a masking policy to the column
+    /// (`ALTER TABLE t MODIFY COLUMN c SET MASKING POLICY p`).
+    SetMaskingPolicy {
+        /// The policy to attach.
+        policy_name: ObjectName,
+        /// Optional `USING (<col>, ...)` conditional-masking column list.
+        using_columns: Option<Vec<Ident>>,
+        /// Whether the `FORCE` keyword was present.
+        force: bool,
+    },
+
+    /// `UNSET MASKING POLICY`
+    ///
+    /// Snowflake: detach the masking policy from the column.
+    UnsetMaskingPolicy,
+}
+
+/// An operation on a masking policy in an `ALTER MASKING POLICY` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterMaskingPolicyOperation {
+    /// `SET BODY -> <expr>`
+    SetBody {
+        /// The replacement body expression.
+        body: Expr,
+    },
+    /// `RENAME TO <name>`
+    RenameTo {
+        /// The new policy name.
+        new_name: ObjectName,
+    },
+    /// `SET COMMENT = '<comment>'`
+    SetComment {
+        /// The replacement comment text.
+        comment: String,
+    },
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterMaskingPolicyOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterMaskingPolicyOperation::SetBody { body } => write!(f, "SET BODY -> {body}"),
+            AlterMaskingPolicyOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+            AlterMaskingPolicyOperation::SetComment { comment } => {
+                write!(f, "SET COMMENT = '{}'", escape_single_quote_string(comment))
+            }
+            AlterMaskingPolicyOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
 }
 
 impl fmt::Display for AlterColumnOperation {
@@ -1408,6 +1463,21 @@ impl fmt::Display for AlterColumnOperation {
                 }
                 Ok(())
             }
+            AlterColumnOperation::SetMaskingPolicy {
+                policy_name,
+                using_columns,
+                force,
+            } => {
+                write!(f, "SET MASKING POLICY {policy_name}")?;
+                if let Some(columns) = using_columns {
+                    write!(f, " USING ({})", display_comma_separated(columns))?;
+                }
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
+            AlterColumnOperation::UnsetMaskingPolicy => write!(f, "UNSET MASKING POLICY"),
         }
     }
 }
