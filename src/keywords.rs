@@ -181,6 +181,7 @@ define_keywords!(
     BLOCK,
     BLOOM,
     BLOOMFILTER,
+    BODY,
     BOOL,
     BOOLEAN,
     BOOST,
