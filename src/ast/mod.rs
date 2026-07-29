@@ -64,6 +64,7 @@ pub use self::dcl::{
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
+    AlterMaskingPolicyOperation,
     AlterIndexOperation, AlterProcedure, AlterProcedureOperation,
     AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
     AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy,
@@ -4148,6 +4149,20 @@ pub enum Statement {
         with_options: Vec<SqlOption>,
     },
     /// ```sql
+    /// ALTER VIEW <name> { MODIFY | ALTER } COLUMN <col>
+    ///   { SET MASKING POLICY <p> [USING (<c>, ...)] [FORCE] | UNSET MASKING POLICY }
+    /// ```
+    /// Snowflake column-level masking-policy operation on a view.
+    AlterViewColumn {
+        /// View name.
+        #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+        name: ObjectName,
+        /// Target column.
+        column_name: Ident,
+        /// The column operation to apply.
+        op: AlterColumnOperation,
+    },
+    /// ```sql
     /// ALTER FUNCTION
     /// ALTER AGGREGATE
     /// ```
@@ -5379,6 +5394,63 @@ pub enum Statement {
     ShowRowAccessPolicies {
         /// Optional `LIKE` filter.
         filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// CREATE [OR REPLACE] MASKING POLICY [IF NOT EXISTS] <name>
+    ///   AS (<arg> <type>[, ...]) RETURNS <type> -> <body> [COMMENT = '<comment>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-masking-policy>
+    CreateMaskingPolicy {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Signature arguments (name + type), in declaration order.
+        args: Vec<OperateFunctionArg>,
+        /// The declared return type.
+        return_type: DataType,
+        /// The policy body expression after `->`.
+        policy_expr: Expr,
+        /// Optional `COMMENT = '<comment>'`.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER MASKING POLICY [IF EXISTS] <name>
+    ///   { SET BODY -> <expr> | RENAME TO <name> | SET COMMENT = '<comment>' | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-masking-policy>
+    AlterMaskingPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterMaskingPolicyOperation,
+    },
+    /// ```sql
+    /// DROP MASKING POLICY [IF EXISTS] <name>
+    /// ```
+    DropMaskingPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] MASKING POLICY <name>
+    /// ```
+    DescribeMaskingPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW MASKING POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    ShowMaskingPolicies {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
     },
     /// ```sql
     /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
@@ -6746,6 +6818,13 @@ impl fmt::Display for Statement {
                 }
                 write!(f, " AS {query}")
             }
+            Statement::AlterViewColumn {
+                name,
+                column_name,
+                op,
+            } => {
+                write!(f, "ALTER VIEW {name} ALTER COLUMN {column_name} {op}")
+            }
             Statement::AlterFunction(alter_function) => write!(f, "{alter_function}"),
             Statement::AlterType(AlterType { name, operation }) => {
                 write!(f, "ALTER TYPE {name} {operation}")
@@ -7834,6 +7913,55 @@ impl fmt::Display for Statement {
                     write!(f, " {filter}")?;
                 }
                 Ok(())
+            }
+            Statement::CreateMaskingPolicy {
+                or_replace,
+                if_not_exists,
+                name,
+                args,
+                return_type,
+                policy_expr,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}MASKING POLICY {if_not_exists}{name} AS ({args}) RETURNS {return_type} -> {policy_expr}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    args = display_comma_separated(args),
+                )?;
+                if let Some(comment) = comment {
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        value::escape_single_quote_string(comment)
+                    )?;
+                }
+                Ok(())
+            }
+            Statement::AlterMaskingPolicy {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER MASKING POLICY {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropMaskingPolicy { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP MASKING POLICY {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeMaskingPolicy { name } => {
+                write!(f, "DESCRIBE MASKING POLICY {name}")
+            }
+            Statement::ShowMaskingPolicies { show_options } => {
+                write!(f, "SHOW MASKING POLICIES{show_options}")
             }
             Statement::ShowProcedures { show_options } => {
                 write!(f, "SHOW PROCEDURES{show_options}")?;

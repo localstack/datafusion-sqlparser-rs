@@ -27,8 +27,8 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterProcedure,
-    AlterProcedureOperation, AlterStageOperation, AlterTable,
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
+    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable,
     AlterTableOperation, AlterTableType, CatalogRestAuthentication, CatalogRestConfig,
     CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
     ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
@@ -387,6 +387,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_row_access_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::MASKING, Keyword::POLICY]) {
+            // ALTER MASKING POLICY
+            return Some(parse_alter_masking_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
             // ALTER SESSION
             let set = match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
@@ -432,6 +437,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_row_access_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::MASKING, Keyword::POLICY]) {
+            // DROP MASKING POLICY
+            return Some(parse_drop_masking_policy(parser));
+        }
+
         if parser
             .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
             .is_some()
@@ -455,6 +465,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
                 // DESC[RIBE] ROW ACCESS POLICY
                 return Some(parse_describe_row_access_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
+                // DESC[RIBE] MASKING POLICY
+                return Some(parse_describe_masking_policy(parser));
             }
             // not handled — put back DESC/DESCRIBE
             parser.prev_token();
@@ -483,6 +497,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] ROW ACCESS POLICY
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
                 return Some(parse_create_row_access_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] MASKING POLICY
+            if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
+                return Some(parse_create_masking_policy(or_replace, parser));
             }
 
             // LOCAL | GLOBAL
@@ -643,6 +662,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
                 return Some(parse_show_row_access_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICIES]) {
+                return Some(parse_show_masking_policies(parser));
             }
             if parser.parse_keyword(Keyword::PROCEDURES) {
                 return Some(parse_show_procedures(parser));
@@ -3397,6 +3419,101 @@ fn parse_describe_row_access_policy(parser: &mut Parser) -> Result<Statement, Pa
 fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowRowAccessPolicies { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] MASKING POLICY [IF NOT EXISTS] <name>
+///   AS (<arg> <type>[, ...]) RETURNS <type> -> <body> [COMMENT = '<comment>']`
+fn parse_create_masking_policy(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    parser.expect_token(&Token::LParen)?;
+    let args = parser.parse_comma_separated(|p| {
+        let arg_name = p.parse_identifier()?;
+        let data_type = p.parse_data_type()?;
+        Ok(OperateFunctionArg {
+            mode: None,
+            name: Some(arg_name),
+            data_type,
+            default_expr: None,
+        })
+    })?;
+    parser.expect_token(&Token::RParen)?;
+    parser.expect_keyword_is(Keyword::RETURNS)?;
+    let return_type = parser.parse_data_type()?;
+    parser.expect_token(&Token::Arrow)?;
+    let policy_expr = parser.parse_expr()?;
+    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_comment_value()?)
+    } else {
+        None
+    };
+    Ok(Statement::CreateMaskingPolicy {
+        or_replace,
+        if_not_exists,
+        name,
+        args,
+        return_type,
+        policy_expr,
+        comment,
+    })
+}
+
+/// Parse `ALTER MASKING POLICY [IF EXISTS] <name>
+///   { SET BODY -> <expr> | RENAME TO <name> | SET COMMENT = '<comment>' | UNSET COMMENT }`
+fn parse_alter_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::BODY]) {
+        parser.expect_token(&Token::Arrow)?;
+        AlterMaskingPolicyOperation::SetBody {
+            body: parser.parse_expr()?,
+        }
+    } else if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterMaskingPolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
+        parser.expect_token(&Token::Eq)?;
+        AlterMaskingPolicyOperation::SetComment {
+            comment: parser.parse_comment_value()?,
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterMaskingPolicyOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "SET BODY, RENAME TO, SET COMMENT, or UNSET COMMENT",
+            parser.peek_token_ref(),
+        );
+    };
+    Ok(Statement::AlterMaskingPolicy {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP MASKING POLICY [IF EXISTS] <name>`
+fn parse_drop_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropMaskingPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] MASKING POLICY <name>`
+fn parse_describe_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeMaskingPolicy { name })
+}
+
+/// Parse `SHOW MASKING POLICIES [LIKE '<pattern>'] [IN <scope>]`
+fn parse_show_masking_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowMaskingPolicies { show_options })
 }
 
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`

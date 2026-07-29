@@ -11275,19 +11275,26 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::MODIFY) {
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
             let col_name = self.parse_identifier()?;
-            let data_type = self.parse_data_type()?;
-            let mut options = vec![];
-            while let Some(option) = self.parse_optional_column_option()? {
-                options.push(option);
-            }
+            if let Some(op) = self.maybe_parse_column_masking_policy()? {
+                AlterTableOperation::AlterColumn {
+                    column_name: col_name,
+                    op,
+                }
+            } else {
+                let data_type = self.parse_data_type()?;
+                let mut options = vec![];
+                while let Some(option) = self.parse_optional_column_option()? {
+                    options.push(option);
+                }
 
-            let column_position = self.parse_column_position()?;
+                let column_position = self.parse_column_position()?;
 
-            AlterTableOperation::ModifyColumn {
-                col_name,
-                data_type,
-                options,
-                column_position,
+                AlterTableOperation::ModifyColumn {
+                    col_name,
+                    data_type,
+                    options,
+                    column_position,
+                }
             }
         } else if self.dialect.supports_alter_column_comment()
             && (self.parse_keyword(Keyword::COLUMN)
@@ -11363,6 +11370,8 @@ impl<'a> Parser<'a> {
                     generated_as,
                     sequence_options,
                 }
+            } else if let Some(op) = self.maybe_parse_column_masking_policy()? {
+                op
             } else {
                 let message = if is_postgresql {
                     "SET/DROP NOT NULL, SET DEFAULT, SET DATA TYPE, or ADD GENERATED after ALTER COLUMN"
@@ -11511,6 +11520,35 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(operation)
+    }
+
+    /// Try to parse a Snowflake column masking-policy operation
+    /// (`SET MASKING POLICY <p> [USING (<c>, ...)] [FORCE]` or
+    /// `UNSET MASKING POLICY`) following the column name in an `ALTER TABLE`
+    /// / `ALTER VIEW` `{MODIFY|ALTER} COLUMN` clause. Returns `None` if the
+    /// upcoming tokens are not a masking-policy operation, leaving the parser
+    /// position unchanged.
+    fn maybe_parse_column_masking_policy(
+        &mut self,
+    ) -> Result<Option<AlterColumnOperation>, ParserError> {
+        if self.parse_keywords(&[Keyword::SET, Keyword::MASKING, Keyword::POLICY]) {
+            let policy_name = self.parse_object_name(false)?;
+            let using_columns = if self.parse_keyword(Keyword::USING) {
+                Some(self.parse_parenthesized_column_list(Mandatory, false)?)
+            } else {
+                None
+            };
+            let force = self.parse_keyword(Keyword::FORCE);
+            Ok(Some(AlterColumnOperation::SetMaskingPolicy {
+                policy_name,
+                using_columns,
+                force,
+            }))
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::MASKING, Keyword::POLICY]) {
+            Ok(Some(AlterColumnOperation::UnsetMaskingPolicy))
+        } else {
+            Ok(None)
+        }
     }
 
     fn parse_set_data_type(&mut self, had_set: bool) -> Result<AlterColumnOperation, ParserError> {
@@ -12021,6 +12059,28 @@ impl<'a> Parser<'a> {
     /// Parse an `ALTER VIEW` statement.
     pub fn parse_alter_view(&mut self) -> Result<Statement, ParserError> {
         let name = self.parse_object_name(false)?;
+
+        // Snowflake: `ALTER VIEW v { MODIFY | ALTER } COLUMN c
+        //   { SET MASKING POLICY p [USING (...)] [FORCE] | UNSET MASKING POLICY }`
+        if self.parse_one_of_keywords(&[Keyword::MODIFY, Keyword::ALTER]).is_some() {
+            let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
+            let column_name = self.parse_identifier()?;
+            let op = match self.maybe_parse_column_masking_policy()? {
+                Some(op) => op,
+                None => {
+                    return self.expected_ref(
+                        "SET MASKING POLICY or UNSET MASKING POLICY",
+                        self.peek_token_ref(),
+                    )
+                }
+            };
+            return Ok(Statement::AlterViewColumn {
+                name,
+                column_name,
+                op,
+            });
+        }
+
         let columns = self.parse_parenthesized_column_list(Optional, false)?;
 
         let with_options = self.parse_options(Keyword::WITH)?;
