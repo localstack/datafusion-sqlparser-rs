@@ -11254,7 +11254,11 @@ fn parse_escaped_string_with_unescape() {
     let escaping_dialects =
         &all_dialects_where(|dialect| dialect.supports_string_literal_backslash_escape());
     let no_wildcard_exception = &all_dialects_where(|dialect| {
-        dialect.supports_string_literal_backslash_escape() && !dialect.ignores_wildcard_escapes()
+        dialect.supports_string_literal_backslash_escape()
+            && !dialect.ignores_wildcard_escapes()
+            // Snowflake decodes `\Z` / `\a` as the bare letter, not a control
+            // character, so it is exercised separately.
+            && !dialect.supports_snowflake_string_literal_escapes()
     });
     let with_wildcard_exception = &all_dialects_where(|dialect| {
         dialect.supports_string_literal_backslash_escape() && dialect.ignores_wildcard_escapes()

@@ -172,6 +172,11 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    // See https://docs.snowflake.com/en/sql-reference/data-types-text#escape-sequences-in-single-quoted-string-constants
+    fn supports_snowflake_string_literal_escapes(&self) -> bool {
+        true
+    }
+
     fn supports_within_after_array_aggregation(&self) -> bool {
         true
     }
