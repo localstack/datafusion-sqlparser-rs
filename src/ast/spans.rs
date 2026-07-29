@@ -424,6 +424,13 @@ impl Spanned for Statement {
             Statement::AlterTable(alter_table) => alter_table.span(),
             Statement::AlterIndex { name, operation } => name.span().union(&operation.span()),
             Statement::AlterView(alter_view) => alter_view.span(),
+            Statement::AlterViewColumn {
+                name,
+                column_name,
+                op,
+            } => union_spans(
+                [name.span(), column_name.span, op.span()].into_iter(),
+            ),
             // These statements need to be implemented
             Statement::AlterFunction { .. } => Span::empty(),
             Statement::AlterType { .. } => Span::empty(),
@@ -582,6 +589,11 @@ impl Spanned for Statement {
             Statement::DropRowAccessPolicy { .. } => Span::empty(),
             Statement::DescribeRowAccessPolicy { .. } => Span::empty(),
             Statement::ShowRowAccessPolicies { .. } => Span::empty(),
+            Statement::CreateMaskingPolicy { .. } => Span::empty(),
+            Statement::AlterMaskingPolicy { .. } => Span::empty(),
+            Statement::DropMaskingPolicy { .. } => Span::empty(),
+            Statement::DescribeMaskingPolicy { .. } => Span::empty(),
+            Statement::ShowMaskingPolicies { .. } => Span::empty(),
             Statement::ShowProcedures { .. } => Span::empty(),
             Statement::ShowConnections { .. } => Span::empty(),
             Statement::ShowShares { .. } => Span::empty(),
@@ -1104,6 +1116,8 @@ impl Spanned for AlterColumnOperation {
             } => using.as_ref().map_or(Span::empty(), |u| u.span()),
             AlterColumnOperation::Comment { .. } => Span::empty(),
             AlterColumnOperation::AddGenerated { .. } => Span::empty(),
+            AlterColumnOperation::SetMaskingPolicy { .. } => Span::empty(),
+            AlterColumnOperation::UnsetMaskingPolicy => Span::empty(),
             AlterColumnOperation::GenericOptions { options } => {
                 union_spans(options.iter().map(|option| option.span()))
             }

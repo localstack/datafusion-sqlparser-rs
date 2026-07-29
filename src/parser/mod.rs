@@ -12457,19 +12457,26 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::MODIFY) {
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
             let col_name = self.parse_identifier()?;
-            let data_type = self.parse_data_type()?;
-            let mut options = vec![];
-            while let Some(option) = self.parse_optional_column_option()? {
-                options.push(option);
-            }
+            if let Some(op) = self.maybe_parse_column_masking_policy()? {
+                AlterTableOperation::AlterColumn {
+                    column_name: col_name,
+                    op,
+                }
+            } else {
+                let data_type = self.parse_data_type()?;
+                let mut options = vec![];
+                while let Some(option) = self.parse_optional_column_option()? {
+                    options.push(option);
+                }
 
-            let column_position = self.parse_column_position()?;
+                let column_position = self.parse_column_position()?;
 
-            AlterTableOperation::ModifyColumn {
-                col_name,
-                data_type,
-                options,
-                column_position,
+                AlterTableOperation::ModifyColumn {
+                    col_name,
+                    data_type,
+                    options,
+                    column_position,
+                }
             }
         } else if self.dialect.supports_alter_column_comment()
             && (self.parse_keyword(Keyword::COLUMN)
@@ -12549,6 +12556,8 @@ impl<'a> Parser<'a> {
                 AlterColumnOperation::GenericOptions {
                     options: self.parse_alter_generic_options()?,
                 }
+            } else if let Some(op) = self.maybe_parse_column_masking_policy()? {
+                op
             } else {
                 let message = if is_postgresql {
                     "SET/DROP NOT NULL, SET DEFAULT, SET DATA TYPE, ADD GENERATED, or OPTIONS after ALTER COLUMN"
@@ -12737,6 +12746,35 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(operation)
+    }
+
+    /// Try to parse a Snowflake column masking-policy operation
+    /// (`SET MASKING POLICY <p> [USING (<c>, ...)] [FORCE]` or
+    /// `UNSET MASKING POLICY`) following the column name in an `ALTER TABLE`
+    /// / `ALTER VIEW` `{MODIFY|ALTER} COLUMN` clause. Returns `None` if the
+    /// upcoming tokens are not a masking-policy operation, leaving the parser
+    /// position unchanged.
+    fn maybe_parse_column_masking_policy(
+        &mut self,
+    ) -> Result<Option<AlterColumnOperation>, ParserError> {
+        if self.parse_keywords(&[Keyword::SET, Keyword::MASKING, Keyword::POLICY]) {
+            let policy_name = self.parse_object_name(false)?;
+            let using_columns = if self.parse_keyword(Keyword::USING) {
+                Some(self.parse_parenthesized_column_list(Mandatory, false)?)
+            } else {
+                None
+            };
+            let force = self.parse_keyword(Keyword::FORCE);
+            Ok(Some(AlterColumnOperation::SetMaskingPolicy {
+                policy_name,
+                using_columns,
+                force,
+            }))
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::MASKING, Keyword::POLICY]) {
+            Ok(Some(AlterColumnOperation::UnsetMaskingPolicy))
+        } else {
+            Ok(None)
+        }
     }
 
     fn parse_set_data_type(&mut self, had_set: bool) -> Result<AlterColumnOperation, ParserError> {
@@ -13302,9 +13340,12 @@ impl<'a> Parser<'a> {
                 old_column_name,
                 new_column_name: self.parse_identifier()?,
             }
-        } else if self.parse_keyword(Keyword::ALTER) {
+        } else if self.parse_one_of_keywords(&[Keyword::ALTER, Keyword::MODIFY]).is_some() {
             let _ = self.parse_keyword(Keyword::COLUMN);
             let column_name = self.parse_identifier()?;
+            if let Some(op) = self.maybe_parse_column_masking_policy()? {
+                return Ok(Statement::AlterViewColumn { name, column_name, op });
+            }
             let op = if self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT]) {
                 AlterColumnOperation::SetDefault {
                     value: self.parse_expr()?,
