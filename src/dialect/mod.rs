@@ -283,6 +283,18 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Determine whether the dialect decodes Snowflake's extended backslash
+    /// escape set inside single-quoted string literals: octal `\ooo`, hex
+    /// `\xhh` and unicode `\uhhhh` (each yielding a Unicode code point), with
+    /// unrecognized letters such as `\a` / `\Z` collapsing to the bare letter
+    /// and malformed `\x` / `\u` raising a tokenizer error. This differs from
+    /// the MySQL/BigQuery-style mapping used by
+    /// [`Self::supports_string_literal_backslash_escape`], so a dialect that
+    /// enables this must also enable that one.
+    fn supports_snowflake_string_literal_escapes(&self) -> bool {
+        false
+    }
+
     /// Determine whether the dialect strips the backslash when escaping LIKE wildcards (%, _).
     ///
     /// [MySQL] has a special case when escaping single quoted strings which leaves these unescaped
@@ -2064,6 +2076,10 @@ mod tests {
 
             fn supports_string_literal_backslash_escape(&self) -> bool {
                 self.0.supports_string_literal_backslash_escape()
+            }
+
+            fn supports_snowflake_string_literal_escapes(&self) -> bool {
+                self.0.supports_snowflake_string_literal_escapes()
             }
 
             fn supports_filter_during_aggregation(&self) -> bool {
