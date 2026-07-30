@@ -16595,6 +16595,7 @@ impl<'a> Parser<'a> {
                             describe_alias,
                             object_type: DescribeObjectType::DynamicTable,
                             object_name,
+                            table_type: None,
                         });
                     }
                     if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW]) {
@@ -16603,6 +16604,7 @@ impl<'a> Parser<'a> {
                             describe_alias,
                             object_type: DescribeObjectType::MaterializedView,
                             object_name,
+                            table_type: None,
                         });
                     }
                     // `DESCRIBE TABLE STREAM <name>` is not valid Snowflake
@@ -16634,10 +16636,27 @@ impl<'a> Parser<'a> {
                             _ => return self.expected("a describe object type", self.peek_token()),
                         };
                         let object_name = self.parse_object_name(false)?;
+                        // Snowflake `DESC TABLE <name> [ TYPE = { COLUMNS | STAGE } ]`.
+                        // The modifier is only valid for TABLE; COLUMNS is the default.
+                        let table_type = if object_type == DescribeObjectType::Table
+                            && self.parse_keyword(Keyword::TYPE)
+                        {
+                            self.expect_token(&Token::Eq)?;
+                            match self.parse_one_of_keywords(&[Keyword::COLUMNS, Keyword::STAGE]) {
+                                Some(Keyword::COLUMNS) => Some(DescribeTableType::Columns),
+                                Some(Keyword::STAGE) => Some(DescribeTableType::Stage),
+                                _ => {
+                                    return self.expected("COLUMNS or STAGE", self.peek_token())
+                                }
+                            }
+                        } else {
+                            None
+                        };
                         return Ok(Statement::DescribeObject {
                             describe_alias,
                             object_type,
                             object_name,
+                            table_type,
                         });
                     }
                 }
