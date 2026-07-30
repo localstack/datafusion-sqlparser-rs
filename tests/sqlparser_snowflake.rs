@@ -7685,6 +7685,52 @@ fn test_desc_task() {
 }
 
 #[test]
+fn test_desc_table_type_columns() {
+    for sql in ["DESC TABLE foo TYPE = COLUMNS", "DESCRIBE TABLE foo TYPE = COLUMNS"] {
+        match snowflake().verified_stmt(sql) {
+            Statement::DescribeObject {
+                object_type,
+                object_name,
+                table_type,
+                ..
+            } => {
+                assert_eq!(DescribeObjectType::Table, object_type);
+                assert_eq!("foo", object_name.to_string());
+                assert_eq!(Some(DescribeTableType::Columns), table_type);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_desc_table_type_stage() {
+    match snowflake().verified_stmt("DESC TABLE foo TYPE = STAGE") {
+        Statement::DescribeObject {
+            object_type,
+            object_name,
+            table_type,
+            ..
+        } => {
+            assert_eq!(DescribeObjectType::Table, object_type);
+            assert_eq!("foo", object_name.to_string());
+            assert_eq!(Some(DescribeTableType::Stage), table_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_table_no_type_clause() {
+    match snowflake().verified_stmt("DESC TABLE foo") {
+        Statement::DescribeObject { table_type, .. } => {
+            assert_eq!(None, table_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_show_tasks() {
     let sql = "SHOW TASKS";
     match snowflake().verified_stmt(sql) {

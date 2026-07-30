@@ -5683,6 +5683,8 @@ pub enum Statement {
         /// The object name (may be qualified: db.schema.table)
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
         object_name: ObjectName,
+        /// Optional `TYPE = { COLUMNS | STAGE }` modifier (Snowflake `DESC TABLE`).
+        table_type: Option<DescribeTableType>,
     },
     /// ```sql
     /// DESC | DESCRIBE RESULT <query_id>
@@ -6252,8 +6254,13 @@ impl fmt::Display for Statement {
                 describe_alias,
                 object_type,
                 object_name,
+                table_type,
             } => {
-                write!(f, "{describe_alias} {object_type} {object_name}")
+                write!(f, "{describe_alias} {object_type} {object_name}")?;
+                if let Some(table_type) = table_type {
+                    write!(f, " TYPE = {table_type}")?;
+                }
+                Ok(())
             }
             Statement::DescribeResult {
                 describe_alias,
@@ -10782,6 +10789,27 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Task => "TASK",
             DescribeObjectType::Stage => "STAGE",
             DescribeObjectType::Stream => "STREAM",
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// `TYPE = { COLUMNS | STAGE }` modifier of a Snowflake `DESC TABLE` statement.
+/// <https://docs.snowflake.com/en/sql-reference/sql/desc-table>
+pub enum DescribeTableType {
+    /// `TYPE = COLUMNS` (the default): describe the table's columns.
+    Columns,
+    /// `TYPE = STAGE`: describe the table's implicit internal stage properties.
+    Stage,
+}
+
+impl fmt::Display for DescribeTableType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            DescribeTableType::Columns => "COLUMNS",
+            DescribeTableType::Stage => "STAGE",
         })
     }
 }
