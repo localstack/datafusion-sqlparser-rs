@@ -28,7 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable,
+    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTagOperation,
     AlterTableOperation, AlterTableType, CatalogRestAuthentication, CatalogRestConfig,
     CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
     ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
@@ -3252,16 +3252,42 @@ fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, 
     })
 }
 
-/// Parse `ALTER TAG [IF EXISTS] <name> RENAME TO <new_name>`
+/// Parse a comma-separated list of `MASKING POLICY <name>` items, where the
+/// `MASKING POLICY` keywords are repeated before each policy name.
+fn parse_masking_policy_list(parser: &mut Parser) -> Result<Vec<ObjectName>, ParserError> {
+    let mut policies = Vec::new();
+    loop {
+        parser.expect_keywords(&[Keyword::MASKING, Keyword::POLICY])?;
+        policies.push(parser.parse_object_name(false)?);
+        if !parser.consume_token(&Token::Comma) {
+            break;
+        }
+    }
+    Ok(policies)
+}
+
+/// Parse `ALTER TAG [IF EXISTS] <name> { RENAME TO <new_name>
+///   | SET MASKING POLICY <p> [, MASKING POLICY <p> ...] [FORCE]
+///   | UNSET MASKING POLICY <p> [, MASKING POLICY <p> ...] }`
 fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
-    let new_name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let policies = parse_masking_policy_list(parser)?;
+        let force = parser.parse_keyword(Keyword::FORCE);
+        AlterTagOperation::SetMaskingPolicy { policies, force }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        let policies = parse_masking_policy_list(parser)?;
+        AlterTagOperation::UnsetMaskingPolicy { policies }
+    } else {
+        parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterTagOperation::RenameTo { new_name }
+    };
     Ok(Statement::AlterTag {
         if_exists,
         name,
-        new_name,
+        operation,
     })
 }
 

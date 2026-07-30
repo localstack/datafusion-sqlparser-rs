@@ -9164,3 +9164,84 @@ fn parse_snowflake_create_view_column_masking_policy() {
         other => panic!("expected CreateView, got {other:?}"),
     }
 }
+
+#[test]
+fn parse_snowflake_alter_tag_rename() {
+    match snowflake().verified_stmt("ALTER TAG IF EXISTS t RENAME TO u") {
+        Statement::AlterTag {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(if_exists);
+            assert_eq!("t", name.to_string());
+            assert_eq!(
+                AlterTagOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("u")]),
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_tag_set_masking_policy() {
+    match snowflake().verified_stmt("ALTER TAG t SET MASKING POLICY p") {
+        Statement::AlterTag {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(!if_exists);
+            assert_eq!(
+                AlterTagOperation::SetMaskingPolicy {
+                    policies: vec![ObjectName::from(vec![Ident::new("p")])],
+                    force: false,
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+
+    match snowflake()
+        .verified_stmt("ALTER TAG IF EXISTS t SET MASKING POLICY p, MASKING POLICY q FORCE")
+    {
+        Statement::AlterTag {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(
+                AlterTagOperation::SetMaskingPolicy {
+                    policies: vec![
+                        ObjectName::from(vec![Ident::new("p")]),
+                        ObjectName::from(vec![Ident::new("q")]),
+                    ],
+                    force: true,
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_tag_unset_masking_policy() {
+    match snowflake().verified_stmt("ALTER TAG t UNSET MASKING POLICY p, MASKING POLICY q") {
+        Statement::AlterTag { operation, .. } => assert_eq!(
+            AlterTagOperation::UnsetMaskingPolicy {
+                policies: vec![
+                    ObjectName::from(vec![Ident::new("p")]),
+                    ObjectName::from(vec![Ident::new("q")]),
+                ],
+            },
+            operation
+        ),
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+}

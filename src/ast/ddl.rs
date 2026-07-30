@@ -1413,6 +1413,61 @@ impl fmt::Display for AlterMaskingPolicyOperation {
     }
 }
 
+/// An operation in an `ALTER TAG` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterTagOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo {
+        /// The new tag name.
+        new_name: ObjectName,
+    },
+    /// `SET MASKING POLICY <p> [, MASKING POLICY <p> ...] [FORCE]`
+    SetMaskingPolicy {
+        /// The masking policies to attach.
+        policies: Vec<ObjectName>,
+        /// `FORCE` flag.
+        force: bool,
+    },
+    /// `UNSET MASKING POLICY <p> [, MASKING POLICY <p> ...]`
+    UnsetMaskingPolicy {
+        /// The masking policies to detach.
+        policies: Vec<ObjectName>,
+    },
+}
+
+impl fmt::Display for AlterTagOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterTagOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+            AlterTagOperation::SetMaskingPolicy { policies, force } => {
+                write!(f, "SET ")?;
+                for (i, p) in policies.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "MASKING POLICY {p}")?;
+                }
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
+            AlterTagOperation::UnsetMaskingPolicy { policies } => {
+                write!(f, "UNSET ")?;
+                for (i, p) in policies.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "MASKING POLICY {p}")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 impl fmt::Display for AlterColumnOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
