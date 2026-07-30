@@ -2287,17 +2287,21 @@ impl<'a> Tokenizer<'a> {
 
                     num_consecutive_quotes = 0;
 
-                    if let Some(next) = chars.peek() {
+                    if let Some(&next) = chars.peek() {
                         if !self.unescape
                             || (self.dialect.ignores_wildcard_escapes()
-                                && (*next == '%' || *next == '_'))
+                                && (next == '%' || next == '_'))
                         {
                             // In no-escape mode, the given query has to be saved completely
                             // including backslashes. Similarly, with ignore_like_wildcard_escapes,
                             // the backslash is not stripped.
                             s.push(ch);
-                            s.push(*next);
+                            s.push(next);
                             chars.next(); // consume next
+                        } else if self.dialect.supports_snowflake_string_literal_escapes() {
+                            let escape_loc = chars.location();
+                            chars.next(); // consume the escape indicator
+                            s.push(self.unescape_snowflake_escape(next, chars, escape_loc)?);
                         } else {
                             let n = match next {
                                 '0' => '\0',
@@ -2308,7 +2312,7 @@ impl<'a> Tokenizer<'a> {
                                 'r' => '\r',
                                 't' => '\t',
                                 'Z' => '\u{1a}',
-                                _ => *next,
+                                _ => next,
                             };
                             s.push(n);
                             chars.next(); // consume next
@@ -2329,6 +2333,174 @@ impl<'a> Tokenizer<'a> {
             }
         }
         self.tokenizer_error(error_loc, "Unterminated string literal")
+    }
+
+    /// Decode a single Snowflake backslash escape (the backslash and the
+    /// `indicator` char have already been consumed). Octal `\ooo`, hex `\xhh`
+    /// and unicode `\uhhhh` each yield a Unicode code point; recognized control
+    /// letters map to their control character; every other letter collapses to
+    /// itself. Malformed `\x` / `\u` raise a tokenizer error, matching real
+    /// Snowflake.
+    fn unescape_snowflake_escape(
+        &self,
+        indicator: char,
+        chars: &mut State,
+        loc: Location,
+    ) -> Result<char, TokenizerError> {
+        match indicator {
+            'x' => {
+                let mut digits = String::new();
+                while digits.len() < 2 {
+                    match chars.peek() {
+                        Some(c) if c.is_ascii_hexdigit() => {
+                            if let Some(c) = chars.next() {
+                                digits.push(c);
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+                if digits.len() < 2 {
+                    return self.tokenizer_error(
+                        loc,
+                        format!(
+                            "Invalid hex escape sequence '\\x{digits}'; should be exactly 2 digits."
+                        ),
+                    );
+                }
+                self.code_point(&digits, 16, loc)
+            }
+            'u' => self.unescape_unicode(chars, loc),
+            // Octal `\ooo`: up to three octal digits, but a third digit is only
+            // consumed when the running value stays within a single byte
+            // (<= 0xFF); otherwise it is left as a literal character.
+            '0'..='7' => {
+                let mut value = indicator.to_digit(8).unwrap_or(0);
+                // Second octal digit always fits in a byte (max 0o77 = 63).
+                if let Some(d) = chars.peek().and_then(|c| c.to_digit(8)) {
+                    value = value * 8 + d;
+                    chars.next();
+                    // Third digit only when the byte does not overflow.
+                    if let Some(d) = chars.peek().and_then(|c| c.to_digit(8)) {
+                        if value * 8 + d <= 0xFF {
+                            value = value * 8 + d;
+                            chars.next();
+                        }
+                    }
+                }
+                char::from_u32(value).map_or_else(
+                    || self.tokenizer_error(loc, "Invalid octal escape sequence."),
+                    Ok,
+                )
+            }
+            'b' => Ok('\u{8}'),
+            'f' => Ok('\u{c}'),
+            'n' => Ok('\n'),
+            'r' => Ok('\r'),
+            't' => Ok('\t'),
+            other => Ok(other),
+        }
+    }
+
+    fn code_point(&self, digits: &str, radix: u32, loc: Location) -> Result<char, TokenizerError> {
+        u32::from_str_radix(digits, radix)
+            .ok()
+            .and_then(char::from_u32)
+            .map_or_else(|| self.tokenizer_error(loc, "Invalid escape sequence."), Ok)
+    }
+
+    /// Decode a `\uhhhh` escape (the `\u` has already been consumed). A high
+    /// surrogate must be followed by a `\uhhhh` low surrogate and combines with
+    /// it into an astral code point; an unpaired high or low surrogate is an
+    /// error, matching real Snowflake.
+    fn unescape_unicode(&self, chars: &mut State, loc: Location) -> Result<char, TokenizerError> {
+        let value = self.read_hex4(chars, loc)?;
+        if (0xD800..=0xDBFF).contains(&value) {
+            return match self.read_low_surrogate(chars) {
+                Some(low) => {
+                    let cp = 0x1_0000 + ((value - 0xD800) << 10) + (low - 0xDC00);
+                    char::from_u32(cp)
+                        .map_or_else(|| self.tokenizer_error(loc, "Invalid escape sequence."), Ok)
+                }
+                None => self.tokenizer_error(
+                    loc,
+                    format!(
+                        "Invalid Unicode string literal; high surrogate '\\u{value:04X}' \
+                         must be followed by a low surrogate ('\\uDC00'-'\\uDFFF')."
+                    ),
+                ),
+            };
+        }
+        if (0xDC00..=0xDFFF).contains(&value) {
+            return self.tokenizer_error(
+                loc,
+                format!(
+                    "Invalid Unicode string literal; low surrogate '\\u{value:04X}' \
+                     must be preceded by a high surrogate ('\\uD800'-'\\uDBFF')."
+                ),
+            );
+        }
+        char::from_u32(value)
+            .map_or_else(|| self.tokenizer_error(loc, "Invalid escape sequence."), Ok)
+    }
+
+    /// Read exactly four hex digits as a `u32`, erroring like Snowflake when
+    /// fewer than four are present.
+    fn read_hex4(&self, chars: &mut State, loc: Location) -> Result<u32, TokenizerError> {
+        let mut digits = String::new();
+        while digits.len() < 4 {
+            match chars.peek() {
+                Some(c) if c.is_ascii_hexdigit() => {
+                    if let Some(c) = chars.next() {
+                        digits.push(c);
+                    }
+                }
+                _ => break,
+            }
+        }
+        if digits.len() < 4 {
+            return self.tokenizer_error(
+                loc,
+                format!(
+                    "Invalid unicode escape sequence '\\u{digits}'; should be exactly 4 digits."
+                ),
+            );
+        }
+        u32::from_str_radix(&digits, 16).map_or_else(
+            |_| self.tokenizer_error(loc, "Invalid unicode escape sequence."),
+            Ok,
+        )
+    }
+
+    /// Consume a trailing `\uhhhh` low surrogate, returning its value when
+    /// present and in range. Consumes greedily on the error path — the caller
+    /// aborts the whole token, so partial consumption is irrelevant.
+    fn read_low_surrogate(&self, chars: &mut State) -> Option<u32> {
+        if chars.peek() != Some(&'\\') {
+            return None;
+        }
+        chars.next();
+        if chars.peek() != Some(&'u') {
+            return None;
+        }
+        chars.next();
+        let mut digits = String::new();
+        while digits.len() < 4 {
+            match chars.peek() {
+                Some(c) if c.is_ascii_hexdigit() => {
+                    if let Some(c) = chars.next() {
+                        digits.push(c);
+                    }
+                }
+                _ => break,
+            }
+        }
+        if digits.len() < 4 {
+            return None;
+        }
+        u32::from_str_radix(&digits, 16)
+            .ok()
+            .filter(|low| (0xDC00..=0xDFFF).contains(low))
     }
 
     fn tokenize_multiline_comment(
@@ -3878,10 +4050,13 @@ mod tests {
             (r#"'%a\'%b'"#, r#"%a\'%b"#, r#"%a'%b"#),
             (r#"'a\'\'b\'c\'d'"#, r#"a\'\'b\'c\'d"#, r#"a''b'c'd"#),
             (r#"'\\'"#, r#"\\"#, r#"\"#),
+            // Snowflake keeps `\0` as NUL, maps the control-letter escapes, and
+            // collapses unrecognized letters (`\a` -> a, `\Z` -> Z) to the bare
+            // letter rather than a control character.
             (
                 r#"'\0\a\b\f\n\r\t\Z'"#,
                 r#"\0\a\b\f\n\r\t\Z"#,
-                "\0\u{7}\u{8}\u{c}\n\r\t\u{1a}",
+                "\0a\u{8}\u{c}\n\r\tZ",
             ),
             (r#"'\"'"#, r#"\""#, "\""),
             (r#"'\\a\\b\'c'"#, r#"\\a\\b\'c"#, r#"\a\b'c"#),
@@ -3890,6 +4065,20 @@ mod tests {
             (r#"'\q'"#, r#"\q"#, r#"q"#),
             (r#"'\%\_'"#, r#"\%\_"#, r#"%_"#),
             (r#"'\\%\\_'"#, r#"\\%\\_"#, r#"\%\_"#),
+            // Hex `\xhh` and unicode `\uhhhh` yield a code point; octal `\ooo`
+            // takes a third digit only when the byte does not overflow.
+            (r#"'\x41'"#, r#"\x41"#, "A"),
+            (r#"'\u0041'"#, r#"\u0041"#, "A"),
+            (r#"'\u00e9'"#, r#"\u00e9"#, "\u{e9}"),
+            (r#"'\ud83d\ude00'"#, r#"\ud83d\ude00"#, "\u{1f600}"),
+            (r#"'\xff'"#, r#"\xff"#, "\u{ff}"),
+            (r#"'A'"#, r#"A"#, "A"),
+            (r#"'é'"#, r#"é"#, "\u{e9}"),
+            (r#"'ꯍ'"#, r#"ꯍ"#, "\u{abcd}"),
+            (r#"'\101'"#, r#"\101"#, "A"),
+            (r#"'\1012'"#, r#"\1012"#, "A2"),
+            (r#"'\777'"#, r#"\777"#, "\u{3f}7"),
+            (r#"'\400'"#, r#"\400"#, "\u{20}0"),
         ] {
             let tokens = Tokenizer::new(&dialect, sql)
                 .with_unescape(false)
