@@ -2554,6 +2554,8 @@ pub enum ShowKeysKind {
     Imported,
     /// `SHOW EXPORTED KEYS`
     Exported,
+    /// `SHOW [TERSE] UNIQUE KEYS`
+    Unique,
 }
 
 impl fmt::Display for ShowKeysKind {
@@ -2562,6 +2564,7 @@ impl fmt::Display for ShowKeysKind {
             ShowKeysKind::Primary => f.write_str("PRIMARY"),
             ShowKeysKind::Imported => f.write_str("IMPORTED"),
             ShowKeysKind::Exported => f.write_str("EXPORTED"),
+            ShowKeysKind::Unique => f.write_str("UNIQUE"),
         }
     }
 }

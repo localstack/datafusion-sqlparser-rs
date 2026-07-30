@@ -665,6 +665,9 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::EXPORTED) {
                 return Some(parse_show_keys(ShowKeysKind::Exported, terse, parser));
             }
+            if parser.parse_keyword(Keyword::UNIQUE) {
+                return Some(parse_show_keys(ShowKeysKind::Unique, terse, parser));
+            }
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
                 return Some(parse_show_row_access_policies(parser));
             }
