@@ -9291,3 +9291,42 @@ fn parse_snowflake_alter_tag_unset_masking_policy() {
         other => panic!("expected AlterTag, got {other:?}"),
     }
 }
+
+#[test]
+fn parse_snowflake_undrop() {
+    for (sql, expected_type) in [
+        ("UNDROP TABLE t", ObjectType::Table),
+        ("UNDROP DYNAMIC TABLE t", ObjectType::DynamicTable),
+        ("UNDROP SCHEMA s", ObjectType::Schema),
+        ("UNDROP DATABASE d", ObjectType::Database),
+        ("UNDROP VIEW v", ObjectType::View),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::Undrop { object_type, name } => {
+                assert_eq!(object_type, expected_type);
+                assert_eq!(name, ObjectName::from(vec![Ident::new(sql.rsplit(' ').next().unwrap())]));
+            }
+            other => panic!("expected Undrop, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn parse_snowflake_undrop_qualified_name() {
+    match snowflake().verified_stmt("UNDROP TABLE db.sch.t") {
+        Statement::Undrop { object_type, name } => {
+            assert_eq!(object_type, ObjectType::Table);
+            assert_eq!(
+                name,
+                ObjectName::from(vec![Ident::new("db"), Ident::new("sch"), Ident::new("t")])
+            );
+        }
+        other => panic!("expected Undrop, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_undrop_missing_object_type() {
+    let res = snowflake().parse_sql_statements("UNDROP t");
+    assert!(res.is_err(), "expected parse error, got {res:?}");
+}

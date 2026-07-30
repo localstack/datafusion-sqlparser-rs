@@ -4305,6 +4305,18 @@ pub enum Statement {
         table: Option<ObjectName>,
     },
     /// ```sql
+    /// UNDROP <TABLE | DYNAMIC TABLE | SCHEMA | DATABASE | VIEW> <name>
+    /// ```
+    /// Snowflake: restore the most recently dropped object of the given name
+    /// within the Time Travel retention window.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/undrop-table>
+    Undrop {
+        /// The type of object to restore.
+        object_type: ObjectType,
+        /// The name of the object to restore.
+        name: ObjectName,
+    },
+    /// ```sql
     /// DROP FUNCTION
     /// ```
     DropFunction(DropFunction),
@@ -6920,6 +6932,9 @@ impl fmt::Display for Statement {
                     write!(f, " ON {table_name}")?;
                 };
                 Ok(())
+            }
+            Statement::Undrop { object_type, name } => {
+                write!(f, "UNDROP {object_type} {name}")
             }
             Statement::DropFunction(drop_function) => write!(f, "{drop_function}"),
             Statement::DropDomain(DropDomain {

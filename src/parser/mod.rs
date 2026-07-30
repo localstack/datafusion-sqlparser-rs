@@ -650,6 +650,7 @@ impl<'a> Parser<'a> {
                 Keyword::CREATE => self.parse_create(),
                 Keyword::CACHE => self.parse_cache_table(),
                 Keyword::DROP => self.parse_drop(),
+                Keyword::UNDROP => self.parse_undrop(),
                 Keyword::DISCARD => self.parse_discard(),
                 Keyword::DECLARE => self.parse_declare(),
                 Keyword::FETCH => self.parse_fetch_statement(),
@@ -8054,6 +8055,33 @@ impl<'a> Parser<'a> {
             temporary,
             table,
         })
+    }
+
+    /// Parse a Snowflake `UNDROP <object type> <name>` statement.
+    ///
+    /// Grammar for the whole UNDROP family (`TABLE`, `DYNAMIC TABLE`,
+    /// `SCHEMA`, `DATABASE`) plus `VIEW`, which parses so it can be rejected
+    /// downstream with Snowflake's unsupported-feature error rather than a
+    /// parse error.
+    pub fn parse_undrop(&mut self) -> Result<Statement, ParserError> {
+        let object_type = if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+            ObjectType::DynamicTable
+        } else if self.parse_keyword(Keyword::TABLE) {
+            ObjectType::Table
+        } else if self.parse_keyword(Keyword::VIEW) {
+            ObjectType::View
+        } else if self.parse_keyword(Keyword::SCHEMA) {
+            ObjectType::Schema
+        } else if self.parse_keyword(Keyword::DATABASE) {
+            ObjectType::Database
+        } else {
+            return self.expected_ref(
+                "DATABASE, DYNAMIC TABLE, SCHEMA, TABLE or VIEW after UNDROP",
+                self.peek_token_ref(),
+            );
+        };
+        let name = self.parse_object_name(false)?;
+        Ok(Statement::Undrop { object_type, name })
     }
 
     fn parse_optional_drop_behavior(&mut self) -> Option<DropBehavior> {

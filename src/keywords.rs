@@ -1174,6 +1174,7 @@ define_keywords!(
     UNCACHE,
     UNCOMMITTED,
     UNDEFINED,
+    UNDROP,
     UNFREEZE,
     UNION,
     UNIQUE,
