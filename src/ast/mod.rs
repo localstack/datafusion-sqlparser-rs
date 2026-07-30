@@ -95,6 +95,7 @@ pub use self::ddl::{
     UserDefinedTypeStorage, UserMappingUser, ViewColumnDef, WithData,
     AlterProcedure, AlterProcedureOperation,
     AlterMaskingPolicyOperation,
+    AlterTagOperation,
     ProcedureExecuteAs,
 };
 pub use self::dml::{
@@ -5366,14 +5367,16 @@ pub enum Statement {
     },
     /// ```sql
     /// ALTER TAG [IF EXISTS] <name> RENAME TO <new_name>
+    /// ALTER TAG [IF EXISTS] <name> SET MASKING POLICY <p> [, MASKING POLICY <p> ...] [FORCE]
+    /// ALTER TAG [IF EXISTS] <name> UNSET MASKING POLICY <p> [, MASKING POLICY <p> ...]
     /// ```
     AlterTag {
         /// `IF EXISTS` flag.
         if_exists: bool,
         /// Tag name.
         name: ObjectName,
-        /// New tag name.
-        new_name: ObjectName,
+        /// The operation to apply to the tag.
+        operation: AlterTagOperation,
     },
     /// ```sql
     /// DROP TAG [IF EXISTS] <name>
@@ -7915,11 +7918,11 @@ impl fmt::Display for Statement {
             Statement::AlterTag {
                 if_exists,
                 name,
-                new_name,
+                operation,
             } => {
                 write!(
                     f,
-                    "ALTER TAG {if_exists}{name} RENAME TO {new_name}",
+                    "ALTER TAG {if_exists}{name} {operation}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )
             }
