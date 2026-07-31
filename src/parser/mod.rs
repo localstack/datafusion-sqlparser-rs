@@ -21957,6 +21957,14 @@ impl<'a> Parser<'a> {
                 option_name: key.value.clone(),
                 option_value: KeyValueOptionKind::Single(self.parse_value()?),
             }),
+            // A wire bind placeholder (`?`, `:N`, `:name`) is a legal option
+            // value; `parse_value` yields `Value::Placeholder`, whose content
+            // distinguishes a genuine bind from a bare-word option value (which
+            // is also stored as `Value::Placeholder`, but of the word text).
+            Token::Placeholder(_) => Ok(KeyValueOption {
+                option_name: key.value.clone(),
+                option_value: KeyValueOptionKind::Single(self.parse_value()?),
+            }),
             Token::Word(word) => {
                 self.next_token();
                 Ok(KeyValueOption {

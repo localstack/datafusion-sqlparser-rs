@@ -3988,10 +3988,13 @@ pub enum Statement {
         from_transformations: Option<Vec<StageLoadSelectItemKind>>,
         /// Optional source query instead of a staged object.
         from_query: Option<Box<Query>>,
-        /// Optional list of specific file names to load.
-        files: Option<Vec<String>>,
-        /// Optional filename matching pattern.
-        pattern: Option<String>,
+        /// Optional list of specific file names to load. Each entry is a
+        /// string literal or a wire bind placeholder (`Value::Placeholder`),
+        /// kept distinct so a bound `?` can be told from a literal.
+        files: Option<Vec<ValueWithSpan>>,
+        /// Optional filename matching pattern: a string literal or a wire bind
+        /// placeholder (`Value::Placeholder`).
+        pattern: Option<ValueWithSpan>,
         /// File format options.
         file_format: KeyValueOptions,
         /// Additional copy options.
@@ -8164,10 +8167,10 @@ impl fmt::Display for Statement {
                 }
 
                 if let Some(files) = files {
-                    write!(f, " FILES = ('{}')", display_separated(files, "', '"))?;
+                    write!(f, " FILES = ({})", display_separated(files, ", "))?;
                 }
                 if let Some(pattern) = pattern {
-                    write!(f, " PATTERN = '{pattern}'")?;
+                    write!(f, " PATTERN = {pattern}")?;
                 }
                 if let Some(partition) = partition {
                     write!(f, " PARTITION BY {partition}")?;

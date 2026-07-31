@@ -2956,8 +2956,21 @@ fn test_copy_into_with_files_and_pattern_and_verification() {
             from_obj_alias,
             ..
         } => {
-            assert_eq!(files.unwrap(), vec!["file1.json", "file2.json"]);
-            assert_eq!(pattern.unwrap(), ".*employees0[1-5].csv.gz");
+            assert_eq!(
+                files
+                    .unwrap()
+                    .into_iter()
+                    .map(|v| v.value)
+                    .collect::<Vec<_>>(),
+                vec![
+                    Value::SingleQuotedString("file1.json".to_string()),
+                    Value::SingleQuotedString("file2.json".to_string()),
+                ]
+            );
+            assert_eq!(
+                pattern.unwrap().value,
+                Value::SingleQuotedString(".*employees0[1-5].csv.gz".to_string())
+            );
             assert_eq!(validation_mode.unwrap(), "RETURN_7_ROWS");
             assert_eq!(from_obj_alias.unwrap(), Ident::new("some_alias"));
         }

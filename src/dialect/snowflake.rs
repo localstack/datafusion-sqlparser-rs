@@ -40,7 +40,7 @@ use crate::ast::{
     MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType, OperateFunctionArg,
     RefreshModeKind, RenameTableNameKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption,
     Statement, StorageLifecyclePolicy, StorageSerializationPolicy, TableObject, Tag,
-    TagsColumnOption, Value, WrappedCollection,
+    TagsColumnOption, Value, ValueWithSpan, WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -2181,7 +2181,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         _ => CopyIntoSnowflakeKind::Table,
     };
 
-    let mut files: Vec<String> = vec![];
+    let mut files: Vec<ValueWithSpan> = vec![];
     let mut from_transformations: Option<Vec<StageLoadSelectItemKind>> = None;
     let mut from_stage_alias = None;
     let mut from_stage = None;
@@ -2310,7 +2310,13 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
                 continue_loop = false;
                 let next_token = parser.next_token();
                 match next_token.token {
-                    Token::SingleQuotedString(s) => files.push(s),
+                    // A bind placeholder is accepted here so the statement
+                    // parses; whether it is a legal FILES value is decided
+                    // downstream (real Snowflake rejects a bound `?`).
+                    Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                        parser.prev_token();
+                        files.push(parser.parse_value()?);
+                    }
                     _ => parser.expected("file token", next_token)?,
                 };
                 if parser.next_token().token.eq(&Token::Comma) {
@@ -2325,7 +2331,10 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
             parser.expect_token(&Token::Eq)?;
             let next_token = parser.next_token();
             pattern = Some(match next_token.token {
-                Token::SingleQuotedString(s) => s,
+                Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                    parser.prev_token();
+                    parser.parse_value()?
+                }
                 _ => parser.expected("pattern", next_token)?,
             });
         // VALIDATION MODE
@@ -3079,7 +3088,17 @@ fn parse_create_file_format(
         like_source = Some(parser.parse_object_name(false)?);
     } else if parser.parse_keyword(Keyword::TYPE) {
         parser.expect_token(&Token::Eq)?;
-        format_type = Some(parser.parse_identifier()?);
+        // A bind placeholder is accepted here so the statement parses; real
+        // Snowflake rejects it downstream as an invalid type. A genuine bind
+        // marker is an unquoted `Ident` whose value is the marker text, which
+        // no literal unquoted type identifier can be.
+        format_type = Some(match parser.peek_token().token {
+            Token::Placeholder(s) => {
+                parser.next_token();
+                Ident::new(s)
+            }
+            _ => parser.parse_identifier()?,
+        });
     }
 
     // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
