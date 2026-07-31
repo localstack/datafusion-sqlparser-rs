@@ -10790,6 +10790,8 @@ pub enum DescribeObjectType {
     Stage,
     /// `STREAM`
     Stream,
+    /// `SEQUENCE`
+    Sequence,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -10804,6 +10806,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Task => "TASK",
             DescribeObjectType::Stage => "STAGE",
             DescribeObjectType::Stream => "STREAM",
+            DescribeObjectType::Sequence => "SEQUENCE",
         })
     }
 }

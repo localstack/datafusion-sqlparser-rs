@@ -7685,6 +7685,23 @@ fn test_desc_task() {
 }
 
 #[test]
+fn test_describe_sequence() {
+    for sql in ["DESCRIBE SEQUENCE foo", "DESC SEQUENCE foo"] {
+        match snowflake().verified_stmt(sql) {
+            Statement::DescribeObject {
+                object_type,
+                object_name,
+                ..
+            } => {
+                assert_eq!(DescribeObjectType::Sequence, object_type);
+                assert_eq!("foo", object_name.to_string());
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
 fn test_desc_table_type_columns() {
     for sql in ["DESC TABLE foo TYPE = COLUMNS", "DESCRIBE TABLE foo TYPE = COLUMNS"] {
         match snowflake().verified_stmt(sql) {
