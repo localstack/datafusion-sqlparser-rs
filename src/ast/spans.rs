@@ -552,6 +552,7 @@ impl Spanned for Statement {
             Statement::CreateTask { .. } => Span::empty(),
             Statement::AlterTask { .. } => Span::empty(),
             Statement::AlterStream { .. } => Span::empty(),
+            Statement::AlterSequence { .. } => Span::empty(),
             Statement::ExecuteTask { .. } => Span::empty(),
             Statement::ShowTasks { .. } => Span::empty(),
             Statement::ShowStreams { .. } => Span::empty(),

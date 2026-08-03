@@ -5156,6 +5156,22 @@ pub enum Statement {
         operation: AlterStreamOperation,
     },
     /// ```sql
+    /// ALTER SEQUENCE [IF EXISTS] <name>
+    ///   { RENAME TO <new_name>
+    ///   | [SET] INCREMENT [BY] [=] <n>
+    ///   | SET COMMENT = '<string>'
+    ///   | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-sequence>
+    AlterSequence {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Sequence name.
+        name: ObjectName,
+        /// The alter action.
+        operation: AlterSequenceOperation,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] EXTERNAL VOLUME [IF NOT EXISTS] <name>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-external-volume>
@@ -7675,6 +7691,17 @@ impl fmt::Display for Statement {
                 operation,
             } => {
                 write!(f, "ALTER STREAM")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {name} {operation}")
+            }
+            Statement::AlterSequence {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(f, "ALTER SEQUENCE")?;
                 if *if_exists {
                     write!(f, " IF EXISTS")?;
                 }
@@ -13524,6 +13551,34 @@ impl fmt::Display for AlterStreamOperation {
         match self {
             AlterStreamOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
             AlterStreamOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
+}
+
+/// Action for [`Statement::AlterSequence`].
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-sequence>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterSequenceOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo(ObjectName),
+    /// `[SET] INCREMENT [BY] [=] <n>`
+    SetIncrement(Expr),
+    /// `SET COMMENT = '<string>'`
+    SetComment(String),
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterSequenceOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterSequenceOperation::RenameTo(name) => write!(f, "RENAME TO {name}"),
+            AlterSequenceOperation::SetIncrement(value) => write!(f, "SET INCREMENT BY {value}"),
+            AlterSequenceOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
+            AlterSequenceOperation::UnsetComment => write!(f, "UNSET COMMENT"),
         }
     }
 }
