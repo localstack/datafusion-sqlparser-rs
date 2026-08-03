@@ -12671,10 +12671,11 @@ impl<'a> Parser<'a> {
             Keyword::ACCOUNT => self.parse_alter_account(),
             Keyword::TASK => self.parse_alter_task(),
             Keyword::STREAM => self.parse_alter_stream(),
+            Keyword::SEQUENCE => self.parse_alter_sequence(),
             _ => {
                 self.index = index;
                 self.expected_ref(
-                    "one of VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or SCHEMA or USER or OPERATOR or WAREHOUSE or TASK or ACCOUNT or TEXT SEARCH or STREAM",
+                    "one of VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or SCHEMA or USER or OPERATOR or WAREHOUSE or TASK or ACCOUNT or TEXT SEARCH or STREAM or SEQUENCE",
                     self.peek_token_ref(),
                 )
             }
@@ -13020,6 +13021,42 @@ impl<'a> Parser<'a> {
             return self.expected("SET or UNSET after ALTER STREAM", self.peek_token());
         };
         Ok(Statement::AlterStream {
+            if_exists,
+            name,
+            operation,
+        })
+    }
+
+    /// Parse `ALTER SEQUENCE [IF EXISTS] <name> <operation>` per Snowflake:
+    /// `RENAME TO <new_name>`, `[SET] INCREMENT [BY] [=] <n>`,
+    /// `SET COMMENT = '<s>'`, or `UNSET COMMENT`.
+    pub fn parse_alter_sequence(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let operation = if self.parse_keyword(Keyword::RENAME) {
+            self.expect_keyword_is(Keyword::TO)?;
+            AlterSequenceOperation::RenameTo(self.parse_object_name(false)?)
+        } else if self.parse_keyword(Keyword::UNSET) {
+            self.expect_keyword_is(Keyword::COMMENT)?;
+            AlterSequenceOperation::UnsetComment
+        } else {
+            // `SET` is optional before `INCREMENT`, mandatory before `COMMENT`.
+            let _ = self.parse_keyword(Keyword::SET);
+            if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                AlterSequenceOperation::SetComment(self.parse_literal_string()?)
+            } else if self.parse_keyword(Keyword::INCREMENT) {
+                let _ = self.parse_keyword(Keyword::BY);
+                let _ = self.consume_token(&Token::Eq);
+                AlterSequenceOperation::SetIncrement(self.parse_number()?)
+            } else {
+                return self.expected(
+                    "RENAME TO, INCREMENT, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
+                    self.peek_token(),
+                );
+            }
+        };
+        Ok(Statement::AlterSequence {
             if_exists,
             name,
             operation,
