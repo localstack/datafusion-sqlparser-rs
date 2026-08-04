@@ -9360,3 +9360,180 @@ fn parse_snowflake_undrop_missing_object_type() {
     let res = snowflake().parse_sql_statements("UNDROP t");
     assert!(res.is_err(), "expected parse error, got {res:?}");
 }
+
+#[test]
+fn test_create_pipe_auto_ingest() {
+    let sql = "CREATE PIPE p AUTO_INGEST = TRUE AS COPY INTO t FROM @s";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreatePipe {
+            or_replace,
+            if_not_exists,
+            name,
+            auto_ingest,
+            error_integration,
+            aws_sns_topic,
+            integration,
+            comment,
+            copy_statement,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("p", name.to_string());
+            assert_eq!(Some(true), auto_ingest);
+            assert!(error_integration.is_none());
+            assert!(aws_sns_topic.is_none());
+            assert!(integration.is_none());
+            assert!(comment.is_none());
+            assert!(matches!(*copy_statement, Statement::CopyIntoSnowflake { .. }));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_or_replace_pipe_all_options() {
+    let sql = "CREATE OR REPLACE PIPE db.sch.p AUTO_INGEST = FALSE ERROR_INTEGRATION = ei AWS_SNS_TOPIC = 'arn:topic' INTEGRATION = 'ni' COMMENT = 'c' AS COPY INTO t FROM @s";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreatePipe {
+            or_replace,
+            name,
+            auto_ingest,
+            error_integration,
+            aws_sns_topic,
+            integration,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert_eq!("db.sch.p", name.to_string());
+            assert_eq!(Some(false), auto_ingest);
+            assert_eq!("ei", error_integration.unwrap().to_string());
+            assert_eq!("arn:topic", aws_sns_topic.unwrap());
+            assert_eq!("ni", integration.unwrap());
+            assert_eq!("c", comment.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_pipe_if_not_exists() {
+    let sql = "CREATE PIPE IF NOT EXISTS p AS COPY INTO t FROM @s";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreatePipe {
+            if_not_exists,
+            auto_ingest,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert!(auto_ingest.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_pipe() {
+    let sql = "DROP PIPE p";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => {
+            assert_eq!(ObjectType::Pipe, object_type);
+            assert!(!if_exists);
+            assert_eq!(1, names.len());
+            assert_eq!("p", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_pipe_if_exists() {
+    let sql = "DROP PIPE IF EXISTS p";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            ..
+        } => {
+            assert_eq!(ObjectType::Pipe, object_type);
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_pipe() {
+    for sql in ["DESCRIBE PIPE p", "DESC PIPE p"] {
+        match snowflake().verified_stmt(sql) {
+            Statement::DescribeObject {
+                object_type,
+                object_name,
+                ..
+            } => {
+                assert_eq!(DescribeObjectType::Pipe, object_type);
+                assert_eq!("p", object_name.to_string());
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_show_pipes() {
+    match snowflake().verified_stmt("SHOW PIPES") {
+        Statement::ShowPipes { terse, .. } => assert!(!terse),
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("SHOW TERSE PIPES") {
+        Statement::ShowPipes { terse, .. } => assert!(terse),
+        _ => unreachable!(),
+    }
+    snowflake().verified_stmt("SHOW PIPES LIKE 'p%'");
+    snowflake().verified_stmt("SHOW PIPES IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_alter_pipe() {
+    match snowflake().verified_stmt("ALTER PIPE p SET PIPE_EXECUTION_PAUSED=true") {
+        Statement::AlterPipe {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("p", name.to_string());
+            assert!(matches!(operation, AlterPipeOperation::Set(_)));
+        }
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("ALTER PIPE IF EXISTS p UNSET COMMENT") {
+        Statement::AlterPipe {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert!(matches!(operation, AlterPipeOperation::Unset(_)));
+        }
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("ALTER PIPE p REFRESH PREFIX = 'a/' MODIFIED_AFTER = '2020-01-01'") {
+        Statement::AlterPipe { operation, .. } => {
+            assert!(matches!(
+                operation,
+                AlterPipeOperation::Refresh {
+                    prefix: Some(_),
+                    modified_after: Some(_)
+                }
+            ));
+        }
+        _ => unreachable!(),
+    }
+    snowflake().verified_stmt("ALTER PIPE p REFRESH");
+}

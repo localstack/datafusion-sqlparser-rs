@@ -5144,6 +5144,60 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] PIPE [IF NOT EXISTS] <name>
+    ///   [AUTO_INGEST = { TRUE | FALSE }]
+    ///   [ERROR_INTEGRATION = <name>]
+    ///   [AWS_SNS_TOPIC = '<string>']
+    ///   [INTEGRATION = '<string>']
+    ///   [COMMENT = '<string>']
+    ///   AS <copy_statement>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-pipe>
+    CreatePipe {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Pipe name.
+        name: ObjectName,
+        /// Optional `AUTO_INGEST = { TRUE | FALSE }` clause.
+        auto_ingest: Option<bool>,
+        /// Optional `ERROR_INTEGRATION = <name>` clause.
+        error_integration: Option<Ident>,
+        /// Optional `AWS_SNS_TOPIC = '<string>'` clause.
+        aws_sns_topic: Option<String>,
+        /// Optional `INTEGRATION = '<string>'` clause.
+        integration: Option<String>,
+        /// Optional `COMMENT = '<string>'` clause.
+        comment: Option<String>,
+        /// The `COPY INTO` statement the pipe wraps (after `AS`).
+        copy_statement: Box<Statement>,
+    },
+    /// ```sql
+    /// ALTER PIPE [IF EXISTS] <name>
+    ///   { SET ... | UNSET ... | REFRESH [PREFIX = '<s>'] [MODIFIED_AFTER = '<ts>'] }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-pipe>
+    AlterPipe {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Pipe name.
+        name: ObjectName,
+        /// The alter operation.
+        operation: AlterPipeOperation,
+    },
+    /// ```sql
+    /// SHOW [TERSE] PIPES [LIKE '<pattern>']
+    ///     [IN { ACCOUNT | DATABASE <db> | SCHEMA <schema> }]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-pipes>
+    ShowPipes {
+        /// `true` when terse output format was requested.
+        terse: bool,
+        /// Additional options for `SHOW` statements.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// ALTER STREAM [IF EXISTS] <name> { SET COMMENT = '<string>' | UNSET COMMENT }
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-stream>
@@ -7695,6 +7749,66 @@ impl fmt::Display for Statement {
                     write!(f, " IF EXISTS")?;
                 }
                 write!(f, " {name} {operation}")
+            }
+            Statement::CreatePipe {
+                or_replace,
+                if_not_exists,
+                name,
+                auto_ingest,
+                error_integration,
+                aws_sns_topic,
+                integration,
+                comment,
+                copy_statement,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}PIPE {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(auto_ingest) = auto_ingest {
+                    write!(
+                        f,
+                        " AUTO_INGEST = {}",
+                        if *auto_ingest { "TRUE" } else { "FALSE" }
+                    )?;
+                }
+                if let Some(error_integration) = error_integration {
+                    write!(f, " ERROR_INTEGRATION = {error_integration}")?;
+                }
+                if let Some(aws_sns_topic) = aws_sns_topic {
+                    write!(f, " AWS_SNS_TOPIC = '{aws_sns_topic}'")?;
+                }
+                if let Some(integration) = integration {
+                    write!(f, " INTEGRATION = '{integration}'")?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{comment}'")?;
+                }
+                write!(f, " AS {copy_statement}")
+            }
+            Statement::AlterPipe {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(f, "ALTER PIPE")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {name} {operation}")
+            }
+            Statement::ShowPipes {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}PIPES{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )?;
+                Ok(())
             }
             Statement::AlterSequence {
                 if_exists,
@@ -10602,6 +10716,9 @@ pub enum ObjectType {
     Warehouse,
     /// A task.
     Task,
+    /// A pipe (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-pipe>
+    Pipe,
 }
 
 impl fmt::Display for ObjectType {
@@ -10624,6 +10741,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Stream => "STREAM",
             ObjectType::Warehouse => "WAREHOUSE",
             ObjectType::Task => "TASK",
+            ObjectType::Pipe => "PIPE",
         })
     }
 }
@@ -10825,6 +10943,8 @@ pub enum DescribeObjectType {
     Stream,
     /// `SEQUENCE`
     Sequence,
+    /// `PIPE`
+    Pipe,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -10840,6 +10960,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Stage => "STAGE",
             DescribeObjectType::Stream => "STREAM",
             DescribeObjectType::Sequence => "SEQUENCE",
+            DescribeObjectType::Pipe => "PIPE",
         })
     }
 }
@@ -13551,6 +13672,50 @@ impl fmt::Display for AlterStreamOperation {
         match self {
             AlterStreamOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
             AlterStreamOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
+}
+
+/// Action for [`Statement::AlterPipe`].
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-pipe>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterPipeOperation {
+    /// `SET <option> = <value> [ ... ]`
+    Set(KeyValueOptions),
+    /// `UNSET <option> [, ...]`
+    Unset(Vec<Ident>),
+    /// `REFRESH [PREFIX = '<s>'] [MODIFIED_AFTER = '<ts>']`
+    Refresh {
+        /// Optional `PREFIX = '<string>'` clause.
+        prefix: Option<String>,
+        /// Optional `MODIFIED_AFTER = '<string>'` clause.
+        modified_after: Option<String>,
+    },
+}
+
+impl fmt::Display for AlterPipeOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterPipeOperation::Set(options) => write!(f, "SET {options}"),
+            AlterPipeOperation::Unset(keys) => {
+                write!(f, "UNSET {}", display_comma_separated(keys))
+            }
+            AlterPipeOperation::Refresh {
+                prefix,
+                modified_after,
+            } => {
+                f.write_str("REFRESH")?;
+                if let Some(prefix) = prefix {
+                    write!(f, " PREFIX = '{prefix}'")?;
+                }
+                if let Some(modified_after) = modified_after {
+                    write!(f, " MODIFIED_AFTER = '{modified_after}'")?;
+                }
+                Ok(())
+            }
         }
     }
 }
