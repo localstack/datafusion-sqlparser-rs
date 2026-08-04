@@ -5686,6 +5686,8 @@ impl<'a> Parser<'a> {
             self.parse_create_sequence(or_replace, temporary)
         } else if self.parse_keyword(Keyword::STREAM) {
             self.parse_create_stream(or_replace)
+        } else if self.parse_keyword(Keyword::PIPE) {
+            self.parse_create_pipe(or_replace)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or SCHEMA or WAREHOUSE or TASK or PROCEDURE or ROLE or SEQUENCE after CREATE OR REPLACE",
@@ -5848,6 +5850,58 @@ impl<'a> Parser<'a> {
             source_kind,
             source_table,
         })
+    }
+
+    /// `CREATE [OR REPLACE] PIPE [IF NOT EXISTS] <name>
+    ///   [AUTO_INGEST = { TRUE | FALSE }] [ERROR_INTEGRATION = <name>]
+    ///   [AWS_SNS_TOPIC = '<s>'] [INTEGRATION = '<s>'] [COMMENT = '<s>']
+    ///   AS <copy_statement>`
+    fn parse_create_pipe(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let mut auto_ingest: Option<bool> = None;
+        let mut error_integration: Option<Ident> = None;
+        let mut aws_sns_topic: Option<String> = None;
+        let mut integration: Option<String> = None;
+        let mut comment: Option<String> = None;
+
+        loop {
+            if self.parse_keyword(Keyword::AS) {
+                let copy_statement = Box::new(self.parse_statement()?);
+                return Ok(Statement::CreatePipe {
+                    or_replace,
+                    if_not_exists,
+                    name,
+                    auto_ingest,
+                    error_integration,
+                    aws_sns_topic,
+                    integration,
+                    comment,
+                    copy_statement,
+                });
+            }
+            if self.parse_keyword(Keyword::AUTO_INGEST) {
+                self.expect_token(&Token::Eq)?;
+                auto_ingest = Some(self.parse_boolean_string()?);
+            } else if self.parse_keyword(Keyword::ERROR_INTEGRATION) {
+                self.expect_token(&Token::Eq)?;
+                error_integration = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::AWS_SNS_TOPIC) {
+                self.expect_token(&Token::Eq)?;
+                aws_sns_topic = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::INTEGRATION) {
+                self.expect_token(&Token::Eq)?;
+                integration = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                comment = Some(self.parse_literal_string()?);
+            } else {
+                return self.expected(
+                    "AUTO_INGEST, ERROR_INTEGRATION, AWS_SNS_TOPIC, INTEGRATION, COMMENT, or AS in CREATE PIPE",
+                    self.peek_token(),
+                );
+            }
+        }
     }
 
     /// Parse a `CREATE WAREHOUSE` statement.
@@ -8201,6 +8255,8 @@ impl<'a> Parser<'a> {
             return self.parse_drop_account();
         } else if self.parse_keyword(Keyword::TASK) {
             ObjectType::Task
+        } else if self.parse_keyword(Keyword::PIPE) {
+            ObjectType::Pipe
         } else if self.parse_keyword(Keyword::FUNCTION) {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
@@ -12051,6 +12107,7 @@ impl<'a> Parser<'a> {
             Keyword::TASK,
             Keyword::STREAM,
             Keyword::SEQUENCE,
+            Keyword::PIPE,
         ])?;
         match object_type {
             Keyword::SCHEMA => {
@@ -12107,9 +12164,10 @@ impl<'a> Parser<'a> {
             Keyword::TASK => self.parse_alter_task(),
             Keyword::STREAM => self.parse_alter_stream(),
             Keyword::SEQUENCE => self.parse_alter_sequence(),
+            Keyword::PIPE => self.parse_alter_pipe(),
             // unreachable because expect_one_of_keywords used above
             unexpected_keyword => Err(ParserError::ParserError(
-                format!("Internal parser error: expected any of {{TEXT SEARCH, VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, TASK, ACCOUNT, STREAM, SEQUENCE}}, got {unexpected_keyword:?}"),
+                format!("Internal parser error: expected any of {{TEXT SEARCH, VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, TASK, ACCOUNT, STREAM, SEQUENCE, PIPE}}, got {unexpected_keyword:?}"),
             )),
         }
     }
@@ -12461,6 +12519,43 @@ impl<'a> Parser<'a> {
             return self.expected("SET or UNSET after ALTER STREAM", self.peek_token());
         };
         Ok(Statement::AlterStream {
+            if_exists,
+            name,
+            operation,
+        })
+    }
+
+    /// Parse `ALTER PIPE [IF EXISTS] <name>
+    ///   { SET <option> = <value> [ ... ] | UNSET <option> [, ...]
+    ///   | REFRESH [PREFIX = '<s>'] [MODIFIED_AFTER = '<ts>'] }`.
+    pub fn parse_alter_pipe(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let operation = if self.parse_keyword(Keyword::SET) {
+            AlterPipeOperation::Set(self.parse_key_value_options(false, &[], false)?)
+        } else if self.parse_keyword(Keyword::UNSET) {
+            AlterPipeOperation::Unset(self.parse_comma_separated(Parser::parse_identifier)?)
+        } else if self.parse_keyword(Keyword::REFRESH) {
+            let prefix = if self.parse_keyword(Keyword::PREFIX) {
+                self.expect_token(&Token::Eq)?;
+                Some(self.parse_literal_string()?)
+            } else {
+                None
+            };
+            let modified_after = if self.parse_keyword(Keyword::MODIFIED_AFTER) {
+                self.expect_token(&Token::Eq)?;
+                Some(self.parse_literal_string()?)
+            } else {
+                None
+            };
+            AlterPipeOperation::Refresh {
+                prefix,
+                modified_after,
+            }
+        } else {
+            return self.expected("SET, UNSET, or REFRESH after ALTER PIPE", self.peek_token());
+        };
+        Ok(Statement::AlterPipe {
             if_exists,
             name,
             operation,
@@ -15673,6 +15768,7 @@ impl<'a> Parser<'a> {
                         Keyword::STAGE,
                         Keyword::STREAM,
                         Keyword::SEQUENCE,
+                        Keyword::PIPE,
                     ]) {
                         let object_type = match kw {
                             Keyword::TABLE => DescribeObjectType::Table,
@@ -15683,6 +15779,7 @@ impl<'a> Parser<'a> {
                             Keyword::STAGE => DescribeObjectType::Stage,
                             Keyword::STREAM => DescribeObjectType::Stream,
                             Keyword::SEQUENCE => DescribeObjectType::Sequence,
+                            Keyword::PIPE => DescribeObjectType::Pipe,
                             _ => return self.expected("a describe object type", self.peek_token()),
                         };
                         let object_name = self.parse_object_name(false)?;
@@ -17220,6 +17317,8 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_tasks(terse)?)
         } else if self.parse_keyword(Keyword::STREAMS) {
             Ok(self.parse_show_streams(terse)?)
+        } else if self.parse_keyword(Keyword::PIPES) {
+            Ok(self.parse_show_pipes(terse)?)
         } else if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEWS]) {
             Ok(self.parse_show_views(terse, true)?)
         } else if self.parse_keyword(Keyword::VIEWS) {
@@ -17377,6 +17476,14 @@ impl<'a> Parser<'a> {
     fn parse_show_streams(&mut self, terse: bool) -> Result<Statement, ParserError> {
         let show_options = self.parse_show_stmt_options()?;
         Ok(Statement::ShowStreams {
+            terse,
+            show_options,
+        })
+    }
+
+    fn parse_show_pipes(&mut self, terse: bool) -> Result<Statement, ParserError> {
+        let show_options = self.parse_show_stmt_options()?;
+        Ok(Statement::ShowPipes {
             terse,
             show_options,
         })
