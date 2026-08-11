@@ -104,6 +104,33 @@ fn parse_sf_create_stream_on_table_and_view() {
 }
 
 #[test]
+fn parse_sf_create_stream_at_before_stream() {
+    // The `{ AT | BEFORE } ( STREAM => '…' )` seed clause parses, is carried on
+    // the AST node, and round-trips through Display for both spellings and for
+    // the `ON VIEW` source.
+    for sql in [
+        "CREATE STREAM s ON TABLE t AT(STREAM => 'S_BASE')",
+        "CREATE STREAM s ON TABLE t BEFORE(STREAM => 'S_BASE')",
+        "CREATE OR REPLACE STREAM s ON TABLE t AT(STREAM => 'S_BASE')",
+        "CREATE STREAM IF NOT EXISTS s ON VIEW v BEFORE(STREAM => 'S_BASE')",
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateStream { at_before, .. } => {
+                assert!(at_before.is_some(), "expected AT/BEFORE clause for {sql}");
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+
+    // The clause-less form is unchanged: no `at_before`, byte-identical Display.
+    match snowflake().verified_stmt("CREATE STREAM s ON TABLE t") {
+        Statement::CreateStream { at_before, .. } => assert!(at_before.is_none()),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn parse_sf_informational_constraint_properties() {
     let canonical = "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) NOT ENFORCED DISABLE NOVALIDATE RELY)";
     match snowflake().verified_stmt(canonical) {
