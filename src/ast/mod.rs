@@ -4979,6 +4979,7 @@ pub enum Statement {
     },
     /// ```sql
     /// CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>
+    ///   [ { AT | BEFORE } ( <key> => <expr> ) ]
     /// ```
     CreateStream {
         /// `OR REPLACE` flag.
@@ -4992,6 +4993,12 @@ pub enum Statement {
         /// The source object the stream tracks (the `<source>` after
         /// `ON TABLE`/`ON VIEW`).
         source_table: ObjectName,
+        /// The optional `{ AT | BEFORE } ( <key> => <expr> )` time-travel clause
+        /// seeding the new stream's offset from an existing point. Stored as the
+        /// whole `AT(...)` / `BEFORE(...)` function-call expression, mirroring
+        /// how [`crate::ast::TableVersion::Function`] keeps a table-version
+        /// clause. Absent for a plain `ON {TABLE|VIEW} <source>`.
+        at_before: Option<Expr>,
     },
     /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
@@ -7592,13 +7599,18 @@ impl fmt::Display for Statement {
                 name,
                 source_kind,
                 source_table,
+                at_before,
             } => {
                 write!(
                     f,
                     "CREATE {or_replace}STREAM {if_not_exists}{name} ON {source_kind} {source_table}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
-                )
+                )?;
+                if let Some(at_before) = at_before {
+                    write!(f, " {at_before}")?;
+                }
+                Ok(())
             }
             Statement::AlterWarehouse {
                 name,

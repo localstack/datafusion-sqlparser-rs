@@ -5632,6 +5632,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>`
+    ///   `[ { AT | BEFORE } ( <key> => <expr> ) ]`
     fn parse_create_stream(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
@@ -5643,12 +5644,22 @@ impl<'a> Parser<'a> {
             StreamSourceKind::Table
         };
         let source_table = self.parse_object_name(false)?;
+        // Optional `{ AT | BEFORE } ( <key> => <expr> )` clause, kept whole as
+        // the function-call expression (the same shape `TableVersion::Function`
+        // uses for a table-version anchor).
+        let at_before = if self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE) {
+            let func_name = self.parse_object_name(false)?;
+            Some(self.parse_function(func_name)?)
+        } else {
+            None
+        };
         Ok(Statement::CreateStream {
             or_replace,
             if_not_exists,
             name,
             source_kind,
             source_table,
+            at_before,
         })
     }
 
