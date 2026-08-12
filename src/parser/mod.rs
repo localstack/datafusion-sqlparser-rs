@@ -5727,10 +5727,29 @@ impl<'a> Parser<'a> {
     fn parse_create_warehouse(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        // Skip any warehouse parameters (SIZE, MAX_CLUSTER_COUNT, etc.)
+        // Skip any warehouse parameters (SIZE, MAX_CLUSTER_COUNT, etc.) up to the
+        // trailing `WITH TAG (<t> = '<v>' [, ...])` clause, which is trailing-only:
+        // no parameter may follow it.
+        let mut with_tags = Vec::new();
         loop {
             match self.peek_token().token {
                 Token::SemiColon | Token::EOF => break,
+                Token::Word(w) if w.keyword == Keyword::WITH => {
+                    self.next_token();
+                    self.expect_keyword(Keyword::TAG)?;
+                    self.expect_token(&Token::LParen)?;
+                    with_tags = self.parse_comma_separated(Parser::parse_tag)?;
+                    self.expect_token(&Token::RParen)?;
+                    match self.peek_token().token {
+                        Token::SemiColon | Token::EOF => break,
+                        _ => {
+                            return self.expected(
+                                "end of statement after WITH TAG (...)",
+                                self.peek_token(),
+                            )
+                        }
+                    }
+                }
                 _ => {
                     self.next_token();
                 }
@@ -5740,6 +5759,7 @@ impl<'a> Parser<'a> {
             or_replace,
             if_not_exists,
             name,
+            with_tags,
         })
     }
 

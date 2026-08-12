@@ -377,6 +377,18 @@ impl Dialect for SnowflakeDialect {
             return Some(Ok(stmt));
         }
 
+        // ALTER WAREHOUSE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept
+        // only the tag form. Every other ALTER WAREHOUSE form (SET <property>,
+        // UNSET, SUSPEND, RESUME, RENAME TO, ABORT ALL QUERIES) fails the closure
+        // and falls through to Parser::parse_alter_warehouse, which also keeps
+        // the bare (name-less) form a syntax error — the tag form requires a name.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::WAREHOUSE])?;
+            parse_alter_object_set_tags(p, ObjectType::Warehouse)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
@@ -3616,6 +3628,7 @@ fn parse_alter_object_set_tags(
     parser: &mut Parser,
     object_type: ObjectType,
 ) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let object_name = parser.parse_object_name(false)?;
     let unset = matches!(
         parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])?,
@@ -3647,6 +3660,7 @@ fn parse_alter_object_set_tags(
     Ok(Statement::SetTags {
         object_type,
         object_name,
+        if_exists,
         unset,
         set_tags,
         unset_tags,
