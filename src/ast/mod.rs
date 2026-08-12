@@ -4953,6 +4953,9 @@ pub enum Statement {
         clone: Option<ObjectName>,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
+        /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
+        /// `None` when absent.
+        with_tags: Option<Vec<Tag>>,
     },
     /// ```sql
     /// CREATE DATABASE
@@ -7514,6 +7517,7 @@ impl fmt::Display for Statement {
                 default_collate_spec,
                 clone,
                 comment,
+                with_tags,
             } => {
                 write!(
                     f,
@@ -7542,6 +7546,10 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+
+                if let Some(tags) = with_tags {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
                 }
 
                 if let Some(comment) = comment {
