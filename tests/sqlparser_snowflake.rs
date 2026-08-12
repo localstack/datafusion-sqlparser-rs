@@ -560,6 +560,35 @@ fn test_snowflake_create_transient_schema() {
 }
 
 #[test]
+fn test_snowflake_create_schema_with_tag() {
+    // `WITH TAG` roundtrips and populates `with_tags`; the bare `TAG (...)`
+    // form (optional `WITH`) normalises to the `WITH TAG` rendering.
+    let sql = "CREATE SCHEMA my_schema WITH TAG (cost_center='sales', env='prod')";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            with_tags,
+            ..
+        } => {
+            assert_eq!("my_schema", schema_name.to_string());
+            let tags = with_tags.expect("with_tags populated");
+            assert_eq!(tags.len(), 2);
+            assert_eq!(tags[0].to_string(), "cost_center='sales'");
+            assert_eq!(tags[1].to_string(), "env='prod'");
+        }
+        _ => unreachable!(),
+    }
+
+    snowflake_and_generic().one_statement_parses_to(
+        "CREATE SCHEMA my_schema TAG (env = 'prod')",
+        "CREATE SCHEMA my_schema WITH TAG (env='prod')",
+    );
+
+    // `WITH MANAGED ACCESS` and the Trino `WITH (k='v')` option list still parse.
+    snowflake_and_generic().verified_stmt("CREATE SCHEMA my_schema WITH MANAGED ACCESS");
+}
+
+#[test]
 fn test_snowflake_create_table_column_comment() {
     let sql = "CREATE TABLE my_table (a STRING COMMENT 'some comment')";
     match snowflake().verified_stmt(sql) {
