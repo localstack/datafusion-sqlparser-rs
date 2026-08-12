@@ -4976,6 +4976,8 @@ pub enum Statement {
         if_not_exists: bool,
         /// Warehouse name.
         name: ObjectName,
+        /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
+        with_tags: Vec<Tag>,
     },
     /// ```sql
     /// CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>
@@ -5405,6 +5407,8 @@ pub enum Statement {
         object_type: ObjectType,
         /// The target object name.
         object_name: ObjectName,
+        /// Whether `IF EXISTS` was specified, suppressing the missing-target error.
+        if_exists: bool,
         /// Whether this is `UNSET TAG` (`true`) or `SET TAG` (`false`).
         unset: bool,
         /// Tags to set (`SET TAG`); empty for `UNSET TAG`.
@@ -7589,13 +7593,18 @@ impl fmt::Display for Statement {
                 or_replace,
                 if_not_exists,
                 name,
+                with_tags,
             } => {
                 write!(
                     f,
                     "CREATE {or_replace}WAREHOUSE {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
-                )
+                )?;
+                if !with_tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?;
+                }
+                Ok(())
             }
             Statement::CreateStream {
                 or_replace,
@@ -8023,11 +8032,16 @@ impl fmt::Display for Statement {
             Statement::SetTags {
                 object_type,
                 object_name,
+                if_exists,
                 unset,
                 set_tags,
                 unset_tags,
             } => {
-                write!(f, "ALTER {object_type} {object_name} ")?;
+                write!(f, "ALTER {object_type} ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{object_name} ")?;
                 if *unset {
                     write!(f, "UNSET TAG {}", display_comma_separated(unset_tags))
                 } else {
