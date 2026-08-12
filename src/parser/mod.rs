@@ -6043,6 +6043,21 @@ impl<'a> Parser<'a> {
         let with_managed_access =
             self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
 
+        // Snowflake inline `[ WITH ] TAG ( <t> = '<v>', ... )` clause. The
+        // optional `WITH` shares its keyword with the Trino option list below,
+        // so intercept `WITH TAG` (and the bare `TAG`) here; `parse_keywords`
+        // backtracks when `TAG` does not follow, leaving `WITH (k='v')` intact.
+        let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+            || self.parse_keyword(Keyword::TAG)
+        {
+            self.expect_token(&Token::LParen)?;
+            let tags = self.parse_comma_separated(Parser::parse_tag)?;
+            self.expect_token(&Token::RParen)?;
+            Some(tags)
+        } else {
+            None
+        };
+
         let with = if !with_managed_access && self.peek_keyword(Keyword::WITH) {
             Some(self.parse_options(Keyword::WITH)?)
         } else {
@@ -6074,6 +6089,7 @@ impl<'a> Parser<'a> {
             default_collate_spec,
             clone,
             comment,
+            with_tags,
         })
     }
 
