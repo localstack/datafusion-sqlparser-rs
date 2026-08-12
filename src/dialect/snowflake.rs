@@ -377,6 +377,17 @@ impl Dialect for SnowflakeDialect {
             return Some(Ok(stmt));
         }
 
+        // ALTER ROLE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form (mirroring ALTER SCHEMA); every other ALTER ROLE form
+        // (RENAME TO, SET/UNSET COMMENT) fails the closure and falls through to
+        // the generic grammar.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::ROLE])?;
+            parse_alter_object_set_tags(p, ObjectType::Role)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
@@ -3331,6 +3342,7 @@ fn parse_alter_object_set_tags(
     parser: &mut Parser,
     object_type: ObjectType,
 ) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let object_name = parser.parse_object_name(false)?;
     let unset = match parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])? {
         Keyword::UNSET => true,
@@ -3362,6 +3374,7 @@ fn parse_alter_object_set_tags(
     Ok(Statement::SetTags {
         object_type,
         object_name,
+        if_exists,
         unset,
         set_tags,
         unset_tags,

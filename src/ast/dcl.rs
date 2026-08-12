@@ -31,7 +31,7 @@ use sqlparser_derive::{Visit, VisitMut};
 use super::{display_comma_separated, Expr, Ident, Password, Spanned};
 use crate::ast::{
     display_separated, CascadeOption, CurrentGrantsKind, GrantObjects, Grantee, ObjectName,
-    Privileges,
+    Privileges, Tag,
 };
 use crate::tokenizer::Span;
 
@@ -349,6 +349,9 @@ pub struct CreateRole {
     // MSSQL
     /// Optional authorization owner.
     pub authorization_owner: Option<ObjectName>,
+    // Snowflake
+    /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
+    pub with_tags: Vec<Tag>,
 }
 
 impl fmt::Display for CreateRole {
@@ -423,6 +426,9 @@ impl fmt::Display for CreateRole {
         }
         if let Some(owner) = &self.authorization_owner {
             write!(f, " AUTHORIZATION {owner}")?;
+        }
+        if !self.with_tags.is_empty() {
+            write!(f, " WITH TAG ({})", display_comma_separated(&self.with_tags))?;
         }
         Ok(())
     }
