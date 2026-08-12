@@ -121,6 +121,24 @@ impl fmt::Display for ReplicaIdentity {
     }
 }
 
+/// A single `<column> = '<value>'` pair of a Snowflake external-table
+/// `ADD PARTITION` clause.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ExternalTablePartitionColumn {
+    /// The partition column.
+    pub column: Ident,
+    /// The partition value, always a string literal.
+    pub value: String,
+}
+
+impl fmt::Display for ExternalTablePartitionColumn {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = '{}'", self.column, self.value)
+    }
+}
+
 /// An `ALTER TABLE` (`Statement::AlterTable`) operation
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -497,6 +515,44 @@ pub enum AlterTableOperation {
     Refresh {
         /// Optional subpath for external table refresh
         subpath: Option<String>,
+    },
+    /// `ADD FILES ( '<path>' [, ... ] )`
+    ///
+    /// Snowflake external table: register specific staged files.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/alter-external-table>
+    AddFiles {
+        /// Relative staged file paths to register.
+        files: Vec<String>,
+    },
+    /// `REMOVE FILES ( '<path>' [, ... ] )`
+    ///
+    /// Snowflake external table: unregister specific staged files.
+    RemoveFiles {
+        /// Relative staged file paths to unregister.
+        files: Vec<String>,
+    },
+    /// `SET AUTO_REFRESH = { TRUE | FALSE }`
+    ///
+    /// Snowflake external table auto-refresh toggle.
+    SetAutoRefresh {
+        /// The new auto-refresh value.
+        value: bool,
+    },
+    /// `ADD PARTITION ( <col> = '<value>' [, ... ] ) LOCATION '<path>'`
+    ///
+    /// Snowflake user-specified partition addition (external table).
+    AddExternalPartition {
+        /// Column/value pairs defining the partition.
+        partitions: Vec<ExternalTablePartitionColumn>,
+        /// The staged subpath the partition maps to.
+        location: String,
+    },
+    /// `DROP PARTITION LOCATION '<path>'`
+    ///
+    /// Snowflake user-specified partition removal (external table).
+    DropExternalPartition {
+        /// The staged subpath whose partition is dropped.
+        location: String,
     },
     /// `SUSPEND`
     ///
@@ -1067,6 +1123,48 @@ impl fmt::Display for AlterTableOperation {
                     write!(f, " '{path}'")?;
                 }
                 Ok(())
+            }
+            AlterTableOperation::AddFiles { files } => {
+                write!(
+                    f,
+                    "ADD FILES ({})",
+                    files
+                        .iter()
+                        .map(|file| format!("'{file}'"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            AlterTableOperation::RemoveFiles { files } => {
+                write!(
+                    f,
+                    "REMOVE FILES ({})",
+                    files
+                        .iter()
+                        .map(|file| format!("'{file}'"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            AlterTableOperation::SetAutoRefresh { value } => {
+                write!(
+                    f,
+                    "SET AUTO_REFRESH = {}",
+                    if *value { "TRUE" } else { "FALSE" }
+                )
+            }
+            AlterTableOperation::AddExternalPartition {
+                partitions,
+                location,
+            } => {
+                write!(
+                    f,
+                    "ADD PARTITION ({}) LOCATION '{location}'",
+                    display_comma_separated(partitions)
+                )
+            }
+            AlterTableOperation::DropExternalPartition { location } => {
+                write!(f, "DROP PARTITION LOCATION '{location}'")
             }
             AlterTableOperation::Suspend => {
                 write!(f, "SUSPEND")
@@ -2477,7 +2575,7 @@ pub(crate) fn display_option_spaced<T: fmt::Display>(option: &Option<T>) -> impl
 ///
 /// `ENABLE`/`DISABLE`, `VALIDATE`/`NOVALIDATE` and `RELY`/`NORELY` are only
 /// parsed for dialects returning true from
-/// [`Dialect::supports_informational_constraint_properties`].
+/// `Dialect::supports_informational_constraint_properties`.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -3324,7 +3422,7 @@ pub struct CreateTable {
     /// bare keyword such as `DISABLE`); the value is stored verbatim.
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub scheduler: Option<String>,
-    /// Snowflake "IMMUTABLE WHERE (<predicate>)" clause for dynamic tables.
+    /// Snowflake `IMMUTABLE WHERE (<predicate>)` clause for dynamic tables.
     /// Stored as the serialized predicate text so its casing survives.
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub immutable_where: Option<String>,
@@ -3349,6 +3447,34 @@ pub struct CreateTable {
     /// Redshift `BACKUP` option: `BACKUP { YES | NO }`
     /// <https://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_TABLE_NEW.html>
     pub backup: Option<bool>,
+    /// Snowflake external table `PATTERN = '<regex>'` clause.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-external-table>
+    pub pattern: Option<String>,
+    /// Snowflake external table `REFRESH_ON_CREATE = { TRUE | FALSE }` clause.
+    pub refresh_on_create: Option<bool>,
+    /// Snowflake external table `PARTITION_TYPE = { USER_SPECIFIED | ... }` clause.
+    pub partition_type: Option<String>,
+    /// Snowflake external table `TABLE_FORMAT = { DELTA | ... }` clause.
+    pub table_format: Option<String>,
+    /// Snowflake external table `AWS_SNS_TOPIC = '<arn>'` clause.
+    pub aws_sns_topic: Option<String>,
+}
+
+impl CreateTable {
+    /// Whether this is a Snowflake-shaped `CREATE EXTERNAL TABLE` (which renders
+    /// `LOCATION=@stage FILE_FORMAT=(...)` etc.) as opposed to the Hive form
+    /// (`STORED AS ... LOCATION '...'`). The two grammars share the `external`
+    /// flag but never the Snowflake-only clauses.
+    fn is_snowflake_external(&self) -> bool {
+        self.external
+            && self.file_format.is_none()
+            && (self.stage_file_format.is_some()
+                || self.pattern.is_some()
+                || self.refresh_on_create.is_some()
+                || self.partition_type.is_some()
+                || self.table_format.is_some()
+                || self.aws_sns_topic.is_some())
+    }
 }
 
 impl fmt::Display for CreateTable {
@@ -3510,12 +3636,39 @@ impl fmt::Display for CreateTable {
                 }
             }
         }
-        if self.external {
+        if self.external && !self.is_snowflake_external() {
             if let Some(file_format) = self.file_format {
                 write!(f, " STORED AS {file_format}")?;
             }
             if let Some(location) = &self.location {
                 write!(f, " LOCATION '{location}'")?;
+            }
+        }
+        if self.is_snowflake_external() {
+            if let Some(location) = &self.location {
+                write!(f, " LOCATION={location}")?;
+            }
+            if let Some(stage_file_format) = &self.stage_file_format {
+                write!(f, " FILE_FORMAT=({stage_file_format})")?;
+            }
+            if let Some(pattern) = &self.pattern {
+                write!(f, " PATTERN='{pattern}'")?;
+            }
+            if let Some(refresh_on_create) = self.refresh_on_create {
+                write!(
+                    f,
+                    " REFRESH_ON_CREATE={}",
+                    if refresh_on_create { "TRUE" } else { "FALSE" }
+                )?;
+            }
+            if let Some(partition_type) = &self.partition_type {
+                write!(f, " PARTITION_TYPE={partition_type}")?;
+            }
+            if let Some(table_format) = &self.table_format {
+                write!(f, " TABLE_FORMAT={table_format}")?;
+            }
+            if let Some(aws_sns_topic) = &self.aws_sns_topic {
+                write!(f, " AWS_SNS_TOPIC='{aws_sns_topic}'")?;
             }
         }
 
@@ -3601,8 +3754,10 @@ impl fmt::Display for CreateTable {
             )?;
         }
 
-        if let Some(stage_file_format) = &self.stage_file_format {
-            write!(f, " STAGE_FILE_FORMAT=({stage_file_format})")?;
+        if !self.is_snowflake_external() {
+            if let Some(stage_file_format) = &self.stage_file_format {
+                write!(f, " STAGE_FILE_FORMAT=({stage_file_format})")?;
+            }
         }
 
         if let Some(data_retention_time_in_days) = self.data_retention_time_in_days {
@@ -5034,7 +5189,7 @@ impl fmt::Display for AlterTable {
         if self.only {
             write!(f, "ONLY ")?;
         }
-        write!(f, "{} ", &self.name)?;
+        write!(f, "{} ", self.name)?;
         if let Some(cluster) = &self.on_cluster {
             write!(f, "ON CLUSTER {cluster} ")?;
         }
