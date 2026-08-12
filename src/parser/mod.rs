@@ -6141,6 +6141,14 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // Optional `APPEND_ONLY = { TRUE | FALSE }`, which must follow the
+        // `{ AT | BEFORE }` clause per Snowflake's grammar.
+        let append_only = if self.parse_keyword(Keyword::APPEND_ONLY) {
+            self.expect_token(&Token::Eq)?;
+            Some(self.parse_boolean_string()?)
+        } else {
+            None
+        };
         Ok(Statement::CreateStream {
             or_replace,
             if_not_exists,
@@ -6148,6 +6156,7 @@ impl<'a> Parser<'a> {
             source_kind,
             source_table,
             at_before,
+            append_only,
         })
     }
 
