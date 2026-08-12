@@ -5431,6 +5431,8 @@ pub enum Statement {
         object_type: ObjectType,
         /// The target object name.
         object_name: ObjectName,
+        /// Whether `IF EXISTS` was specified, suppressing the missing-target error.
+        if_exists: bool,
         /// Whether this is `UNSET TAG` (`true`) or `SET TAG` (`false`).
         unset: bool,
         /// Tags to set (`SET TAG`); empty for `UNSET TAG`.
@@ -8055,11 +8057,16 @@ impl fmt::Display for Statement {
             Statement::SetTags {
                 object_type,
                 object_name,
+                if_exists,
                 unset,
                 set_tags,
                 unset_tags,
             } => {
-                write!(f, "ALTER {object_type} {object_name} ")?;
+                write!(f, "ALTER {object_type} ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{object_name} ")?;
                 if *unset {
                     write!(f, "UNSET TAG {}", display_comma_separated(unset_tags))
                 } else {
@@ -14656,6 +14663,8 @@ pub struct CreateWarehouse {
     pub name: ObjectName,
     /// Warehouse properties and parameters (e.g. `WAREHOUSE_SIZE = 'XSMALL'`).
     pub options: KeyValueOptions,
+    /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
+    pub with_tags: Vec<Tag>,
 }
 
 impl fmt::Display for CreateWarehouse {
@@ -14671,6 +14680,9 @@ impl fmt::Display for CreateWarehouse {
         write!(f, " {}", self.name)?;
         if !self.options.options.is_empty() {
             write!(f, " {}", self.options)?;
+        }
+        if !self.with_tags.is_empty() {
+            write!(f, " WITH TAG ({})", display_comma_separated(&self.with_tags))?;
         }
         Ok(())
     }

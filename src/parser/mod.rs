@@ -5931,12 +5931,22 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         let _ = self.parse_keyword(Keyword::WITH);
-        let options = self.parse_key_value_options(false, &[], false)?;
+        let options = self.parse_key_value_options(false, &[Keyword::WITH, Keyword::TAG], false)?;
+        // Trailing `[WITH] TAG (<t> = '<v>' [, ...])` clause; no parameter may follow it.
+        let mut with_tags = Vec::new();
+        if self.parse_keyword(Keyword::TAG)
+            || self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+        {
+            self.expect_token(&Token::LParen)?;
+            with_tags = self.parse_comma_separated(Parser::parse_tag)?;
+            self.expect_token(&Token::RParen)?;
+        }
         Ok(CreateWarehouse {
             or_replace,
             if_not_exists,
             name,
             options,
+            with_tags,
         })
     }
 
