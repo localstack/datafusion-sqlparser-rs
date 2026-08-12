@@ -131,6 +131,37 @@ fn parse_sf_create_stream_at_before_stream() {
 }
 
 #[test]
+fn parse_sf_create_stream_append_only() {
+    // `APPEND_ONLY = { TRUE | FALSE }` parses, is carried on the AST node, and
+    // round-trips through Display — including combined with `{ AT | BEFORE }`
+    // and on an `ON VIEW` source.
+    for (sql, expected) in [
+        ("CREATE STREAM s ON TABLE t APPEND_ONLY = TRUE", Some(true)),
+        ("CREATE STREAM s ON TABLE t APPEND_ONLY = FALSE", Some(false)),
+        ("CREATE STREAM s ON VIEW v APPEND_ONLY = TRUE", Some(true)),
+        (
+            "CREATE STREAM s ON TABLE t AT(STREAM => 'S_BASE') APPEND_ONLY = TRUE",
+            Some(true),
+        ),
+        ("CREATE STREAM s ON TABLE t", None),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateStream { append_only, .. } => {
+                assert_eq!(append_only, expected, "for {sql}");
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+
+    // The option must follow the `{ AT | BEFORE }` clause; the reversed order is
+    // a syntax error.
+    assert!(snowflake()
+        .parse_sql_statements("CREATE STREAM s ON TABLE t APPEND_ONLY = TRUE AT(STREAM => 'S')")
+        .is_err());
+}
+
+#[test]
 fn parse_sf_informational_constraint_properties() {
     let canonical = "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) NOT ENFORCED DISABLE NOVALIDATE RELY)";
     match snowflake().verified_stmt(canonical) {
