@@ -12707,8 +12707,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.dialect.supports_alter_column_comment()
-            && (self.parse_keyword(Keyword::COLUMN)
-                || self.peek_bare_column_comment_continuation())
+            && (self.parse_keyword(Keyword::COLUMN) || self.peek_bare_column_comment_continuation())
         {
             // Continuation of a comma-separated `ALTER COLUMN ... COMMENT` list,
             // e.g. `... ALTER COLUMN c1 COMMENT 's1', COLUMN c2 COMMENT 's2'`.
@@ -14325,9 +14324,7 @@ impl<'a> Parser<'a> {
     /// Each target is either a `:placeholder` bind variable — kept verbatim as
     /// its `:name` text so the round-trip is stable — or a bare local-variable
     /// name.
-    pub(crate) fn parse_scripting_into_targets(
-        &mut self,
-    ) -> Result<Vec<ObjectName>, ParserError> {
+    pub(crate) fn parse_scripting_into_targets(&mut self) -> Result<Vec<ObjectName>, ParserError> {
         self.parse_comma_separated(Parser::parse_scripting_into_target)
     }
 
@@ -17080,6 +17077,15 @@ impl<'a> Parser<'a> {
                             table_type: None,
                         });
                     }
+                    if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::TABLE]) {
+                        let object_name = self.parse_object_name(false)?;
+                        return Ok(Statement::DescribeObject {
+                            describe_alias,
+                            object_type: DescribeObjectType::ExternalTable,
+                            object_name,
+                            table_type: None,
+                        });
+                    }
                     if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW]) {
                         let object_name = self.parse_object_name(false)?;
                         return Ok(Statement::DescribeObject {
@@ -17131,9 +17137,7 @@ impl<'a> Parser<'a> {
                             match self.parse_one_of_keywords(&[Keyword::COLUMNS, Keyword::STAGE]) {
                                 Some(Keyword::COLUMNS) => Some(DescribeTableType::Columns),
                                 Some(Keyword::STAGE) => Some(DescribeTableType::Stage),
-                                _ => {
-                                    return self.expected("COLUMNS or STAGE", self.peek_token())
-                                }
+                                _ => return self.expected("COLUMNS or STAGE", self.peek_token()),
                             }
                         } else {
                             None
