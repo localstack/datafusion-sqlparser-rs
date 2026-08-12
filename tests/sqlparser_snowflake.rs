@@ -2272,7 +2272,8 @@ fn test_alter_table_alter_column_comment() {
     // Bare multi-column form: `COLUMN` omitted on every clause (the shape dbt
     // `persist_docs` emits). Canonicalises to the full `ALTER COLUMN` spelling.
     let sql = "ALTER TABLE tab ALTER \"ID\" COMMENT 's1', \"NAME\" COMMENT $$$$";
-    let canonical = "ALTER TABLE tab ALTER COLUMN \"ID\" COMMENT 's1', ALTER COLUMN \"NAME\" COMMENT ''";
+    let canonical =
+        "ALTER TABLE tab ALTER COLUMN \"ID\" COMMENT 's1', ALTER COLUMN \"NAME\" COMMENT ''";
     match snowflake().one_statement_parses_to(sql, canonical) {
         Statement::AlterTable(AlterTable { operations, .. }) => {
             assert_eq!(operations.len(), 2);
@@ -7803,7 +7804,10 @@ fn test_describe_sequence() {
 
 #[test]
 fn test_desc_table_type_columns() {
-    for sql in ["DESC TABLE foo TYPE = COLUMNS", "DESCRIBE TABLE foo TYPE = COLUMNS"] {
+    for sql in [
+        "DESC TABLE foo TYPE = COLUMNS",
+        "DESCRIBE TABLE foo TYPE = COLUMNS",
+    ] {
         match snowflake().verified_stmt(sql) {
             Statement::DescribeObject {
                 object_type,
@@ -8967,7 +8971,8 @@ fn test_call_into_variable() {
 
 #[test]
 fn test_alter_procedure() {
-    let stmt = snowflake().verified_stmt("ALTER PROCEDURE myproc(NUMBER, VARCHAR) RENAME TO newproc");
+    let stmt =
+        snowflake().verified_stmt("ALTER PROCEDURE myproc(NUMBER, VARCHAR) RENAME TO newproc");
     match stmt {
         Statement::AlterProcedure(AlterProcedure {
             if_exists,
@@ -9042,9 +9047,9 @@ fn test_with_as_procedure() {
 
 #[test]
 fn parse_snowflake_create_masking_policy() {
-    match snowflake().verified_stmt(
-        "CREATE MASKING POLICY p AS (a VARCHAR, b VARCHAR) RETURNS VARCHAR -> a",
-    ) {
+    match snowflake()
+        .verified_stmt("CREATE MASKING POLICY p AS (a VARCHAR, b VARCHAR) RETURNS VARCHAR -> a")
+    {
         Statement::CreateMaskingPolicy {
             or_replace,
             if_not_exists,
@@ -9085,9 +9090,9 @@ fn parse_snowflake_create_masking_policy() {
         other => panic!("expected CreateMaskingPolicy, got {other:?}"),
     }
 
-    match snowflake().verified_stmt(
-        "CREATE MASKING POLICY IF NOT EXISTS p AS (a VARCHAR) RETURNS VARCHAR -> a",
-    ) {
+    match snowflake()
+        .verified_stmt("CREATE MASKING POLICY IF NOT EXISTS p AS (a VARCHAR) RETURNS VARCHAR -> a")
+    {
         Statement::CreateMaskingPolicy { if_not_exists, .. } => assert!(if_not_exists),
         other => panic!("expected CreateMaskingPolicy, got {other:?}"),
     }
@@ -9174,10 +9179,7 @@ fn parse_snowflake_drop_masking_policy() {
 
 #[test]
 fn parse_snowflake_describe_masking_policy() {
-    for sql in [
-        "DESCRIBE MASKING POLICY p",
-        "DESC MASKING POLICY p",
-    ] {
+    for sql in ["DESCRIBE MASKING POLICY p", "DESC MASKING POLICY p"] {
         match snowflake().one_statement_parses_to(sql, "DESCRIBE MASKING POLICY p") {
             Statement::DescribeMaskingPolicy { name } => assert_eq!("p", name.to_string()),
             other => panic!("expected DescribeMaskingPolicy, got {other:?}"),
@@ -9206,10 +9208,9 @@ fn parse_snowflake_show_masking_policies() {
 fn parse_snowflake_alter_table_column_masking_policy() {
     for keyword in ["MODIFY", "ALTER"] {
         let sql = format!("ALTER TABLE t {keyword} COLUMN c SET MASKING POLICY p");
-        match snowflake().one_statement_parses_to(
-            &sql,
-            "ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p",
-        ) {
+        match snowflake()
+            .one_statement_parses_to(&sql, "ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p")
+        {
             Statement::AlterTable(AlterTable { operations, .. }) => match &operations[0] {
                 AlterTableOperation::AlterColumn { column_name, op } => {
                     assert_eq!("c", column_name.to_string());
@@ -9242,10 +9243,7 @@ fn parse_snowflake_alter_table_column_masking_policy() {
                     },
                 ..
             } => {
-                assert_eq!(
-                    &Some(vec![Ident::new("c"), Ident::new("d")]),
-                    using_columns
-                );
+                assert_eq!(&Some(vec![Ident::new("c"), Ident::new("d")]), using_columns);
                 assert!(force);
             }
             other => panic!("expected SetMaskingPolicy, got {other:?}"),
@@ -9303,9 +9301,9 @@ fn parse_snowflake_alter_view_column_masking_policy() {
 
 #[test]
 fn parse_snowflake_create_view_column_masking_policy() {
-    match snowflake().verified_stmt(
-        "CREATE VIEW v (c WITH MASKING POLICY p USING (c, d)) AS SELECT c, d FROM t",
-    ) {
+    match snowflake()
+        .verified_stmt("CREATE VIEW v (c WITH MASKING POLICY p USING (c, d)) AS SELECT c, d FROM t")
+    {
         Statement::CreateView(CreateView { columns, .. }) => {
             assert_eq!(1, columns.len());
             assert_eq!("c", columns[0].name.to_string());
@@ -9421,7 +9419,10 @@ fn parse_snowflake_undrop() {
         match snowflake().verified_stmt(sql) {
             Statement::Undrop { object_type, name } => {
                 assert_eq!(object_type, expected_type);
-                assert_eq!(name, ObjectName::from(vec![Ident::new(sql.rsplit(' ').next().unwrap())]));
+                assert_eq!(
+                    name,
+                    ObjectName::from(vec![Ident::new(sql.rsplit(' ').next().unwrap())])
+                );
             }
             other => panic!("expected Undrop, got {other:?}"),
         }
@@ -9471,7 +9472,10 @@ fn test_create_pipe_auto_ingest() {
             assert!(aws_sns_topic.is_none());
             assert!(integration.is_none());
             assert!(comment.is_none());
-            assert!(matches!(*copy_statement, Statement::CopyIntoSnowflake { .. }));
+            assert!(matches!(
+                *copy_statement,
+                Statement::CopyIntoSnowflake { .. }
+            ));
         }
         _ => unreachable!(),
     }
@@ -9610,7 +9614,9 @@ fn test_alter_pipe() {
         }
         _ => unreachable!(),
     }
-    match snowflake().verified_stmt("ALTER PIPE p REFRESH PREFIX = 'a/' MODIFIED_AFTER = '2020-01-01'") {
+    match snowflake()
+        .verified_stmt("ALTER PIPE p REFRESH PREFIX = 'a/' MODIFIED_AFTER = '2020-01-01'")
+    {
         Statement::AlterPipe { operation, .. } => {
             assert!(matches!(
                 operation,
@@ -9623,4 +9629,53 @@ fn test_alter_pipe() {
         _ => unreachable!(),
     }
     snowflake().verified_stmt("ALTER PIPE p REFRESH");
+}
+
+#[test]
+fn parse_snowflake_external_table_family_roundtrips() {
+    // Every member of the Snowflake external-table statement family must parse
+    // under the Snowflake dialect and survive a `Display` -> reparse round trip
+    // to the same AST (ADR 074 §6).
+    let dialect = snowflake();
+    for sql in [
+        // CREATE with virtual columns (parenthesised and bare AS), the full set
+        // of trailing option clauses, and the deferred/rejected knobs.
+        "CREATE EXTERNAL TABLE et (id INT AS (VALUE:c1::INT)) \
+         LOCATION=@stage/data/ FILE_FORMAT=(TYPE=JSON) AUTO_REFRESH=FALSE",
+        "CREATE OR REPLACE EXTERNAL TABLE IF NOT EXISTS et \
+         (id INT AS (VALUE:id::INT), name STRING AS (VALUE:name::STRING)) \
+         LOCATION=@stage/json/ FILE_FORMAT=(FORMAT_NAME='ff') AUTO_REFRESH=FALSE",
+        "CREATE EXTERNAL TABLE et \
+         (id INT AS (VALUE:id::INT), dt DATE AS (TO_DATE(SPLIT_PART(METADATA$FILENAME, '/', 2), 'YYYY-MM-DD'))) \
+         LOCATION=@stage/logs/ FILE_FORMAT=(TYPE=JSON) PATTERN='.*[.]json' \
+         REFRESH_ON_CREATE=TRUE AUTO_REFRESH=FALSE PARTITION BY dt",
+        "CREATE EXTERNAL TABLE et (id INT AS (VALUE:id::INT)) \
+         LOCATION=@stage/parquet/ FILE_FORMAT=(TYPE=PARQUET) TABLE_FORMAT=DELTA",
+        "CREATE EXTERNAL TABLE et \
+         (dt DATE AS (TO_DATE(SPLIT_PART(METADATA$FILENAME, '/', 2), 'YYYY-MM-DD'))) \
+         LOCATION=@stage/logs/ FILE_FORMAT=(TYPE=JSON) PARTITION_TYPE=USER_SPECIFIED \
+         AUTO_REFRESH=FALSE PARTITION BY dt",
+        // DROP / DESC.
+        "DROP EXTERNAL TABLE et",
+        "DROP EXTERNAL TABLE IF EXISTS et",
+        "DESC EXTERNAL TABLE et",
+        "DESCRIBE EXTERNAL TABLE et",
+        // ALTER operations.
+        "ALTER EXTERNAL TABLE et REFRESH",
+        "ALTER EXTERNAL TABLE et REFRESH 'sub_a/'",
+        "ALTER EXTERNAL TABLE IF EXISTS et ADD FILES ('a.json', 'b.json')",
+        "ALTER EXTERNAL TABLE et REMOVE FILES ('a.json')",
+        "ALTER EXTERNAL TABLE et SET AUTO_REFRESH = TRUE",
+        "ALTER EXTERNAL TABLE et ADD PARTITION (dt = '2026-01-01') LOCATION 'json/'",
+        "ALTER EXTERNAL TABLE et DROP PARTITION LOCATION 'json/'",
+    ] {
+        let ast = dialect
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+        let rendered = ast[0].to_string();
+        let reparsed = dialect
+            .parse_sql_statements(&rendered)
+            .unwrap_or_else(|e| panic!("failed to reparse {rendered:?}: {e}"));
+        assert_eq!(ast, reparsed, "round trip changed AST\n  in:  {sql}\n  out: {rendered}");
+    }
 }

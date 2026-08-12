@@ -796,6 +796,15 @@ fn test_duckdb_union_datatype() {
             distkey: Default::default(),
             sortkey: Default::default(),
             backup: Default::default(),
+            stage_file_format: None,
+            immutable_where: None,
+            initialization_warehouse: None,
+            scheduler: None,
+            pattern: None,
+            refresh_on_create: None,
+            partition_type: None,
+            table_format: None,
+            aws_sns_topic: None,
         }),
         stmt
     );

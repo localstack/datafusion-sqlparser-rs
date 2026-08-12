@@ -2419,10 +2419,8 @@ impl<'a> Tokenizer<'a> {
             return match self.read_low_surrogate(chars) {
                 Some(low) => {
                     let cp = 0x1_0000 + ((value - 0xD800) << 10) + (low - 0xDC00);
-                    char::from_u32(cp).map_or_else(
-                        || self.tokenizer_error(loc, "Invalid escape sequence."),
-                        Ok,
-                    )
+                    char::from_u32(cp)
+                        .map_or_else(|| self.tokenizer_error(loc, "Invalid escape sequence."), Ok)
                 }
                 None => self.tokenizer_error(
                     loc,
@@ -2463,11 +2461,15 @@ impl<'a> Tokenizer<'a> {
         if digits.len() < 4 {
             return self.tokenizer_error(
                 loc,
-                format!("Invalid unicode escape sequence '\\u{digits}'; should be exactly 4 digits."),
+                format!(
+                    "Invalid unicode escape sequence '\\u{digits}'; should be exactly 4 digits."
+                ),
             );
         }
-        u32::from_str_radix(&digits, 16)
-            .map_or_else(|_| self.tokenizer_error(loc, "Invalid unicode escape sequence."), Ok)
+        u32::from_str_radix(&digits, 16).map_or_else(
+            |_| self.tokenizer_error(loc, "Invalid unicode escape sequence."),
+            Ok,
+        )
     }
 
     /// Consume a trailing `\uhhhh` low surrogate, returning its value when

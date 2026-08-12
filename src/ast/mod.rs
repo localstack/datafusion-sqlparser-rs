@@ -64,20 +64,20 @@ pub use self::dcl::{
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
-    AlterMaskingPolicyOperation, AlterTagOperation,
-    AlterIndexOperation, AlterProcedure, AlterProcedureOperation,
-    AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
-    AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy,
-    AlterPolicyOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
-    AlterTableLock, AlterTableOperation, AlterTableType, AlterType, AlterTypeAddValue,
-    AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
-    ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
-    ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation, CreateCollationDefinition,
-    CreateConnector, CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
-    CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
-    CreateTable, CreateTrigger, CreateView, Deduplicate, DeferrableInitial, DistStyle,
-    DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass, DropOperatorFamily,
-    DropOperatorSignature, DropPolicy, DropTrigger, ForValues, FunctionReturnType, GeneratedAs,
+    AlterIndexOperation, AlterMaskingPolicyOperation, AlterOperator, AlterOperatorClass,
+    AlterOperatorClassOperation, AlterOperatorFamily, AlterOperatorFamilyOperation,
+    AlterOperatorOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
+    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
+    AlterTableLock, AlterTableOperation, AlterTableType, AlterTagOperation, AlterType,
+    AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
+    AlterTypeRenameValue, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
+    ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation,
+    CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension, CreateFunction,
+    CreateIndex, CreateOperator, CreateOperatorClass, CreateOperatorFamily, CreatePolicy,
+    CreatePolicyCommand, CreatePolicyType, CreateTable, CreateTrigger, CreateView, Deduplicate,
+    DeferrableInitial, DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator,
+    DropOperatorClass, DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger,
+    ExternalTablePartitionColumn, ForValues, FunctionReturnType, GeneratedAs,
     GeneratedExpressionMode, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
     IdentityPropertyKind, IdentityPropertyOrder, IndexColumn, IndexOption, IndexType,
     KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes, OperatorClassItem,
@@ -6433,11 +6433,7 @@ impl fmt::Display for Statement {
                 write!(f, "FETCH {cursor} INTO {}", display_comma_separated(into))
             }
             Statement::CallInto { function, into } => {
-                write!(
-                    f,
-                    "CALL {function} INTO {}",
-                    display_comma_separated(into)
-                )
+                write!(f, "CALL {function} INTO {}", display_comma_separated(into))
             }
             Statement::AlterProcedure(alter_procedure) => write!(f, "{alter_procedure}"),
             Statement::WithProcedure {
@@ -7219,7 +7215,11 @@ impl fmt::Display for Statement {
                     f,
                     "SHOW {terse}{kind}{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
-                    kind = if *dynamic { "DYNAMIC TABLES" } else { "OBJECTS" },
+                    kind = if *dynamic {
+                        "DYNAMIC TABLES"
+                    } else {
+                        "OBJECTS"
+                    },
                 )?;
                 Ok(())
             }
@@ -10738,6 +10738,9 @@ pub enum ObjectType {
     /// A dynamic table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-dynamic-table>
     DynamicTable,
+    /// An external table (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
+    ExternalTable,
     /// An index.
     Index,
     /// A schema.
@@ -10775,6 +10778,7 @@ impl fmt::Display for ObjectType {
             ObjectType::View => "VIEW",
             ObjectType::MaterializedView => "MATERIALIZED VIEW",
             ObjectType::DynamicTable => "DYNAMIC TABLE",
+            ObjectType::ExternalTable => "EXTERNAL TABLE",
             ObjectType::Index => "INDEX",
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
@@ -10972,6 +10976,9 @@ pub enum DescribeObjectType {
     /// `DYNAMIC TABLE` (Snowflake)
     /// <https://docs.snowflake.com/en/sql-reference/sql/desc-dynamic-table>
     DynamicTable,
+    /// `EXTERNAL TABLE` (Snowflake)
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-external-table>
+    ExternalTable,
     /// `VIEW`
     View,
     /// `MATERIALIZED VIEW` (Snowflake)
@@ -10998,6 +11005,7 @@ impl fmt::Display for DescribeObjectType {
         f.write_str(match self {
             DescribeObjectType::Table => "TABLE",
             DescribeObjectType::DynamicTable => "DYNAMIC TABLE",
+            DescribeObjectType::ExternalTable => "EXTERNAL TABLE",
             DescribeObjectType::View => "VIEW",
             DescribeObjectType::MaterializedView => "MATERIALIZED VIEW",
             DescribeObjectType::Database => "DATABASE",
@@ -14787,7 +14795,7 @@ impl fmt::Display for AlterUser {
         let has_props = !self.set_props.options.is_empty();
         if has_props {
             write!(f, " SET")?;
-            write!(f, " {}", &self.set_props)?;
+            write!(f, " {}", self.set_props)?;
         }
         if !self.unset_props.is_empty() {
             write!(f, " UNSET {}", display_comma_separated(&self.unset_props))?;
