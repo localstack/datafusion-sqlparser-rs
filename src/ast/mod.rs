@@ -5096,6 +5096,10 @@ pub enum Statement {
         /// how [`crate::ast::TableVersion::Function`] keeps a table-version
         /// clause. Absent for a plain `ON {TABLE|VIEW} <source>`.
         at_before: Option<Expr>,
+        /// The optional `APPEND_ONLY = { TRUE | FALSE }` property, following the
+        /// `{ AT | BEFORE }` clause. `None` when the option is omitted (which
+        /// Snowflake treats as `FALSE`).
+        append_only: Option<bool>,
     },
     /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
@@ -7702,6 +7706,7 @@ impl fmt::Display for Statement {
                 source_kind,
                 source_table,
                 at_before,
+                append_only,
             } => {
                 write!(
                     f,
@@ -7711,6 +7716,13 @@ impl fmt::Display for Statement {
                 )?;
                 if let Some(at_before) = at_before {
                     write!(f, " {at_before}")?;
+                }
+                if let Some(append_only) = append_only {
+                    write!(
+                        f,
+                        " APPEND_ONLY = {}",
+                        if *append_only { "TRUE" } else { "FALSE" }
+                    )?;
                 }
                 Ok(())
             }
