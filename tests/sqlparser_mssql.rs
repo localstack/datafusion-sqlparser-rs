@@ -2022,6 +2022,14 @@ fn parse_create_table_with_valid_options() {
                 distkey: None,
                 sortkey: None,
                 backup: None,
+                immutable_where: None,
+                initialization_warehouse: None,
+                scheduler: None,
+                pattern: None,
+                refresh_on_create: None,
+                partition_type: None,
+                table_format: None,
+                aws_sns_topic: None,
             })
         );
     }
@@ -2199,6 +2207,14 @@ fn parse_create_table_with_identity_column() {
                 distkey: None,
                 sortkey: None,
                 backup: None,
+                immutable_where: None,
+                initialization_warehouse: None,
+                scheduler: None,
+                pattern: None,
+                refresh_on_create: None,
+                partition_type: None,
+                table_format: None,
+                aws_sns_topic: None,
             }),
         );
     }
