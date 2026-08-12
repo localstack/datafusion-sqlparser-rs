@@ -7072,9 +7072,6 @@ fn parse_trigger_related_functions() {
             warehouse: None,
             version: None,
             refresh_mode: None,
-            initialization_warehouse: None,
-            scheduler: None,
-            immutable_where: None,
             initialize: None,
             require_user: false,
             diststyle: None,
@@ -7084,6 +7081,14 @@ fn parse_trigger_related_functions() {
             multiset: None,
             fallback: None,
             with_data: None,
+            immutable_where: None,
+            initialization_warehouse: None,
+            scheduler: None,
+            pattern: None,
+            refresh_on_create: None,
+            partition_type: None,
+            table_format: None,
+            aws_sns_topic: None,
         }
     );
 

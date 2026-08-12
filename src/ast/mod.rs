@@ -85,6 +85,7 @@ pub use self::ddl::{
     OperatorClassItem, OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose,
     Owner, Partition, PartitionBoundValue, ProcedureParam, ReferentialAction, RenameTableNameKind,
     ReplicaIdentity, TagsColumnOption, TextSearchObjectType, TriggerObjectKind, Truncate,
+    ExternalTablePartitionColumn,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
     UserDefinedTypeStorage, ViewColumnDef, WithData,
@@ -6465,11 +6466,7 @@ impl fmt::Display for Statement {
                 write!(f, "FETCH {cursor} INTO {}", display_comma_separated(into))
             }
             Statement::CallInto { function, into } => {
-                write!(
-                    f,
-                    "CALL {function} INTO {}",
-                    display_comma_separated(into)
-                )
+                write!(f, "CALL {function} INTO {}", display_comma_separated(into))
             }
             Statement::AlterProcedure(alter_procedure) => write!(f, "{alter_procedure}"),
             Statement::WithProcedure {
@@ -7253,7 +7250,11 @@ impl fmt::Display for Statement {
                     f,
                     "SHOW {terse}{kind}{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
-                    kind = if *dynamic { "DYNAMIC TABLES" } else { "OBJECTS" },
+                    kind = if *dynamic {
+                        "DYNAMIC TABLES"
+                    } else {
+                        "OBJECTS"
+                    },
                 )?;
                 Ok(())
             }
@@ -10819,6 +10820,9 @@ pub enum ObjectType {
     /// A dynamic table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-dynamic-table>
     DynamicTable,
+    /// An external table (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
+    ExternalTable,
     /// An index.
     Index,
     /// A schema.
@@ -10856,6 +10860,7 @@ impl fmt::Display for ObjectType {
             ObjectType::View => "VIEW",
             ObjectType::MaterializedView => "MATERIALIZED VIEW",
             ObjectType::DynamicTable => "DYNAMIC TABLE",
+            ObjectType::ExternalTable => "EXTERNAL TABLE",
             ObjectType::Index => "INDEX",
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
@@ -11053,6 +11058,9 @@ pub enum DescribeObjectType {
     /// `DYNAMIC TABLE` (Snowflake)
     /// <https://docs.snowflake.com/en/sql-reference/sql/desc-dynamic-table>
     DynamicTable,
+    /// `EXTERNAL TABLE` (Snowflake)
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-external-table>
+    ExternalTable,
     /// `VIEW`
     View,
     /// `MATERIALIZED VIEW` (Snowflake)
@@ -11079,6 +11087,7 @@ impl fmt::Display for DescribeObjectType {
         f.write_str(match self {
             DescribeObjectType::Table => "TABLE",
             DescribeObjectType::DynamicTable => "DYNAMIC TABLE",
+            DescribeObjectType::ExternalTable => "EXTERNAL TABLE",
             DescribeObjectType::View => "VIEW",
             DescribeObjectType::MaterializedView => "MATERIALIZED VIEW",
             DescribeObjectType::Database => "DATABASE",
