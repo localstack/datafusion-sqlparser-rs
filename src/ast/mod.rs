@@ -4984,6 +4984,8 @@ pub enum Statement {
         copy_options: KeyValueOptions,
         /// Optional comment.
         comment: Option<String>,
+        /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
+        with_tags: Vec<Tag>,
     },
     /// ```sql
     /// ALTER STAGE [IF EXISTS] <name> { SET ... | RENAME TO <new_name> }
@@ -7603,6 +7605,7 @@ impl fmt::Display for Statement {
                 file_format,
                 copy_options,
                 comment,
+                with_tags,
                 ..
             } => {
                 write!(
@@ -7623,6 +7626,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(comment) = comment {
                     write!(f, " COMMENT='{}'", comment)?;
+                }
+                if !with_tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?;
                 }
                 Ok(())
             }
