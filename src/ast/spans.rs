@@ -426,9 +426,7 @@ impl Spanned for Statement {
                 name,
                 column_name,
                 op,
-            } => union_spans(
-                [name.span(), column_name.span, op.span()].into_iter(),
-            ),
+            } => union_spans([name.span(), column_name.span, op.span()].into_iter()),
             // These statements need to be implemented
             Statement::AlterFunction { .. } => Span::empty(),
             Statement::AlterType { .. } => Span::empty(),
@@ -669,7 +667,7 @@ impl Spanned for CreateTable {
             copy_grants: _,                     // bool
             enable_schema_evolution: _,         // bool
             change_tracking: _,                 // bool
-            stage_file_format: _,                // key-value options, no span
+            stage_file_format: _,               // key-value options, no span
             data_retention_time_in_days: _,     // u64, no span
             max_data_extension_time_in_days: _, // u64, no span
             default_ddl_collation: _,           // string, no span
@@ -698,6 +696,11 @@ impl Spanned for CreateTable {
             distkey: _,
             sortkey: _,
             backup: _,
+            pattern: _,
+            refresh_on_create: _,
+            partition_type: _,
+            table_format: _,
+            aws_sns_topic: _,
         } = self;
 
         union_spans(
@@ -1370,6 +1373,11 @@ impl Spanned for AlterTableOperation {
             AlterTableOperation::SuspendRecluster => Span::empty(),
             AlterTableOperation::ResumeRecluster => Span::empty(),
             AlterTableOperation::Refresh { .. } => Span::empty(),
+            AlterTableOperation::AddFiles { .. } => Span::empty(),
+            AlterTableOperation::RemoveFiles { .. } => Span::empty(),
+            AlterTableOperation::SetAutoRefresh { .. } => Span::empty(),
+            AlterTableOperation::AddExternalPartition { .. } => Span::empty(),
+            AlterTableOperation::DropExternalPartition { .. } => Span::empty(),
             AlterTableOperation::Suspend => Span::empty(),
             AlterTableOperation::Resume => Span::empty(),
             AlterTableOperation::Algorithm { .. } => Span::empty(),
@@ -1675,9 +1683,9 @@ impl Spanned for Expr {
                 expr,
                 patterns,
                 escape_char: _,
-            } => union_spans(
-                core::iter::once(expr.span()).chain(patterns.iter().map(|p| p.span())),
-            ),
+            } => {
+                union_spans(core::iter::once(expr.span()).chain(patterns.iter().map(|p| p.span())))
+            }
             Expr::RLike { .. } => Span::empty(),
             Expr::IsNormalized {
                 expr,
