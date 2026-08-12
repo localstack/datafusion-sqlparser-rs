@@ -700,7 +700,6 @@ fn test_duckdb_union_datatype() {
     let stmt = duckdb_and_generic().verified_stmt(sql);
     assert_eq!(
         Statement::CreateTable(CreateTable {
-            stage_file_format: Default::default(),
             or_replace: Default::default(),
             temporary: Default::default(),
             unlogged: Default::default(),
@@ -792,9 +791,6 @@ fn test_duckdb_union_datatype() {
             warehouse: None,
             version: None,
             refresh_mode: None,
-            initialization_warehouse: None,
-            scheduler: None,
-            immutable_where: None,
             initialize: None,
             require_user: Default::default(),
             diststyle: Default::default(),
@@ -804,6 +800,15 @@ fn test_duckdb_union_datatype() {
             multiset: Default::default(),
             fallback: Default::default(),
             with_data: Default::default(),
+            stage_file_format: None,
+            immutable_where: None,
+            initialization_warehouse: None,
+            scheduler: None,
+            pattern: None,
+            refresh_on_create: None,
+            partition_type: None,
+            table_format: None,
+            aws_sns_topic: None,
         }),
         stmt
     );

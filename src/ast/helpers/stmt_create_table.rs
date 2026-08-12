@@ -207,6 +207,16 @@ pub struct CreateTableBuilder {
     pub fallback: Option<bool>,
     /// `WITH DATA` clause.
     pub with_data: Option<WithData>,
+    /// Snowflake external table `PATTERN` clause.
+    pub pattern: Option<String>,
+    /// Snowflake external table `REFRESH_ON_CREATE` clause.
+    pub refresh_on_create: Option<bool>,
+    /// Snowflake external table `PARTITION_TYPE` clause.
+    pub partition_type: Option<String>,
+    /// Snowflake external table `TABLE_FORMAT` clause.
+    pub table_format: Option<String>,
+    /// Snowflake external table `AWS_SNS_TOPIC` clause.
+    pub aws_sns_topic: Option<String>,
 }
 
 impl CreateTableBuilder {
@@ -283,6 +293,11 @@ impl CreateTableBuilder {
             multiset: None,
             fallback: None,
             with_data: None,
+            pattern: None,
+            refresh_on_create: None,
+            partition_type: None,
+            table_format: None,
+            aws_sns_topic: None,
         }
     }
     /// Set `OR REPLACE` for the CREATE TABLE statement.
@@ -637,6 +652,31 @@ impl CreateTableBuilder {
         self.with_data = with_data;
         self
     }
+    /// Set the Snowflake external table `PATTERN` clause.
+    pub fn pattern(mut self, pattern: Option<String>) -> Self {
+        self.pattern = pattern;
+        self
+    }
+    /// Set the Snowflake external table `REFRESH_ON_CREATE` clause.
+    pub fn refresh_on_create(mut self, refresh_on_create: Option<bool>) -> Self {
+        self.refresh_on_create = refresh_on_create;
+        self
+    }
+    /// Set the Snowflake external table `PARTITION_TYPE` clause.
+    pub fn partition_type(mut self, partition_type: Option<String>) -> Self {
+        self.partition_type = partition_type;
+        self
+    }
+    /// Set the Snowflake external table `TABLE_FORMAT` clause.
+    pub fn table_format(mut self, table_format: Option<String>) -> Self {
+        self.table_format = table_format;
+        self
+    }
+    /// Set the Snowflake external table `AWS_SNS_TOPIC` clause.
+    pub fn aws_sns_topic(mut self, aws_sns_topic: Option<String>) -> Self {
+        self.aws_sns_topic = aws_sns_topic;
+        self
+    }
     /// Consume the builder and produce a `CreateTable`.
     pub fn build(self) -> CreateTable {
         CreateTable {
@@ -710,6 +750,11 @@ impl CreateTableBuilder {
             multiset: self.multiset,
             fallback: self.fallback,
             with_data: self.with_data,
+            pattern: self.pattern,
+            refresh_on_create: self.refresh_on_create,
+            partition_type: self.partition_type,
+            table_format: self.table_format,
+            aws_sns_topic: self.aws_sns_topic,
         }
     }
 }
@@ -802,6 +847,11 @@ impl From<CreateTable> for CreateTableBuilder {
             multiset: table.multiset,
             fallback: table.fallback,
             with_data: table.with_data,
+            pattern: table.pattern,
+            refresh_on_create: table.refresh_on_create,
+            partition_type: table.partition_type,
+            table_format: table.table_format,
+            aws_sns_topic: table.aws_sns_topic,
         }
     }
 }
