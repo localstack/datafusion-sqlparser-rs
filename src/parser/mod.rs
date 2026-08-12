@@ -5107,7 +5107,7 @@ impl<'a> Parser<'a> {
         if self.parse_keyword(expected) {
             Ok(self.get_current_token().clone())
         } else {
-            self.expected_ref(format!("{:?}", &expected).as_str(), self.peek_token_ref())
+            self.expected_ref(format!("{:?}", expected).as_str(), self.peek_token_ref())
         }
     }
 
@@ -5120,7 +5120,7 @@ impl<'a> Parser<'a> {
         if self.parse_keyword(expected) {
             Ok(())
         } else {
-            self.expected_ref(format!("{:?}", &expected).as_str(), self.peek_token_ref())
+            self.expected_ref(format!("{:?}", expected).as_str(), self.peek_token_ref())
         }
     }
 
@@ -6043,6 +6043,21 @@ impl<'a> Parser<'a> {
         let with_managed_access =
             self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
 
+        // Snowflake inline `[ WITH ] TAG ( <t> = '<v>', ... )` clause. The
+        // optional `WITH` shares its keyword with the Trino option list below,
+        // so intercept `WITH TAG` (and the bare `TAG`) here; `parse_keywords`
+        // backtracks when `TAG` does not follow, leaving `WITH (k='v')` intact.
+        let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+            || self.parse_keyword(Keyword::TAG)
+        {
+            self.expect_token(&Token::LParen)?;
+            let tags = self.parse_comma_separated(Parser::parse_tag)?;
+            self.expect_token(&Token::RParen)?;
+            Some(tags)
+        } else {
+            None
+        };
+
         let with = if !with_managed_access && self.peek_keyword(Keyword::WITH) {
             Some(self.parse_options(Keyword::WITH)?)
         } else {
@@ -6074,6 +6089,7 @@ impl<'a> Parser<'a> {
             default_collate_spec,
             clone,
             comment,
+            with_tags,
         })
     }
 
@@ -11435,8 +11451,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.dialect.supports_alter_column_comment()
-            && (self.parse_keyword(Keyword::COLUMN)
-                || self.peek_bare_column_comment_continuation())
+            && (self.parse_keyword(Keyword::COLUMN) || self.peek_bare_column_comment_continuation())
         {
             // Continuation of a comma-separated `ALTER COLUMN ... COMMENT` list,
             // e.g. `... ALTER COLUMN c1 COMMENT 's1', COLUMN c2 COMMENT 's2'`.
@@ -12277,7 +12292,10 @@ impl<'a> Parser<'a> {
 
         // Snowflake: `ALTER VIEW v { MODIFY | ALTER } COLUMN c
         //   { SET MASKING POLICY p [USING (...)] [FORCE] | UNSET MASKING POLICY }`
-        if self.parse_one_of_keywords(&[Keyword::MODIFY, Keyword::ALTER]).is_some() {
+        if self
+            .parse_one_of_keywords(&[Keyword::MODIFY, Keyword::ALTER])
+            .is_some()
+        {
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
             let column_name = self.parse_identifier()?;
             let op = match self.maybe_parse_column_masking_policy()? {
@@ -12776,9 +12794,7 @@ impl<'a> Parser<'a> {
     /// Each target is either a `:placeholder` bind variable — kept verbatim as
     /// its `:name` text so the round-trip is stable — or a bare local-variable
     /// name.
-    pub(crate) fn parse_scripting_into_targets(
-        &mut self,
-    ) -> Result<Vec<ObjectName>, ParserError> {
+    pub(crate) fn parse_scripting_into_targets(&mut self) -> Result<Vec<ObjectName>, ParserError> {
         self.parse_comma_separated(Parser::parse_scripting_into_target)
     }
 
@@ -14630,7 +14646,7 @@ impl<'a> Parser<'a> {
                 }
                 Token::EOF => break,
                 token => {
-                    return Err(ParserError::ParserError(format!(
+                    Err(ParserError::ParserError(format!(
                         "Unexpected token in identifier: {token}"
                     )))?;
                 }
@@ -15314,6 +15330,15 @@ impl<'a> Parser<'a> {
                             table_type: None,
                         });
                     }
+                    if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::TABLE]) {
+                        let object_name = self.parse_object_name(false)?;
+                        return Ok(Statement::DescribeObject {
+                            describe_alias,
+                            object_type: DescribeObjectType::ExternalTable,
+                            object_name,
+                            table_type: None,
+                        });
+                    }
                     if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW]) {
                         let object_name = self.parse_object_name(false)?;
                         return Ok(Statement::DescribeObject {
@@ -15365,9 +15390,7 @@ impl<'a> Parser<'a> {
                             match self.parse_one_of_keywords(&[Keyword::COLUMNS, Keyword::STAGE]) {
                                 Some(Keyword::COLUMNS) => Some(DescribeTableType::Columns),
                                 Some(Keyword::STAGE) => Some(DescribeTableType::Stage),
-                                _ => {
-                                    return self.expected("COLUMNS or STAGE", self.peek_token())
-                                }
+                                _ => return self.expected("COLUMNS or STAGE", self.peek_token()),
                             }
                         } else {
                             None
@@ -18024,7 +18047,7 @@ impl<'a> Parser<'a> {
                 where_clause = Some(self.parse_expr()?);
             } else {
                 let tok = self.peek_token_ref();
-                return parser_err!(
+                parser_err!(
                     format!(
                         "Expected one of DIMENSIONS, METRICS, FACTS or WHERE, got {}",
                         tok.token

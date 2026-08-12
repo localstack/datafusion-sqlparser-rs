@@ -28,19 +28,19 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTagOperation,
-    AlterTableOperation, AlterTableType, CatalogRestAuthentication, CatalogRestConfig,
-    CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
-    ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind,
-    DollarQuotedString, Expr, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
-    Ident, ProcedureExecuteAs,
-    IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
-    IdentityPropertyOrder, InitializeKind, Insert, MultiTableInsertIntoClause,
-    MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
-    MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType, OperateFunctionArg,
-    RefreshModeKind, RenameTableNameKind, RowAccessPolicy, ShowKeysKind, ShowObjects, SqlOption,
-    Statement, StorageLifecyclePolicy, StorageSerializationPolicy, TableObject, Tag,
-    TagsColumnOption, Value, ValueWithSpan, WrappedCollection,
+    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
+    AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
+    CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
+    ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
+    Expr, ExternalTablePartitionColumn, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
+    GeneratedAs, Ident, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
+    IdentityPropertyKind, IdentityPropertyOrder, InitializeKind, Insert,
+    MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
+    MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
+    OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
+    ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
+    StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
+    WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -435,6 +435,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_external_volume(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::EXTERNAL, Keyword::TABLE]) {
+            // DROP EXTERNAL TABLE
+            return Some(parse_drop_external_table(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::CATALOG, Keyword::INTEGRATION]) {
             // DROP CATALOG INTEGRATION
             return Some(parse_drop_catalog_integration(parser));
@@ -510,6 +515,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] EXTERNAL VOLUME
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
                 return Some(parse_create_external_volume(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] EXTERNAL TABLE
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::TABLE]) {
+                return Some(parse_create_external_table(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] CATALOG INTEGRATION
@@ -768,6 +778,21 @@ impl Dialect for SnowflakeDialect {
                     .map(|p| Some(ColumnOption::Policy(ColumnPolicy::ProjectionPolicy(p)))))
             } else if parser.parse_keywords(&[Keyword::TAG]) {
                 Ok(parse_column_tags(parser, with).map(|p| Some(ColumnOption::Tags(p))))
+            } else if !with && parser.parse_keyword(Keyword::AS) {
+                // Snowflake external-table virtual column: `<col> <type> AS <expr>`,
+                // with or without parentheses around the expression.
+                let parenthesised = parser.consume_token(&Token::LParen);
+                let expr = parser.parse_expr()?;
+                if parenthesised {
+                    parser.expect_token(&Token::RParen)?;
+                }
+                Ok(Ok(Some(ColumnOption::Generated {
+                    generated_as: GeneratedAs::Always,
+                    sequence_options: None,
+                    generation_expr: Some(expr),
+                    generation_expr_mode: None,
+                    generated_keyword: false,
+                })))
             } else {
                 Err(ParserError::ParserError("not found match".to_string()))
             }
@@ -1470,7 +1495,6 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let table_name = parser.parse_object_name(true)?;
 
-    // Parse the operation (REFRESH for now)
     let operation = if parser.parse_keyword(Keyword::REFRESH) {
         // Optional subpath for refreshing specific partitions
         let subpath = match parser.peek_token().token {
@@ -1481,9 +1505,47 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
             _ => None,
         };
         AlterTableOperation::Refresh { subpath }
+    } else if parser.parse_keywords(&[Keyword::ADD, Keyword::FILES]) {
+        AlterTableOperation::AddFiles {
+            files: parse_external_table_file_list(parser)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::REMOVE, Keyword::FILES]) {
+        AlterTableOperation::RemoveFiles {
+            files: parse_external_table_file_list(parser)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::ADD, Keyword::PARTITION]) {
+        parser.expect_token(&Token::LParen)?;
+        let mut partitions = Vec::new();
+        loop {
+            let column = parser.parse_identifier()?;
+            parser.expect_token(&Token::Eq)?;
+            let value = parser.parse_literal_string()?;
+            partitions.push(ExternalTablePartitionColumn { column, value });
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+        parser.expect_token(&Token::RParen)?;
+        parser.expect_keyword_is(Keyword::LOCATION)?;
+        let location = parser.parse_literal_string()?;
+        AlterTableOperation::AddExternalPartition {
+            partitions,
+            location,
+        }
+    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::PARTITION]) {
+        parser.expect_keyword_is(Keyword::LOCATION)?;
+        let location = parser.parse_literal_string()?;
+        AlterTableOperation::DropExternalPartition { location }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::AUTO_REFRESH]) {
+        let _ = parser.consume_token(&Token::Eq);
+        let value = parser.parse_keyword(Keyword::TRUE);
+        if !value {
+            parser.expect_keyword_is(Keyword::FALSE)?;
+        }
+        AlterTableOperation::SetAutoRefresh { value }
     } else {
         return parser.expected_ref(
-            "REFRESH after ALTER EXTERNAL TABLE",
+            "REFRESH, ADD FILES, REMOVE FILES, ADD/DROP PARTITION or SET AUTO_REFRESH after ALTER EXTERNAL TABLE",
             parser.peek_token_ref(),
         );
     };
@@ -1504,6 +1566,229 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         table_type: Some(AlterTableType::External),
         end_token: AttachedToken(end_token),
     }))
+}
+
+/// Parse a Snowflake `CREATE [OR REPLACE] EXTERNAL TABLE` statement. The
+/// `EXTERNAL TABLE` keywords have already been consumed.
+/// <https://docs.snowflake.com/en/sql-reference/sql/create-external-table>
+fn parse_create_external_table(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let table_name = parser.parse_object_name(false)?;
+    let (columns, constraints) = parser.parse_columns()?;
+
+    // The Hive `CREATE EXTERNAL TABLE … STORED AS … LOCATION '<path>'` form is
+    // reachable under the Snowflake dialect too, and other dialects depend on
+    // it. When the trailing clauses are Hive-shaped, hand off to the Hive
+    // grammar rather than the Snowflake one.
+    if is_hive_external_table_tail(parser) {
+        return parse_hive_external_table_tail(
+            parser,
+            table_name,
+            columns,
+            constraints,
+            or_replace,
+            if_not_exists,
+        );
+    }
+
+    let mut builder = CreateTableBuilder::new(table_name)
+        .or_replace(or_replace)
+        .if_not_exists(if_not_exists)
+        .external(true)
+        .hive_formats(None)
+        .columns(columns)
+        .constraints(constraints);
+
+    // Snowflake does not fix the order of the trailing clauses, so parse them in
+    // a loop until an unrecognised token (e.g. `;` or EOF) is reached.
+    loop {
+        if parser.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
+            let exprs = if parser.consume_token(&Token::LParen) {
+                let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+                parser.expect_token(&Token::RParen)?;
+                exprs
+            } else {
+                vec![parser.parse_expr()?]
+            };
+            let expr = if exprs.len() == 1 {
+                exprs.into_iter().next().expect("len checked")
+            } else {
+                Expr::Tuple(exprs)
+            };
+            builder = builder.partition_by(Some(Box::new(expr)));
+        } else if parser.parse_keyword(Keyword::LOCATION) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.location(Some(parse_external_table_location(parser)?));
+        } else if parser.parse_keyword(Keyword::FILE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            let options = parser.parse_key_value_options(true, &[], false)?;
+            builder = builder.stage_file_format(Some(options));
+        } else if parser.parse_keyword(Keyword::PATTERN) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.pattern(Some(parser.parse_literal_string()?));
+        } else if parser.parse_keyword(Keyword::REFRESH_ON_CREATE) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.refresh_on_create(Some(parser.parse_boolean_string()?));
+        } else if parser.parse_keyword(Keyword::AUTO_REFRESH) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder.auto_refresh = Some(parser.parse_boolean_string()?);
+        } else if parser.parse_keyword(Keyword::PARTITION_TYPE) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.partition_type(Some(parser.parse_identifier()?.value));
+        } else if parser.parse_keyword(Keyword::TABLE_FORMAT) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.table_format(Some(parser.parse_identifier()?.value));
+        } else if parser.parse_keyword(Keyword::AWS_SNS_TOPIC) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.aws_sns_topic(Some(parser.parse_literal_string()?));
+        } else if parser.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]) {
+            builder = builder.copy_grants(true);
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.prev_token();
+            if let Some(comment) = parser.parse_optional_inline_comment()? {
+                builder = builder.comment_after_column_def(Some(comment));
+            }
+        } else if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+            || parser.parse_keyword(Keyword::TAG)
+        {
+            parser.expect_token(&Token::LParen)?;
+            let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+            parser.expect_token(&Token::RParen)?;
+            builder = builder.with_tags(Some(tags));
+        } else if parser.parse_keywords(&[Keyword::WITH, Keyword::ROW])
+            || parser.parse_keyword(Keyword::ROW)
+        {
+            parser.expect_keywords(&[Keyword::ACCESS, Keyword::POLICY])?;
+            let policy = parser.parse_object_name(false)?;
+            parser.expect_keyword_is(Keyword::ON)?;
+            parser.expect_token(&Token::LParen)?;
+            let policy_columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+            parser.expect_token(&Token::RParen)?;
+            builder =
+                builder.with_row_access_policy(Some(RowAccessPolicy::new(policy, policy_columns)));
+        } else {
+            break;
+        }
+    }
+
+    Ok(Statement::CreateTable(builder.build()))
+}
+
+/// Whether the clauses following the column list are Hive-shaped (`STORED AS`,
+/// `ROW FORMAT`, `PARTITIONED BY`, `CLUSTERED BY`, `TBLPROPERTIES`, or a
+/// `LOCATION '<string>'` rather than the Snowflake `LOCATION=@stage`).
+fn is_hive_external_table_tail(parser: &Parser) -> bool {
+    match &parser.peek_token_ref().token {
+        Token::Word(w) => match w.keyword {
+            Keyword::STORED
+            | Keyword::ROW
+            | Keyword::PARTITIONED
+            | Keyword::CLUSTERED
+            | Keyword::TBLPROPERTIES => true,
+            Keyword::LOCATION => {
+                matches!(
+                    parser.peek_nth_token_ref(1).token,
+                    Token::SingleQuotedString(_)
+                )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Build a Hive-form `CREATE EXTERNAL TABLE` from an already-parsed name and
+/// column list, mirroring [`Parser::parse_create_external_table`].
+fn parse_hive_external_table_tail(
+    parser: &mut Parser,
+    table_name: ObjectName,
+    columns: Vec<crate::ast::ColumnDef>,
+    constraints: Vec<crate::ast::TableConstraint>,
+    or_replace: bool,
+    if_not_exists: bool,
+) -> Result<Statement, ParserError> {
+    let hive_distribution = parser.parse_hive_distribution()?;
+    let hive_formats = parser.parse_hive_formats()?;
+    let file_format = hive_formats
+        .as_ref()
+        .and_then(|hf| hf.storage.as_ref())
+        .and_then(|storage| match storage {
+            crate::ast::HiveIOFormat::FileFormat { format } => Some(*format),
+            crate::ast::HiveIOFormat::IOF { .. } | crate::ast::HiveIOFormat::Using { .. } => None,
+        });
+    let location = hive_formats.as_ref().and_then(|hf| hf.location.clone());
+    let table_properties = parser.parse_options(Keyword::TBLPROPERTIES)?;
+    let table_options = if table_properties.is_empty() {
+        crate::ast::CreateTableOptions::None
+    } else {
+        crate::ast::CreateTableOptions::TableProperties(table_properties)
+    };
+    Ok(Statement::CreateTable(
+        CreateTableBuilder::new(table_name)
+            .columns(columns)
+            .constraints(constraints)
+            .hive_distribution(hive_distribution)
+            .hive_formats(hive_formats)
+            .table_options(table_options)
+            .or_replace(or_replace)
+            .if_not_exists(if_not_exists)
+            .external(true)
+            .file_format(file_format)
+            .location(location)
+            .build(),
+    ))
+}
+
+/// Parse a Snowflake `DROP EXTERNAL TABLE` statement. The `DROP EXTERNAL TABLE`
+/// keywords have already been consumed.
+/// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
+fn parse_drop_external_table(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let names = parser.parse_comma_separated(|p| p.parse_object_name(false))?;
+    let cascade = parser.parse_keyword(Keyword::CASCADE);
+    let restrict = !cascade && parser.parse_keyword(Keyword::RESTRICT);
+    Ok(Statement::Drop {
+        object_type: ObjectType::ExternalTable,
+        if_exists,
+        names,
+        cascade,
+        restrict,
+        purge: false,
+        temporary: false,
+        table: None,
+    })
+}
+
+/// Parse the `@stage[/subpath]` reference used as an external-table `LOCATION`,
+/// carrying the whole reference (including any `/` subpath) through as one
+/// string.
+fn parse_external_table_location(parser: &mut Parser) -> Result<String, ParserError> {
+    let mut parts = Vec::new();
+    loop {
+        parts.push(parse_stage_name_identifier(parser)?.value);
+        if !parser.consume_token(&Token::Period) {
+            break;
+        }
+    }
+    Ok(parts.join("."))
+}
+
+/// Parse a parenthesised, comma-separated list of quoted staged file paths,
+/// as used by `ALTER EXTERNAL TABLE … ADD/REMOVE FILES ( '<path>' [, …] )`.
+fn parse_external_table_file_list(parser: &mut Parser) -> Result<Vec<String>, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    let mut files = Vec::new();
+    loop {
+        files.push(parser.parse_literal_string()?);
+        if !parser.consume_token(&Token::Comma) {
+            break;
+        }
+    }
+    parser.expect_token(&Token::RParen)?;
+    Ok(files)
 }
 
 /// Parse snowflake alter session.
@@ -3356,10 +3641,10 @@ fn parse_alter_object_set_tags(
 ) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let object_name = parser.parse_object_name(false)?;
-    let unset = match parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])? {
-        Keyword::UNSET => true,
-        _ => false,
-    };
+    let unset = matches!(
+        parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])?,
+        Keyword::UNSET
+    );
     parser.expect_keyword(Keyword::TAG)?;
 
     let mut set_tags = Vec::new();
