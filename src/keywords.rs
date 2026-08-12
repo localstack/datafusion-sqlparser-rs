@@ -124,6 +124,7 @@ define_keywords!(
     AND,
     ANTI,
     ANY,
+    APPEND_ONLY,
     APPLICATION,
     APPLY,
     APPLYBUDGET,
