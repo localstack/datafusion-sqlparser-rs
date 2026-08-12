@@ -389,6 +389,17 @@ impl Dialect for SnowflakeDialect {
             return Some(Ok(stmt));
         }
 
+        // ALTER STAGE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form. Every other ALTER STAGE form (SET <property>, RENAME TO)
+        // fails the closure (the `TAG` keyword is absent) and falls through to
+        // parse_alter_stage, which keeps the bare (name-less) form a syntax error.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::STAGE])?;
+            parse_alter_object_set_tags(p, ObjectType::Stage)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
@@ -1963,6 +1974,16 @@ pub fn parse_create_stage(
         comment,
     } = parse_stage_properties(parser)?;
 
+    // Trailing `WITH TAG (<t> = '<v>' [, ...])`. The property loop above breaks
+    // on the `WITH` keyword, so the clause is naturally trailing-only.
+    let mut with_tags = Vec::new();
+    if parser.parse_keyword(Keyword::WITH) {
+        parser.expect_keyword(Keyword::TAG)?;
+        parser.expect_token(&Token::LParen)?;
+        with_tags = parser.parse_comma_separated(Parser::parse_tag)?;
+        parser.expect_token(&Token::RParen)?;
+    }
+
     Ok(Statement::CreateStage {
         or_replace,
         temporary,
@@ -1973,6 +1994,7 @@ pub fn parse_create_stage(
         file_format,
         copy_options,
         comment,
+        with_tags,
     })
 }
 
