@@ -8727,6 +8727,8 @@ pub enum SequenceOptions {
     Cycle(bool),
     /// `OWNED BY <object_name>`, or `OWNED BY NONE` when no target is given.
     OwnedBy(Option<ObjectName>),
+    /// `ORDER` or `NOORDER` option (Snowflake); `true` = `ORDER`, `false` = `NOORDER`.
+    Order(bool),
 }
 
 impl fmt::Display for SequenceOptions {
@@ -8774,6 +8776,9 @@ impl fmt::Display for SequenceOptions {
             }
             SequenceOptions::OwnedBy(None) => {
                 write!(f, " OWNED BY NONE")
+            }
+            SequenceOptions::Order(order) => {
+                write!(f, " {}", if *order { "ORDER" } else { "NOORDER" })
             }
         }
     }
@@ -14106,6 +14111,8 @@ pub enum AlterSequenceOperation {
     SetComment(String),
     /// `UNSET COMMENT`
     UnsetComment,
+    /// `SET ORDER` or `SET NOORDER`; `true` = `ORDER`, `false` = `NOORDER`.
+    SetOrder(bool),
 }
 
 impl fmt::Display for AlterSequenceOperation {
@@ -14115,6 +14122,9 @@ impl fmt::Display for AlterSequenceOperation {
             AlterSequenceOperation::SetIncrement(value) => write!(f, "SET INCREMENT BY {value}"),
             AlterSequenceOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
             AlterSequenceOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterSequenceOperation::SetOrder(order) => {
+                write!(f, "SET {}", if *order { "ORDER" } else { "NOORDER" })
+            }
         }
     }
 }

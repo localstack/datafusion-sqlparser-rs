@@ -13478,9 +13478,13 @@ impl<'a> Parser<'a> {
                 let _ = self.parse_keyword(Keyword::BY);
                 let _ = self.consume_token(&Token::Eq);
                 AlterSequenceOperation::SetIncrement(self.parse_number()?)
+            } else if self.parse_keyword(Keyword::ORDER) {
+                AlterSequenceOperation::SetOrder(true)
+            } else if self.parse_keyword(Keyword::NOORDER) {
+                AlterSequenceOperation::SetOrder(false)
             } else {
                 return self.expected(
-                    "RENAME TO, INCREMENT, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
+                    "RENAME TO, INCREMENT, ORDER, NOORDER, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
                     self.peek_token(),
                 );
             }
@@ -23216,7 +23220,11 @@ impl<'a> Parser<'a> {
         allow_type_and_owner: bool,
     ) -> Result<Vec<SequenceOptions>, ParserError> {
         let mut sequence_options: Vec<SequenceOptions> = vec![];
+        let _ = self.parse_keyword(Keyword::WITH);
         loop {
+            if !sequence_options.is_empty() {
+                let _ = self.consume_token(&Token::Comma);
+            }
             let (option, name) = if self.parse_keyword(Keyword::INCREMENT) {
                 //[ INCREMENT [ BY ] increment ]
                 let by = self.parse_keyword(Keyword::BY);
@@ -23276,8 +23284,10 @@ impl<'a> Parser<'a> {
                     SequenceOptions::OwnedBy((!is_none).then_some(owner)),
                     "OWNED BY",
                 )
-            } else if self.parse_keyword(Keyword::ORDER) || self.parse_keyword(Keyword::NOORDER) {
-                continue;
+            } else if self.parse_keyword(Keyword::ORDER) {
+                (SequenceOptions::Order(true), "ORDER | NOORDER")
+            } else if self.parse_keyword(Keyword::NOORDER) {
+                (SequenceOptions::Order(false), "ORDER | NOORDER")
             } else {
                 break;
             };
