@@ -1104,9 +1104,12 @@ impl<'a> Parser<'a> {
                 && self.peek_nth_token_ref(1).token == Token::Assignment
             {
                 // bare assignment: var := expr
+                // Accepts `(EXECUTE IMMEDIATE …)` / `(SHOW …)` payloads the same
+                // way a RESULTSET declaration initializer does, so a dynamic
+                // query can be assigned to an existing RESULTSET variable.
                 let target = self.parse_identifier()?;
                 self.expect_token(&Token::Assignment)?;
-                let value = self.parse_expr()?;
+                let value = self.parse_snowflake_declaration_payload_expr()?;
                 Statement::Assignment { target, value }
             } else if let Some(kind) = loop_control_keyword(&self.peek_nth_token_ref(0).token) {
                 // Loop-control statements only make sense inside a scripting
