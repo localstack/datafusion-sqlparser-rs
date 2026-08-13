@@ -12231,9 +12231,13 @@ impl<'a> Parser<'a> {
                 let _ = self.parse_keyword(Keyword::BY);
                 let _ = self.consume_token(&Token::Eq);
                 AlterSequenceOperation::SetIncrement(self.parse_number()?)
+            } else if self.parse_keyword(Keyword::ORDER) {
+                AlterSequenceOperation::SetOrder(true)
+            } else if self.parse_keyword(Keyword::NOORDER) {
+                AlterSequenceOperation::SetOrder(false)
             } else {
                 return self.expected(
-                    "RENAME TO, INCREMENT, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
+                    "RENAME TO, INCREMENT, ORDER, NOORDER, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
                     self.peek_token(),
                 );
             }
@@ -21288,10 +21292,14 @@ impl<'a> Parser<'a> {
 
     fn parse_create_sequence_options(&mut self) -> Result<Vec<SequenceOptions>, ParserError> {
         // Options may appear in any order (Snowflake) and each keyword may use an
-        // optional `=` assignment form (`START = 1`, `INCREMENT = 1`). Snowflake's
-        // `ORDER`/`NOORDER` ordering guarantee is accepted and ignored.
+        // optional `=` assignment form (`START = 1`, `INCREMENT = 1`). A leading
+        // `WITH` and comma separators between options are both accepted.
         let mut sequence_options = vec![];
+        let _ = self.parse_keyword(Keyword::WITH);
         loop {
+            if !sequence_options.is_empty() {
+                let _ = self.consume_token(&Token::Comma);
+            }
             if self.parse_keyword(Keyword::INCREMENT) {
                 //[ INCREMENT [ BY ] [ = ] increment ]
                 let by = self.parse_keyword(Keyword::BY);
@@ -21322,8 +21330,10 @@ impl<'a> Parser<'a> {
                 sequence_options.push(SequenceOptions::Cycle(true));
             } else if self.parse_keyword(Keyword::CYCLE) {
                 sequence_options.push(SequenceOptions::Cycle(false));
-            } else if self.parse_keyword(Keyword::ORDER) || self.parse_keyword(Keyword::NOORDER) {
-                // Snowflake ordering guarantee — accepted, no effect on emulation.
+            } else if self.parse_keyword(Keyword::ORDER) {
+                sequence_options.push(SequenceOptions::Order(true));
+            } else if self.parse_keyword(Keyword::NOORDER) {
+                sequence_options.push(SequenceOptions::Order(false));
             } else {
                 break;
             }

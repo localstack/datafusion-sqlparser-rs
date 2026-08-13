@@ -137,7 +137,10 @@ fn parse_sf_create_stream_append_only() {
     // and on an `ON VIEW` source.
     for (sql, expected) in [
         ("CREATE STREAM s ON TABLE t APPEND_ONLY = TRUE", Some(true)),
-        ("CREATE STREAM s ON TABLE t APPEND_ONLY = FALSE", Some(false)),
+        (
+            "CREATE STREAM s ON TABLE t APPEND_ONLY = FALSE",
+            Some(false),
+        ),
         ("CREATE STREAM s ON VIEW v APPEND_ONLY = TRUE", Some(true)),
         (
             "CREATE STREAM s ON TABLE t AT(STREAM => 'S_BASE') APPEND_ONLY = TRUE",
@@ -1885,6 +1888,12 @@ fn parse_create_sequence_snowflake_options() {
         "CREATE SEQUENCE seq0 START = 1 INCREMENT = 1 ORDER",
         "CREATE SEQUENCE seq0 INCREMENT = 2 START = 5 NOORDER",
         "CREATE SEQUENCE seq0 START WITH 1 INCREMENT 1",
+        "CREATE SEQUENCE seq0 WITH START = 1, INCREMENT = 1",
+        "CREATE SEQUENCE seq0 WITH START = 1, INCREMENT = 1, ORDER",
+        "CREATE SEQUENCE seq0 WITH NOORDER",
+        "ALTER SEQUENCE seq0 SET ORDER",
+        "ALTER SEQUENCE seq0 SET NOORDER",
+        "ALTER SEQUENCE IF EXISTS seq0 SET NOORDER",
     ] {
         snowflake()
             .parse_sql_statements(sql)
