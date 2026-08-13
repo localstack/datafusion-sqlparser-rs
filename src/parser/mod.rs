@@ -14061,7 +14061,11 @@ impl<'a> Parser<'a> {
 
     fn parse_returns_table_columns(&mut self) -> Result<Vec<ColumnDef>, ParserError> {
         self.expect_token(&Token::LParen)?;
-        let columns = self.parse_comma_separated(Parser::parse_returns_table_column)?;
+        // Snowflake accepts an empty column list — `RETURNS TABLE()` — meaning the
+        // result columns are determined at run time. Bare `RETURNS TABLE` without
+        // parentheses remains a syntax error (handled by the caller).
+        let columns =
+            self.parse_comma_separated0(Parser::parse_returns_table_column, Token::RParen)?;
         self.expect_token(&Token::RParen)?;
         Ok(columns)
     }
