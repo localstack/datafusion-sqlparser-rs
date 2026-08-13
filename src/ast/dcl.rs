@@ -428,7 +428,11 @@ impl fmt::Display for CreateRole {
             write!(f, " AUTHORIZATION {owner}")?;
         }
         if !self.with_tags.is_empty() {
-            write!(f, " WITH TAG ({})", display_comma_separated(&self.with_tags))?;
+            write!(
+                f,
+                " WITH TAG ({})",
+                display_comma_separated(&self.with_tags)
+            )?;
         }
         Ok(())
     }

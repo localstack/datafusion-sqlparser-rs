@@ -8602,6 +8602,8 @@ pub enum SequenceOptions {
     Cache(Expr),
     /// `CYCLE` or `NO CYCLE` option.
     Cycle(bool),
+    /// `ORDER` or `NOORDER` option (Snowflake); `true` = `ORDER`, `false` = `NOORDER`.
+    Order(bool),
 }
 
 impl fmt::Display for SequenceOptions {
@@ -8640,6 +8642,9 @@ impl fmt::Display for SequenceOptions {
             }
             SequenceOptions::Cycle(no) => {
                 write!(f, " {}CYCLE", if *no { "NO " } else { "" })
+            }
+            SequenceOptions::Order(order) => {
+                write!(f, " {}", if *order { "ORDER" } else { "NOORDER" })
             }
         }
     }
@@ -13892,6 +13897,8 @@ pub enum AlterSequenceOperation {
     SetComment(String),
     /// `UNSET COMMENT`
     UnsetComment,
+    /// `SET ORDER` or `SET NOORDER`; `true` = `ORDER`, `false` = `NOORDER`.
+    SetOrder(bool),
 }
 
 impl fmt::Display for AlterSequenceOperation {
@@ -13901,6 +13908,9 @@ impl fmt::Display for AlterSequenceOperation {
             AlterSequenceOperation::SetIncrement(value) => write!(f, "SET INCREMENT BY {value}"),
             AlterSequenceOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
             AlterSequenceOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterSequenceOperation::SetOrder(order) => {
+                write!(f, "SET {}", if *order { "ORDER" } else { "NOORDER" })
+            }
         }
     }
 }
