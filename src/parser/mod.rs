@@ -5797,7 +5797,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::ROLE) {
             self.parse_create_role(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
-            self.parse_create_sequence(or_replace, temporary)
+            self.parse_create_sequence(or_replace, or_alter, temporary)
         } else if self.parse_keyword(Keyword::STREAM) {
             self.parse_create_stream(or_replace)
         } else if self.parse_keyword(Keyword::PIPE) {
@@ -22100,6 +22100,7 @@ impl<'a> Parser<'a> {
     pub fn parse_create_sequence(
         &mut self,
         or_replace: bool,
+        or_alter: bool,
         temporary: bool,
     ) -> Result<Statement, ParserError> {
         //[ IF NOT EXISTS ]
@@ -22125,6 +22126,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::CreateSequence {
             temporary,
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             data_type,
