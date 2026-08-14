@@ -6007,6 +6007,8 @@ pub enum Statement {
         temporary: bool,
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag (Snowflake `CREATE OR ALTER SEQUENCE`).
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Sequence name.
@@ -7656,14 +7658,16 @@ impl fmt::Display for Statement {
             Statement::CreateSequence {
                 temporary,
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 sequence_options,
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}{temporary}SEQUENCE {if_not_exists}{name}",
+                    "CREATE {or_replace}{or_alter}{temporary}SEQUENCE {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     temporary = if *temporary { "TEMPORARY " } else { "" },
                     name = name,
