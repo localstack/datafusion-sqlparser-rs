@@ -984,6 +984,7 @@ define_keywords!(
     ROW_FORMAT,
     ROW_NUMBER,
     RULE,
+    RULES,
     RUN,
     SAFE,
     SAFE_CAST,
