@@ -86,6 +86,7 @@ pub use self::ddl::{
     Owner, Partition, PartitionBoundValue, ProcedureParam, ReferentialAction, RenameTableNameKind,
     ReplicaIdentity, TagsColumnOption, TextSearchObjectType, TriggerObjectKind, Truncate,
     ExternalTablePartitionColumn,
+    AlterNetworkRuleOperation,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
     UserDefinedTypeStorage, ViewColumnDef, WithData,
@@ -5587,6 +5588,66 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
+    ///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
+    ///   [ COMMENT = '<comment>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-network-rule>
+    CreateNetworkRule {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+        /// Optional `TYPE = <t>` (e.g. `IPV4`, `HOST_PORT`).
+        rule_type: Option<Ident>,
+        /// Optional `MODE = <m>` (e.g. `INGRESS`, `EGRESS`).
+        mode: Option<Ident>,
+        /// Optional `VALUE_LIST = ( '<v>' [, ...] )`. `Some(vec![])` for an
+        /// explicit empty list `()`; `None` when the clause is omitted.
+        value_list: Option<Vec<String>>,
+        /// Optional `COMMENT = '<comment>'`.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER NETWORK RULE [IF EXISTS] <name>
+    ///   { SET [ VALUE_LIST = ( ... ) ] [ COMMENT = '...' ] | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-network-rule>
+    AlterNetworkRule {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterNetworkRuleOperation,
+    },
+    /// ```sql
+    /// DROP NETWORK RULE [IF EXISTS] <name>
+    /// ```
+    DropNetworkRule {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] NETWORK RULE <name>
+    /// ```
+    DescribeNetworkRule {
+        /// Rule name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW NETWORK RULES [ LIKE '<pattern>' ] [ IN <scope> ]
+    ///   [ STARTS WITH '<s>' ] [ LIMIT <n> [ FROM '<s>' ] ]
+    /// ```
+    ShowNetworkRules {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
@@ -8214,6 +8275,70 @@ impl fmt::Display for Statement {
             }
             Statement::ShowMaskingPolicies { show_options } => {
                 write!(f, "SHOW MASKING POLICIES{show_options}")
+            }
+            Statement::CreateNetworkRule {
+                or_replace,
+                if_not_exists,
+                name,
+                rule_type,
+                mode,
+                value_list,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}NETWORK RULE {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(rule_type) = rule_type {
+                    write!(f, " TYPE = {rule_type}")?;
+                }
+                if let Some(mode) = mode {
+                    write!(f, " MODE = {mode}")?;
+                }
+                if let Some(values) = value_list {
+                    write!(f, " VALUE_LIST = (")?;
+                    for (i, v) in values.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "'{}'", value::escape_single_quote_string(v))?;
+                    }
+                    write!(f, ")")?;
+                }
+                if let Some(comment) = comment {
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        value::escape_single_quote_string(comment)
+                    )?;
+                }
+                Ok(())
+            }
+            Statement::AlterNetworkRule {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER NETWORK RULE {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropNetworkRule { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP NETWORK RULE {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeNetworkRule { name } => {
+                write!(f, "DESCRIBE NETWORK RULE {name}")
+            }
+            Statement::ShowNetworkRules { show_options } => {
+                write!(f, "SHOW NETWORK RULES{show_options}")
             }
             Statement::ShowProcedures { show_options } => {
                 write!(f, "SHOW PROCEDURES{show_options}")?;
