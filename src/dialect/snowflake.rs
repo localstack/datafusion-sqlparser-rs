@@ -28,6 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
+    AlterNetworkRuleOperation,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -431,6 +432,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_masking_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::NETWORK, Keyword::RULE]) {
+            // ALTER NETWORK RULE
+            return Some(parse_alter_network_rule(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
             // ALTER SESSION
             let set = match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
@@ -486,6 +492,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_masking_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::NETWORK, Keyword::RULE]) {
+            // DROP NETWORK RULE
+            return Some(parse_drop_network_rule(parser));
+        }
+
         if parser
             .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
             .is_some()
@@ -513,6 +524,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
                 // DESC[RIBE] MASKING POLICY
                 return Some(parse_describe_masking_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
+                // DESC[RIBE] NETWORK RULE
+                return Some(parse_describe_network_rule(parser));
             }
             // not handled — put back DESC/DESCRIBE
             parser.prev_token();
@@ -551,6 +566,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] MASKING POLICY
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
                 return Some(parse_create_masking_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] NETWORK RULE
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
+                return Some(parse_create_network_rule(or_replace, parser));
             }
 
             // LOCAL | GLOBAL
@@ -717,6 +737,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICIES]) {
                 return Some(parse_show_masking_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
+                return Some(parse_show_network_rules(parser));
             }
             if parser.parse_keyword(Keyword::PROCEDURES) {
                 return Some(parse_show_procedures(parser));
@@ -3899,6 +3922,131 @@ fn parse_describe_masking_policy(parser: &mut Parser) -> Result<Statement, Parse
 fn parse_show_masking_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowMaskingPolicies { show_options })
+}
+
+/// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when
+/// it is next, returning whether it was present.
+fn parse_value_list_keyword(parser: &mut Parser) -> bool {
+    if let Token::Word(w) = &parser.peek_token_ref().token {
+        if w.value.eq_ignore_ascii_case("VALUE_LIST") {
+            parser.advance_token();
+            return true;
+        }
+    }
+    false
+}
+
+/// Parse `( '<v>' [, ...] )` — the value list of a network rule. An empty
+/// `()` yields an empty vector.
+fn parse_network_rule_value_list(parser: &mut Parser) -> Result<Vec<String>, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    if parser.consume_token(&Token::RParen) {
+        return Ok(vec![]);
+    }
+    let values = parser.parse_comma_separated(|p| p.parse_literal_string())?;
+    parser.expect_token(&Token::RParen)?;
+    Ok(values)
+}
+
+/// Parse `CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
+///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
+///   [ COMMENT = '<comment>' ]`. The property clauses may appear in any order.
+fn parse_create_network_rule(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let mut rule_type = None;
+    let mut mode = None;
+    let mut value_list = None;
+    let mut comment = None;
+    loop {
+        if rule_type.is_none() && parser.parse_keyword(Keyword::TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            rule_type = Some(parser.parse_identifier()?);
+        } else if mode.is_none() && parser.parse_keyword(Keyword::MODE) {
+            parser.expect_token(&Token::Eq)?;
+            mode = Some(parser.parse_identifier()?);
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else if value_list.is_none() && parse_value_list_keyword(parser) {
+            parser.expect_token(&Token::Eq)?;
+            value_list = Some(parse_network_rule_value_list(parser)?);
+        } else {
+            break;
+        }
+    }
+    Ok(Statement::CreateNetworkRule {
+        or_replace,
+        if_not_exists,
+        name,
+        rule_type,
+        mode,
+        value_list,
+        comment,
+    })
+}
+
+/// Parse `ALTER NETWORK RULE [IF EXISTS] <name>
+///   { SET [ VALUE_LIST = ( ... ) ] [ COMMENT = '...' ] | UNSET COMMENT }`
+fn parse_alter_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let mut value_list = None;
+        let mut comment = None;
+        loop {
+            if value_list.is_none() && parse_value_list_keyword(parser) {
+                parser.expect_token(&Token::Eq)?;
+                value_list = Some(parse_network_rule_value_list(parser)?);
+            } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_comment_value()?);
+            } else {
+                break;
+            }
+        }
+        if value_list.is_none() && comment.is_none() {
+            return parser.expected_ref("VALUE_LIST or COMMENT", parser.peek_token_ref());
+        }
+        AlterNetworkRuleOperation::Set {
+            value_list,
+            comment,
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterNetworkRuleOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "SET VALUE_LIST/COMMENT or UNSET COMMENT",
+            parser.peek_token_ref(),
+        );
+    };
+    Ok(Statement::AlterNetworkRule {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP NETWORK RULE [IF EXISTS] <name>`
+fn parse_drop_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropNetworkRule { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] NETWORK RULE <name>`
+fn parse_describe_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeNetworkRule { name })
+}
+
+/// Parse `SHOW NETWORK RULES [LIKE '<pattern>'] [IN <scope>] [STARTS WITH ...] [LIMIT ...]`
+fn parse_show_network_rules(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowNetworkRules { show_options })
 }
 
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`
