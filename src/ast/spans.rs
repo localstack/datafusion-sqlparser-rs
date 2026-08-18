@@ -610,6 +610,7 @@ impl Spanned for Statement {
             Statement::Let { .. } => Span::empty(),
             Statement::Null => Span::empty(),
             Statement::PutGetFiles { .. } => Span::empty(),
+            Statement::BareCall(_) => Span::empty(),
             Statement::FetchInto { .. } => Span::empty(),
             Statement::CallInto { .. } => Span::empty(),
             Statement::AlterProcedure { .. } => Span::empty(),
