@@ -8244,6 +8244,56 @@ fn test_top_level_null_still_errors() {
 }
 
 #[test]
+fn test_scripting_bare_function_call() {
+    // A bare `identifier(args);` inside a scripting body parses as a BareCall.
+    let sql = "BEGIN SYSTEM$LOG_INFO('m'); END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            match &statements[0] {
+                Statement::BareCall(func) => {
+                    assert_eq!("SYSTEM$LOG_INFO", func.name.to_string());
+                }
+                other => panic!("expected BareCall, got {other:?}"),
+            }
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_bare_call_empty_args() {
+    // Zero-argument bare call still parses as a BareCall.
+    let sql = "BEGIN SYSTEM$LOG(); END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert!(matches!(&statements[0], Statement::BareCall(_)));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_quoted_bare_call_errors() {
+    // A quoted callee in statement position is a syntax error — only unquoted,
+    // non-keyword words followed by `(` become a BareCall.
+    assert!(snowflake()
+        .parse_sql_statements("BEGIN \"SYSTEM$LOG_INFO\"('m'); END")
+        .is_err());
+}
+
+#[test]
+fn test_top_level_bare_call_still_errors() {
+    // A bare call outside a scripting context must still error — the arm is
+    // scoped to parse_scripting_statement_list.
+    assert!(snowflake()
+        .parse_sql_statements("SYSTEM$LOG('info','x');")
+        .is_err());
+}
+
+#[test]
 fn test_create_file_format_type_csv() {
     match snowflake().verified_stmt("CREATE FILE FORMAT f TYPE = CSV") {
         Statement::CreateFileFormat {

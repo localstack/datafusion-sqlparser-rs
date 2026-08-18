@@ -65,12 +65,11 @@ pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
     AlterIndexOperation, AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator,
-    AlterOperatorClass,
-    AlterOperatorClassOperation, AlterOperatorFamily, AlterOperatorFamilyOperation,
-    AlterOperatorOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
-    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
-    AlterTableLock, AlterTableOperation, AlterTableType, AlterTagOperation, AlterType,
-    AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
+    AlterOperatorClass, AlterOperatorClassOperation, AlterOperatorFamily,
+    AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy, AlterPolicyOperation,
+    AlterProcedure, AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterTable,
+    AlterTableAlgorithm, AlterTableLock, AlterTableOperation, AlterTableType, AlterTagOperation,
+    AlterType, AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
     AlterTypeRenameValue, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
     ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation,
     CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension, CreateFunction,
@@ -6262,6 +6261,18 @@ pub enum Statement {
         /// `true` for `GET`, `false` for `PUT`.
         get: bool,
     },
+    /// A bare function-call statement inside a Snowflake Scripting body, e.g.
+    ///
+    /// ```sql
+    /// SYSTEM$LOG_INFO('hello');
+    /// my_udf(1, 2);
+    /// ```
+    ///
+    /// Snowflake Scripting accepts an unquoted `identifier(args)` in statement
+    /// position; it parses here and resolves the callee at execution. This is
+    /// distinct from [`Statement::Call`] (spelled with the `CALL` keyword) so a
+    /// consumer can tell a bare call apart from an explicit `CALL`.
+    BareCall(Function),
 }
 
 impl From<Analyze> for Statement {
@@ -8670,6 +8681,7 @@ impl fmt::Display for Statement {
             Statement::PutGetFiles { get } => {
                 write!(f, "{}", if *get { "GET" } else { "PUT" })
             }
+            Statement::BareCall(function) => write!(f, "{function}"),
         }
     }
 }
