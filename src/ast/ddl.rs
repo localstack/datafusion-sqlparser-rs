@@ -1556,6 +1556,27 @@ impl fmt::Display for AlterNetworkRuleOperation {
     }
 }
 
+/// An operation on a secret in a Snowflake `ALTER SECRET` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterSnowflakeSecretOperation {
+    /// `SET <option> = <value> [ ... ]` — the type-specific mutable options,
+    /// captured generically as key-value options.
+    Set(KeyValueOptions),
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterSnowflakeSecretOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterSnowflakeSecretOperation::Set(options) => write!(f, "SET {options}"),
+            AlterSnowflakeSecretOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
+}
+
 /// An operation in an `ALTER TAG` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

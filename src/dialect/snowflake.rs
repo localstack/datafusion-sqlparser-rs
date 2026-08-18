@@ -28,7 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterNetworkRuleOperation,
+    AlterNetworkRuleOperation, AlterSnowflakeSecretOperation,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -442,6 +442,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_network_rule(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SECRET]) {
+            // ALTER SECRET
+            return Some(parse_alter_secret(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
             // ALTER SESSION
             let set = match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
@@ -507,6 +512,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_network_rule(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SECRET]) {
+            // DROP SECRET
+            return Some(parse_drop_secret(parser));
+        }
+
         if parser
             .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
             .is_some()
@@ -542,6 +552,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 // DESC[RIBE] NETWORK RULE
                 return Some(parse_describe_network_rule(parser));
+            }
+            if parser.parse_keyword(Keyword::SECRET) {
+                // DESC[RIBE] SECRET
+                return Some(parse_describe_secret(parser));
             }
             // not handled — put back DESC/DESCRIBE
             parser.prev_token();
@@ -590,6 +604,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] NETWORK RULE
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 return Some(parse_create_network_rule(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SECRET
+            if parser.parse_keyword(Keyword::SECRET) {
+                return Some(parse_create_secret(or_replace, parser));
             }
 
             // LOCAL | GLOBAL
@@ -762,6 +781,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
+            }
+            if parser.parse_keyword(Keyword::SECRETS) {
+                return Some(parse_show_secrets(parser));
             }
             if parser.parse_keyword(Keyword::PROCEDURES) {
                 return Some(parse_show_procedures(parser));
@@ -4069,6 +4091,65 @@ fn parse_describe_network_rule(parser: &mut Parser) -> Result<Statement, ParserE
 fn parse_show_network_rules(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowNetworkRules { show_options })
+}
+
+/// Parse `CREATE [OR REPLACE] SECRET [IF NOT EXISTS] <name> <options>`.
+///
+/// Options (`TYPE`, `USERNAME`, `SECRET_STRING`, `PASSWORD`,
+/// `API_AUTHENTICATION`, `OAUTH_SCOPES`, `OAUTH_REFRESH_TOKEN`,
+/// `ALGORITHM`, `COMMENT`, …) are captured generically as key-value options,
+/// so the parser stays agnostic to the per-type property set.
+fn parse_create_secret(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateSnowflakeSecret {
+        or_replace,
+        if_not_exists,
+        name,
+        options,
+    })
+}
+
+/// Parse `ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }`.
+fn parse_alter_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let options = parser.parse_key_value_options(false, &[], false)?;
+        if options.options.is_empty() {
+            return parser.expected_ref("at least one option to SET", parser.peek_token_ref());
+        }
+        AlterSnowflakeSecretOperation::Set(options)
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterSnowflakeSecretOperation::UnsetComment
+    } else {
+        return parser.expected_ref("SET <options> or UNSET COMMENT", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterSnowflakeSecret {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP SECRET [IF EXISTS] <name>`.
+fn parse_drop_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSnowflakeSecret { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] SECRET <name>`.
+fn parse_describe_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSnowflakeSecret { name })
+}
+
+/// Parse `SHOW SECRETS [LIKE '<pattern>'] [IN <scope>] [STARTS WITH ...] [LIMIT ...]`.
+fn parse_show_secrets(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowSnowflakeSecrets { show_options })
 }
 
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`

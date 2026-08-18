@@ -68,7 +68,8 @@ pub use self::ddl::{
     AlterOperatorClass,
     AlterOperatorClassOperation, AlterOperatorFamily, AlterOperatorFamilyOperation,
     AlterOperatorOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
-    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
+    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterSnowflakeSecretOperation,
+    AlterTable, AlterTableAlgorithm,
     AlterTableLock, AlterTableOperation, AlterTableType, AlterTagOperation, AlterType,
     AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
     AlterTypeRenameValue, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
@@ -5624,6 +5625,61 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] SECRET [IF NOT EXISTS] <name>
+    ///   TYPE = <t> <type-specific options> [ COMMENT = '<comment>' ]
+    /// ```
+    /// The Snowflake schema-level secret object. Distinct from the DuckDB
+    /// [`Statement::CreateSecret`], whose name is a bare `Ident` and whose
+    /// options are a `Vec<SecretOption>`. All options are captured generically
+    /// as key-value options.
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-secret>
+    CreateSnowflakeSecret {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Secret name.
+        name: ObjectName,
+        /// All secret options (`TYPE`, credentials, `COMMENT`, …).
+        options: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-secret>
+    AlterSnowflakeSecret {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Secret name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterSnowflakeSecretOperation,
+    },
+    /// ```sql
+    /// DROP SECRET [IF EXISTS] <name>
+    /// ```
+    DropSnowflakeSecret {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Secret name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] SECRET <name>
+    /// ```
+    DescribeSnowflakeSecret {
+        /// Secret name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW SECRETS [ LIKE '<pattern>' ] [ IN <scope> ]
+    ///   [ STARTS WITH '<s>' ] [ LIMIT <n> [ FROM '<s>' ] ]
+    /// ```
+    ShowSnowflakeSecrets {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
@@ -8364,6 +8420,47 @@ impl fmt::Display for Statement {
             }
             Statement::ShowNetworkRules { show_options } => {
                 write!(f, "SHOW NETWORK RULES{show_options}")
+            }
+            Statement::CreateSnowflakeSecret {
+                or_replace,
+                if_not_exists,
+                name,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}SECRET {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterSnowflakeSecret {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER SECRET {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropSnowflakeSecret { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP SECRET {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeSnowflakeSecret { name } => {
+                write!(f, "DESCRIBE SECRET {name}")
+            }
+            Statement::ShowSnowflakeSecrets { show_options } => {
+                write!(f, "SHOW SECRETS{show_options}")
             }
             Statement::ShowProcedures { show_options } => {
                 write!(f, "SHOW PROCEDURES{show_options}")?;
