@@ -1008,6 +1008,7 @@ define_keywords!(
     SECONDARY_ENGINE_ATTRIBUTE,
     SECONDS,
     SECRET,
+    SECRETS,
     SECURE,
     SECURITY,
     SEED,
