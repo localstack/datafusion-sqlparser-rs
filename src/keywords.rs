@@ -124,6 +124,7 @@ define_keywords!(
     AND,
     ANTI,
     ANY,
+    API,
     APPEND_ONLY,
     APPLICATION,
     APPLY,
