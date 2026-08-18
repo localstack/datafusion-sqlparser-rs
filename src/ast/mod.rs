@@ -5737,6 +5737,54 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] API INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-api-integration>
+    CreateApiIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// API integration name.
+        name: ObjectName,
+        /// Configuration parameters (`API_PROVIDER`, `ENABLED`, …).
+        params: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER API INTEGRATION [IF EXISTS] <name> SET ...
+    /// ```
+    AlterApiIntegration {
+        /// API integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET` options.
+        set_options: KeyValueOptions,
+    },
+    /// ```sql
+    /// DROP API INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropApiIntegration {
+        /// API integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] API INTEGRATION <name>
+    /// ```
+    DescribeApiIntegration {
+        /// API integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW API INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowApiIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// ASSERT <condition> [AS <message>]
     /// ```
     Assert {
@@ -8433,6 +8481,55 @@ impl fmt::Display for Statement {
             }
             Statement::ShowStorageIntegrations { filter } => {
                 write!(f, "SHOW STORAGE INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateApiIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                params,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}API INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !params.options.is_empty() {
+                    write!(f, " {params}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterApiIntegration {
+                name,
+                if_exists,
+                set_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER API INTEGRATION {if_exists}{name} SET",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )?;
+                if !set_options.options.is_empty() {
+                    write!(f, " {set_options}")?;
+                }
+                Ok(())
+            }
+            Statement::DropApiIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP API INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeApiIntegration { name } => {
+                write!(f, "DESCRIBE API INTEGRATION {name}")
+            }
+            Statement::ShowApiIntegrations { filter } => {
+                write!(f, "SHOW API INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }

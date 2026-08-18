@@ -347,6 +347,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_storage_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::API, Keyword::INTEGRATION]) {
+            // ALTER API INTEGRATION
+            return Some(parse_alter_api_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
             // ALTER PROCEDURE
             return Some(parse_alter_procedure(parser));
@@ -467,6 +472,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_storage_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::API, Keyword::INTEGRATION]) {
+            // DROP API INTEGRATION
+            return Some(parse_drop_api_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
             // DROP FILE FORMAT
             return Some(parse_drop_file_format(parser));
@@ -508,6 +518,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
                 // DESC[RIBE] STORAGE INTEGRATION
                 return Some(parse_describe_storage_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
+                // DESC[RIBE] API INTEGRATION
+                return Some(parse_describe_api_integration(parser));
             }
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 // DESC[RIBE] FILE FORMAT
@@ -556,6 +570,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] STORAGE INTEGRATION
             if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
                 return Some(parse_create_storage_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] API INTEGRATION
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
+                return Some(parse_create_api_integration(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] ROW ACCESS POLICY
@@ -694,6 +713,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_storage_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_api_integrations(parser));
             }
             if parser.parse_keyword(Keyword::WAREHOUSES) {
                 return Some(parse_show_warehouses(parser));
@@ -4395,4 +4417,60 @@ fn parse_describe_storage_integration(parser: &mut Parser) -> Result<Statement, 
 fn parse_show_storage_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowStorageIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] API INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`API_PROVIDER`, `API_AWS_ROLE_ARN`, `API_ALLOWED_PREFIXES`,
+/// `ENABLED`, plus azure/google/git provider variants) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// provider-specific property set.
+fn parse_create_api_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateApiIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER API INTEGRATION [IF EXISTS] <name> SET <params>`.
+///
+/// Only the `SET` form is modeled. The `SET` options are captured generically
+/// as key-value options.
+fn parse_alter_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterApiIntegration {
+        name,
+        if_exists,
+        set_options,
+    })
+}
+
+/// Parse `DROP API INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropApiIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] API INTEGRATION <name>`.
+fn parse_describe_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeApiIntegration { name })
+}
+
+/// Parse `SHOW API INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_api_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowApiIntegrations { filter })
 }
