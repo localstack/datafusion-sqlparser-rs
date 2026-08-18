@@ -1126,6 +1126,27 @@ impl<'a> Parser<'a> {
                 // expressions like `RETURN NULL;` or `IF x IS NULL THEN`.
                 self.next_token();
                 Statement::Null
+            } else if matches!(self.peek_nth_token_ref(0).token,
+                Token::Word(ref w) if w.quote_style.is_none() && w.keyword == Keyword::NoKeyword)
+                && self.peek_nth_token_ref(1).token == Token::LParen
+            {
+                // A bare function-call statement (`identifier(args);`) inside a
+                // scripting body. Snowflake Scripting accepts an unquoted callee
+                // in statement position and resolves it at execution; a quoted
+                // name (`"F"(...)`) is a syntax error, so only unquoted,
+                // non-keyword words followed by `(` enter here. The two-token
+                // lookahead keeps this off bare identifiers and the `word :=`
+                // assignment handled above.
+                let name = self.parse_object_name(false)?;
+                match self.parse_function(name)? {
+                    Expr::Function(func) => Statement::BareCall(func),
+                    other => {
+                        return parser_err!(
+                            format!("Expected a function call but found: {other}"),
+                            self.peek_token_ref().span.start
+                        )
+                    }
+                }
             } else {
                 self.parse_statement()?
             };
