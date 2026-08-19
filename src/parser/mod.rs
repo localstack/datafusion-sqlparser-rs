@@ -18929,6 +18929,15 @@ impl<'a> Parser<'a> {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
             } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::SECRETS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::AllSecretsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
                 Keyword::FUTURE,
                 Keyword::TABLES,
                 Keyword::IN,
@@ -18954,6 +18963,15 @@ impl<'a> Parser<'a> {
                 Keyword::SCHEMA,
             ]) {
                 Some(GrantObjects::FutureFileFormatsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::SECRETS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::FutureSecretsInSchema {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
             } else if self.parse_keywords(&[
@@ -18987,6 +19005,10 @@ impl<'a> Parser<'a> {
                 ))
             } else if self.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 Some(GrantObjects::FileFormats(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
+            } else if self.parse_keyword(Keyword::SECRET) {
+                Some(GrantObjects::Secrets(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
             } else if self.parse_keyword(Keyword::STAGE) {
