@@ -5751,7 +5751,7 @@ pub enum Statement {
         params: KeyValueOptions,
     },
     /// ```sql
-    /// ALTER API INTEGRATION [IF EXISTS] <name> SET ...
+    /// ALTER API INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
     /// ```
     AlterApiIntegration {
         /// API integration name.
@@ -5760,6 +5760,8 @@ pub enum Statement {
         if_exists: bool,
         /// The `SET` options.
         set_options: KeyValueOptions,
+        /// The property names given in an `UNSET` clause.
+        unset_options: Vec<Ident>,
     },
     /// ```sql
     /// DROP API INTEGRATION [IF EXISTS] <name>
@@ -8507,14 +8509,20 @@ impl fmt::Display for Statement {
                 name,
                 if_exists,
                 set_options,
+                unset_options,
             } => {
                 write!(
                     f,
-                    "ALTER API INTEGRATION {if_exists}{name} SET",
+                    "ALTER API INTEGRATION {if_exists}{name}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )?;
-                if !set_options.options.is_empty() {
-                    write!(f, " {set_options}")?;
+                if !unset_options.is_empty() {
+                    write!(f, " UNSET {}", display_comma_separated(unset_options))?;
+                } else {
+                    write!(f, " SET")?;
+                    if !set_options.options.is_empty() {
+                        write!(f, " {set_options}")?;
+                    }
                 }
                 Ok(())
             }
