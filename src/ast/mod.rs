@@ -10267,6 +10267,11 @@ pub enum GrantObjects {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
+    /// Grant privileges on `ALL SECRETS IN SCHEMA <schema_name> [, ...]`
+    AllSecretsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
     /// Grant privileges on `FUTURE TABLES IN DATABASE <database_name> [, ...]`
     FutureTablesInDatabase {
         /// The target database names.
@@ -10279,6 +10284,11 @@ pub enum GrantObjects {
     },
     /// Grant privileges on `FUTURE FILE FORMATS IN SCHEMA <schema_name> [, ...]`
     FutureFileFormatsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `FUTURE SECRETS IN SCHEMA <schema_name> [, ...]`
+    FutureSecretsInSchema {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
@@ -10309,6 +10319,8 @@ pub enum GrantObjects {
     Stages(Vec<ObjectName>),
     /// Grant privileges on specific file formats
     FileFormats(Vec<ObjectName>),
+    /// Grant privileges on specific secrets
+    Secrets(Vec<ObjectName>),
     /// Grant privileges on compute pools
     ComputePools(Vec<ObjectName>),
     /// Grant privileges on connections
@@ -10480,6 +10492,13 @@ impl fmt::Display for GrantObjects {
                     display_comma_separated(schemas)
                 )
             }
+            GrantObjects::AllSecretsInSchema { schemas } => {
+                write!(
+                    f,
+                    "ALL SECRETS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
             GrantObjects::FutureTablesInDatabase { databases } => {
                 write!(
                     f,
@@ -10501,6 +10520,13 @@ impl fmt::Display for GrantObjects {
                     display_comma_separated(schemas)
                 )
             }
+            GrantObjects::FutureSecretsInSchema { schemas } => {
+                write!(
+                    f,
+                    "FUTURE SECRETS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
             GrantObjects::FutureFunctionsInSchema { schemas } => {
                 write!(
                     f,
@@ -10519,6 +10545,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::FileFormats(objects) => {
                 write!(f, "FILE FORMAT {}", display_comma_separated(objects))
+            }
+            GrantObjects::Secrets(objects) => {
+                write!(f, "SECRET {}", display_comma_separated(objects))
             }
             GrantObjects::ComputePools(objects) => {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
