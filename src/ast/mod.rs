@@ -5955,6 +5955,23 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// DESC[RIBE] INTEGRATION <name>
+    /// ```
+    /// Family-agnostic describe that resolves `<name>` across integration
+    /// families (storage, catalog, API).
+    DescribeIntegration {
+        /// Integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    /// Family-agnostic listing spanning every integration family.
+    ShowIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// ASSERT <condition> [AS <message>]
     /// ```
     Assert {
@@ -8750,6 +8767,16 @@ impl fmt::Display for Statement {
             }
             Statement::ShowApiIntegrations { filter } => {
                 write!(f, "SHOW API INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::DescribeIntegration { name } => {
+                write!(f, "DESCRIBE INTEGRATION {name}")
+            }
+            Statement::ShowIntegrations { filter } => {
+                write!(f, "SHOW INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }
