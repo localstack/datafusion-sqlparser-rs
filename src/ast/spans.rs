@@ -606,6 +606,8 @@ impl Spanned for Statement {
             Statement::DropApiIntegration { .. } => Span::empty(),
             Statement::DescribeApiIntegration { .. } => Span::empty(),
             Statement::ShowApiIntegrations { .. } => Span::empty(),
+            Statement::DescribeIntegration { .. } => Span::empty(),
+            Statement::ShowIntegrations { .. } => Span::empty(),
             Statement::Assignment { .. } => Span::empty(),
             Statement::Let { .. } => Span::empty(),
             Statement::Null => Span::empty(),

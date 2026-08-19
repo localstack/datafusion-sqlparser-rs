@@ -523,6 +523,10 @@ impl Dialect for SnowflakeDialect {
                 // DESC[RIBE] API INTEGRATION
                 return Some(parse_describe_api_integration(parser));
             }
+            if parser.parse_keyword(Keyword::INTEGRATION) {
+                // DESC[RIBE] INTEGRATION (family-agnostic)
+                return Some(parse_describe_integration(parser));
+            }
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 // DESC[RIBE] FILE FORMAT
                 return Some(parse_describe_file_format(parser));
@@ -716,6 +720,10 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_api_integrations(parser));
+            }
+            if parser.parse_keyword(Keyword::INTEGRATIONS) {
+                // SHOW INTEGRATIONS (family-agnostic)
+                return Some(parse_show_integrations(parser));
             }
             if parser.parse_keyword(Keyword::WAREHOUSES) {
                 return Some(parse_show_warehouses(parser));
@@ -4473,4 +4481,16 @@ fn parse_describe_api_integration(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_api_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowApiIntegrations { filter })
+}
+
+/// Parse `DESC[RIBE] INTEGRATION <name>` (family-agnostic).
+fn parse_describe_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeIntegration { name })
+}
+
+/// Parse `SHOW INTEGRATIONS [LIKE '<pattern>']` (family-agnostic).
+fn parse_show_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowIntegrations { filter })
 }
