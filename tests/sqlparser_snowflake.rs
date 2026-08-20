@@ -3997,6 +3997,47 @@ fn explain_desc() {
 }
 
 #[test]
+fn parse_describe_objects() {
+    let object_types = [
+        "TABLE",
+        "DYNAMIC TABLE",
+        "EXTERNAL TABLE",
+        "VIEW",
+        "MATERIALIZED VIEW",
+        "DATABASE",
+        "SCHEMA",
+        "TASK",
+        "STAGE",
+        "STREAM",
+        "SEQUENCE",
+        "PIPE",
+    ];
+    for object_type in object_types {
+        for alias in ["DESC", "DESCRIBE"] {
+            snowflake().verified_stmt(&format!("{alias} {object_type} db1.schema1.obj1"));
+        }
+    }
+
+    // `DESC TABLE` accepts an optional `TYPE = { COLUMNS | STAGE }` modifier.
+    snowflake().verified_stmt("DESC TABLE tbl1 TYPE = COLUMNS");
+    snowflake().verified_stmt("DESC TABLE tbl1 TYPE = STAGE");
+
+    // `DESC RESULT` takes a query id as a string literal or an expression.
+    snowflake().verified_stmt("DESC RESULT '01b1e5ce-0000-245f-0000-49f10001a82a'");
+    snowflake().verified_stmt("DESC RESULT LAST_QUERY_ID()");
+
+    // `DESCRIBE TABLE STREAM <name>` is not valid Snowflake syntax: the name
+    // is consumed and the error is reported at end-of-input, mirroring real
+    // Snowflake's behavior for this statement.
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("DESC TABLE STREAM stream1")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: end of statement, found: EOF".to_string())
+    );
+}
+
+#[test]
 fn parse_explain_table() {
     match snowflake().verified_stmt("EXPLAIN TABLE test_identifier") {
         Statement::ExplainTable {
