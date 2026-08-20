@@ -28,7 +28,8 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
+    AlterNetworkRuleOperation, AlterProcedure, AlterProcedureOperation,
+    AlterSnowflakeSecretOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
     ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
@@ -346,6 +347,16 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_storage_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::API, Keyword::INTEGRATION]) {
+            // ALTER API INTEGRATION
+            return Some(parse_alter_api_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SECURITY, Keyword::INTEGRATION]) {
+            // ALTER SECURITY INTEGRATION
+            return Some(parse_alter_security_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
             // ALTER PROCEDURE
             return Some(parse_alter_procedure(parser));
@@ -389,6 +400,28 @@ impl Dialect for SnowflakeDialect {
             return Some(Ok(stmt));
         }
 
+        // ALTER ROLE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form (mirroring ALTER SCHEMA); every other ALTER ROLE form
+        // (RENAME TO, SET/UNSET COMMENT) fails the closure and falls through to
+        // the generic grammar.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::ROLE])?;
+            parse_alter_object_set_tags(p, ObjectType::Role)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        // ALTER STAGE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form. Every other ALTER STAGE form (SET <property>, RENAME TO)
+        // fails the closure (the `TAG` keyword is absent) and falls through to
+        // parse_alter_stage, which keeps the bare (name-less) form a syntax error.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::STAGE])?;
+            parse_alter_object_set_tags(p, ObjectType::Stage)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
@@ -407,6 +440,16 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::MASKING, Keyword::POLICY]) {
             // ALTER MASKING POLICY
             return Some(parse_alter_masking_policy(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::NETWORK, Keyword::RULE]) {
+            // ALTER NETWORK RULE
+            return Some(parse_alter_network_rule(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SECRET]) {
+            // ALTER SECRET
+            return Some(parse_alter_secret(parser));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
@@ -439,6 +482,16 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_storage_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::API, Keyword::INTEGRATION]) {
+            // DROP API INTEGRATION
+            return Some(parse_drop_api_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SECURITY, Keyword::INTEGRATION]) {
+            // DROP SECURITY INTEGRATION
+            return Some(parse_drop_security_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
             // DROP FILE FORMAT
             return Some(parse_drop_file_format(parser));
@@ -464,6 +517,16 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_masking_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::NETWORK, Keyword::RULE]) {
+            // DROP NETWORK RULE
+            return Some(parse_drop_network_rule(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SECRET]) {
+            // DROP SECRET
+            return Some(parse_drop_secret(parser));
+        }
+
         if parser
             .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
             .is_some()
@@ -475,6 +538,18 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
                 // DESC[RIBE] STORAGE INTEGRATION
                 return Some(parse_describe_storage_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
+                // DESC[RIBE] API INTEGRATION
+                return Some(parse_describe_api_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
+                // DESC[RIBE] SECURITY INTEGRATION
+                return Some(parse_describe_security_integration(parser));
+            }
+            if parser.parse_keyword(Keyword::INTEGRATION) {
+                // DESC[RIBE] INTEGRATION (family-agnostic)
+                return Some(parse_describe_integration(parser));
             }
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 // DESC[RIBE] FILE FORMAT
@@ -491,6 +566,14 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
                 // DESC[RIBE] MASKING POLICY
                 return Some(parse_describe_masking_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
+                // DESC[RIBE] NETWORK RULE
+                return Some(parse_describe_network_rule(parser));
+            }
+            if parser.parse_keyword(Keyword::SECRET) {
+                // DESC[RIBE] SECRET
+                return Some(parse_describe_secret(parser));
             }
             // not handled — put back DESC/DESCRIBE
             parser.prev_token();
@@ -521,6 +604,16 @@ impl Dialect for SnowflakeDialect {
                 return Some(parse_create_storage_integration(or_replace, parser));
             }
 
+            // CREATE [OR REPLACE] API INTEGRATION
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
+                return Some(parse_create_api_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SECURITY INTEGRATION
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
+                return Some(parse_create_security_integration(or_replace, parser));
+            }
+
             // CREATE [OR REPLACE] ROW ACCESS POLICY
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
                 return Some(parse_create_row_access_policy(or_replace, parser));
@@ -529,6 +622,16 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] MASKING POLICY
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
                 return Some(parse_create_masking_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] NETWORK RULE
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
+                return Some(parse_create_network_rule(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SECRET
+            if parser.parse_keyword(Keyword::SECRET) {
+                return Some(parse_create_secret(or_replace, parser));
             }
 
             // LOCAL | GLOBAL
@@ -653,8 +756,21 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_storage_integrations(parser));
             }
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_api_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_security_integrations(parser));
+            }
+            if parser.parse_keyword(Keyword::INTEGRATIONS) {
+                // SHOW INTEGRATIONS (family-agnostic)
+                return Some(parse_show_integrations(parser));
+            }
             if parser.parse_keyword(Keyword::WAREHOUSES) {
                 return Some(parse_show_warehouses(parser));
+            }
+            if parser.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITORS]) {
+                return Some(parse_show_resource_monitors(parser));
             }
             if parser.parse_keyword(Keyword::ACCOUNTS) {
                 return Some(parse_show_accounts(parser));
@@ -695,6 +811,12 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICIES]) {
                 return Some(parse_show_masking_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
+                return Some(parse_show_network_rules(parser));
+            }
+            if parser.parse_keyword(Keyword::SECRETS) {
+                return Some(parse_show_secrets(parser));
             }
             if parser.parse_keyword(Keyword::PROCEDURES) {
                 return Some(parse_show_procedures(parser));
@@ -2248,6 +2370,16 @@ pub fn parse_create_stage(
         comment,
     } = parse_stage_properties(parser)?;
 
+    // Trailing `WITH TAG (<t> = '<v>' [, ...])`. The property loop above breaks
+    // on the `WITH` keyword, so the clause is naturally trailing-only.
+    let mut with_tags = Vec::new();
+    if parser.parse_keyword(Keyword::WITH) {
+        parser.expect_keyword(Keyword::TAG)?;
+        parser.expect_token(&Token::LParen)?;
+        with_tags = parser.parse_comma_separated(Parser::parse_tag)?;
+        parser.expect_token(&Token::RParen)?;
+    }
+
     Ok(Statement::CreateStage {
         or_replace,
         temporary,
@@ -2258,6 +2390,7 @@ pub fn parse_create_stage(
         file_format,
         copy_options,
         comment,
+        with_tags,
     })
 }
 
@@ -3868,6 +4001,190 @@ fn parse_show_masking_policies(parser: &mut Parser) -> Result<Statement, ParserE
     Ok(Statement::ShowMaskingPolicies { show_options })
 }
 
+/// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when
+/// it is next, returning whether it was present.
+fn parse_value_list_keyword(parser: &mut Parser) -> bool {
+    if let Token::Word(w) = &parser.peek_token_ref().token {
+        if w.value.eq_ignore_ascii_case("VALUE_LIST") {
+            parser.advance_token();
+            return true;
+        }
+    }
+    false
+}
+
+/// Parse `( '<v>' [, ...] )` — the value list of a network rule. An empty
+/// `()` yields an empty vector.
+fn parse_network_rule_value_list(parser: &mut Parser) -> Result<Vec<String>, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    if parser.consume_token(&Token::RParen) {
+        return Ok(vec![]);
+    }
+    let values = parser.parse_comma_separated(|p| p.parse_literal_string())?;
+    parser.expect_token(&Token::RParen)?;
+    Ok(values)
+}
+
+/// Parse `CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
+///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
+///   [ COMMENT = '<comment>' ]`. The property clauses may appear in any order.
+fn parse_create_network_rule(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let mut rule_type = None;
+    let mut mode = None;
+    let mut value_list = None;
+    let mut comment = None;
+    loop {
+        if rule_type.is_none() && parser.parse_keyword(Keyword::TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            rule_type = Some(parser.parse_identifier()?);
+        } else if mode.is_none() && parser.parse_keyword(Keyword::MODE) {
+            parser.expect_token(&Token::Eq)?;
+            mode = Some(parser.parse_identifier()?);
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else if value_list.is_none() && parse_value_list_keyword(parser) {
+            parser.expect_token(&Token::Eq)?;
+            value_list = Some(parse_network_rule_value_list(parser)?);
+        } else {
+            break;
+        }
+    }
+    Ok(Statement::CreateNetworkRule {
+        or_replace,
+        if_not_exists,
+        name,
+        rule_type,
+        mode,
+        value_list,
+        comment,
+    })
+}
+
+/// Parse `ALTER NETWORK RULE [IF EXISTS] <name>
+///   { SET [ VALUE_LIST = ( ... ) ] [ COMMENT = '...' ] | UNSET COMMENT }`
+fn parse_alter_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let mut value_list = None;
+        let mut comment = None;
+        loop {
+            if value_list.is_none() && parse_value_list_keyword(parser) {
+                parser.expect_token(&Token::Eq)?;
+                value_list = Some(parse_network_rule_value_list(parser)?);
+            } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_comment_value()?);
+            } else {
+                break;
+            }
+        }
+        if value_list.is_none() && comment.is_none() {
+            return parser.expected_ref("VALUE_LIST or COMMENT", parser.peek_token_ref());
+        }
+        AlterNetworkRuleOperation::Set {
+            value_list,
+            comment,
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterNetworkRuleOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "SET VALUE_LIST/COMMENT or UNSET COMMENT",
+            parser.peek_token_ref(),
+        );
+    };
+    Ok(Statement::AlterNetworkRule {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP NETWORK RULE [IF EXISTS] <name>`
+fn parse_drop_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropNetworkRule { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] NETWORK RULE <name>`
+fn parse_describe_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeNetworkRule { name })
+}
+
+/// Parse `SHOW NETWORK RULES [LIKE '<pattern>'] [IN <scope>] [STARTS WITH ...] [LIMIT ...]`
+fn parse_show_network_rules(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowNetworkRules { show_options })
+}
+
+/// Parse `CREATE [OR REPLACE] SECRET [IF NOT EXISTS] <name> <options>`.
+///
+/// Options (`TYPE`, `USERNAME`, `SECRET_STRING`, `PASSWORD`,
+/// `API_AUTHENTICATION`, `OAUTH_SCOPES`, `OAUTH_REFRESH_TOKEN`,
+/// `ALGORITHM`, `COMMENT`, …) are captured generically as key-value options,
+/// so the parser stays agnostic to the per-type property set.
+fn parse_create_secret(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateSnowflakeSecret {
+        or_replace,
+        if_not_exists,
+        name,
+        options,
+    })
+}
+
+/// Parse `ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }`.
+fn parse_alter_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let options = parser.parse_key_value_options(false, &[], false)?;
+        if options.options.is_empty() {
+            return parser.expected_ref("at least one option to SET", parser.peek_token_ref());
+        }
+        AlterSnowflakeSecretOperation::Set(options)
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterSnowflakeSecretOperation::UnsetComment
+    } else {
+        return parser.expected_ref("SET <options> or UNSET COMMENT", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterSnowflakeSecret {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP SECRET [IF EXISTS] <name>`.
+fn parse_drop_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSnowflakeSecret { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] SECRET <name>`.
+fn parse_describe_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSnowflakeSecret { name })
+}
+
+/// Parse `SHOW SECRETS [LIKE '<pattern>'] [IN <scope>] [STARTS WITH ...] [LIMIT ...]`.
+fn parse_show_secrets(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowSnowflakeSecrets { show_options })
+}
+
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`
 fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
@@ -3878,6 +4195,12 @@ fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> 
 fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowWarehouses { filter })
+}
+
+/// Parse `SHOW RESOURCE MONITORS [LIKE '<pattern>']`
+fn parse_show_resource_monitors(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowResourceMonitors { filter })
 }
 
 /// Parse `SHOW CONNECTIONS [LIKE '<pattern>']`
@@ -4214,4 +4537,140 @@ fn parse_describe_storage_integration(parser: &mut Parser) -> Result<Statement, 
 fn parse_show_storage_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowStorageIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] API INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`API_PROVIDER`, `API_AWS_ROLE_ARN`, `API_ALLOWED_PREFIXES`,
+/// `ENABLED`, plus azure/google/git provider variants) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// provider-specific property set.
+fn parse_create_api_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateApiIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER API INTEGRATION [IF EXISTS] <name> { SET <params> | UNSET <props> }`.
+///
+/// `SET` options are captured generically as key-value options; `UNSET` takes a
+/// comma-separated list of property names.
+fn parse_alter_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    if parser.parse_keyword(Keyword::UNSET) {
+        let unset_options = parser.parse_comma_separated(|p| p.parse_identifier())?;
+        return Ok(Statement::AlterApiIntegration {
+            name,
+            if_exists,
+            set_options: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+            unset_options,
+        });
+    }
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterApiIntegration {
+        name,
+        if_exists,
+        set_options,
+        unset_options: vec![],
+    })
+}
+
+/// Parse `DROP API INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropApiIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] API INTEGRATION <name>`.
+fn parse_describe_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeApiIntegration { name })
+}
+
+/// Parse `SHOW API INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_api_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowApiIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] SECURITY INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`TYPE`, `ENABLED`, and the per-type property set) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// type-specific property set.
+fn parse_create_security_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateSecurityIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET <params>`.
+///
+/// Only the `SET` form is modeled; the `SET` options are captured generically
+/// as key-value options.
+fn parse_alter_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterSecurityIntegration {
+        name,
+        if_exists,
+        set_options,
+    })
+}
+
+/// Parse `DROP SECURITY INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSecurityIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] SECURITY INTEGRATION <name>`.
+fn parse_describe_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSecurityIntegration { name })
+}
+
+/// Parse `SHOW SECURITY INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_security_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowSecurityIntegrations { filter })
+}
+
+/// Parse `DESC[RIBE] INTEGRATION <name>` (family-agnostic).
+fn parse_describe_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeIntegration { name })
+}
+
+/// Parse `SHOW INTEGRATIONS [LIKE '<pattern>']` (family-agnostic).
+fn parse_show_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowIntegrations { filter })
 }

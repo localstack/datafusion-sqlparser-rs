@@ -64,25 +64,25 @@ pub use self::dcl::{
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
-    AlterIndexOperation, AlterMaskingPolicyOperation, AlterOperator, AlterOperatorClass,
-    AlterOperatorClassOperation, AlterOperatorFamily, AlterOperatorFamilyOperation,
-    AlterOperatorOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
-    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
-    AlterTableLock, AlterTableOperation, AlterTableType, AlterTagOperation, AlterType,
-    AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
-    AlterTypeRenameValue, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
-    ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation,
-    CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension, CreateFunction,
-    CreateIndex, CreateOperator, CreateOperatorClass, CreateOperatorFamily, CreatePolicy,
-    CreatePolicyCommand, CreatePolicyType, CreateTable, CreateTrigger, CreateView, Deduplicate,
-    DeferrableInitial, DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator,
-    DropOperatorClass, DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger,
-    ExternalTablePartitionColumn, ForValues, FunctionReturnType, GeneratedAs,
-    GeneratedExpressionMode, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
-    IdentityPropertyKind, IdentityPropertyOrder, IndexColumn, IndexOption, IndexType,
-    KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes, OperatorClassItem,
-    OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose, Owner, Partition,
-    PartitionBoundValue, ProcedureExecuteAs, ProcedureParam, ReferentialAction,
+    AlterIndexOperation, AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator,
+    AlterOperatorClass, AlterOperatorClassOperation, AlterOperatorFamily,
+    AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy, AlterPolicyOperation,
+    AlterProcedure, AlterProcedureOperation, AlterSchema, AlterSchemaOperation,
+    AlterSnowflakeSecretOperation, AlterTable, AlterTableAlgorithm, AlterTableLock,
+    AlterTableOperation, AlterTableType, AlterTagOperation, AlterType, AlterTypeAddValue,
+    AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
+    ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
+    ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation, CreateCollationDefinition,
+    CreateConnector, CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
+    CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
+    CreateTable, CreateTrigger, CreateView, Deduplicate, DeferrableInitial, DistStyle,
+    DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass, DropOperatorFamily,
+    DropOperatorSignature, DropPolicy, DropTrigger, ExternalTablePartitionColumn, ForValues,
+    FunctionReturnType, GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
+    IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder, IndexColumn,
+    IndexOption, IndexType, KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes,
+    OperatorClassItem, OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose,
+    Owner, Partition, PartitionBoundValue, ProcedureExecuteAs, ProcedureParam, ReferentialAction,
     RenameTableNameKind, ReplicaIdentity, TagsColumnOption, TriggerObjectKind, Truncate,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
@@ -4820,6 +4820,9 @@ pub enum Statement {
         clone: Option<ObjectName>,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
+        /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
+        /// `None` when absent.
+        with_tags: Option<Vec<Tag>>,
     },
     /// ```sql
     /// CREATE DATABASE
@@ -4953,6 +4956,8 @@ pub enum Statement {
         copy_options: KeyValueOptions,
         /// Optional comment.
         comment: Option<String>,
+        /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
+        with_tags: Vec<Tag>,
     },
     /// ```sql
     /// ALTER STAGE [IF EXISTS] <name> { SET ... | RENAME TO <new_name> }
@@ -5031,6 +5036,46 @@ pub enum Statement {
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/show-warehouses>
     ShowWarehouses {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// CREATE [OR REPLACE] RESOURCE MONITOR [IF NOT EXISTS] <name>
+    ///   [WITH] [CREDIT_QUOTA = <n>] [FREQUENCY = <f>]
+    ///   [START_TIMESTAMP = { <ts> | IMMEDIATELY }] [END_TIMESTAMP = <ts>]
+    ///   [NOTIFY_USERS = ( <user> [, …] )]
+    ///   [TRIGGERS ON <n> PERCENT DO { NOTIFY | SUSPEND | SUSPEND_IMMEDIATE } [ … ]]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor>
+    CreateResourceMonitor {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Resource monitor name.
+        name: ObjectName,
+        /// Whether the optional `WITH` keyword preceded the property list.
+        with: bool,
+        /// Parsed property set.
+        properties: ResourceMonitorProperties,
+    },
+    /// ```sql
+    /// ALTER RESOURCE MONITOR [IF EXISTS] <name> SET <properties>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-resource-monitor>
+    AlterResourceMonitor {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Resource monitor name.
+        name: ObjectName,
+        /// Properties set by the `SET` clause.
+        properties: ResourceMonitorProperties,
+    },
+    /// ```sql
+    /// SHOW RESOURCE MONITORS [LIKE '<pattern>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-resource-monitors>
+    ShowResourceMonitors {
         /// Optional filter (e.g. `LIKE`).
         filter: Option<ShowStatementFilter>,
     },
@@ -5558,6 +5603,121 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
+    ///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
+    ///   [ COMMENT = '<comment>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-network-rule>
+    CreateNetworkRule {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+        /// Optional `TYPE = <t>` (e.g. `IPV4`, `HOST_PORT`).
+        rule_type: Option<Ident>,
+        /// Optional `MODE = <m>` (e.g. `INGRESS`, `EGRESS`).
+        mode: Option<Ident>,
+        /// Optional `VALUE_LIST = ( '<v>' [, ...] )`. `Some(vec![])` for an
+        /// explicit empty list `()`; `None` when the clause is omitted.
+        value_list: Option<Vec<String>>,
+        /// Optional `COMMENT = '<comment>'`.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER NETWORK RULE [IF EXISTS] <name>
+    ///   { SET [ VALUE_LIST = ( ... ) ] [ COMMENT = '...' ] | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-network-rule>
+    AlterNetworkRule {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterNetworkRuleOperation,
+    },
+    /// ```sql
+    /// DROP NETWORK RULE [IF EXISTS] <name>
+    /// ```
+    DropNetworkRule {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] NETWORK RULE <name>
+    /// ```
+    DescribeNetworkRule {
+        /// Rule name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW NETWORK RULES [ LIKE '<pattern>' ] [ IN <scope> ]
+    ///   [ STARTS WITH '<s>' ] [ LIMIT <n> [ FROM '<s>' ] ]
+    /// ```
+    ShowNetworkRules {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
+    /// CREATE [OR REPLACE] SECRET [IF NOT EXISTS] <name>
+    ///   TYPE = <t> <type-specific options> [ COMMENT = '<comment>' ]
+    /// ```
+    /// The Snowflake schema-level secret object. Distinct from the DuckDB
+    /// [`Statement::CreateSecret`], whose name is a bare `Ident` and whose
+    /// options are a `Vec<SecretOption>`. All options are captured generically
+    /// as key-value options.
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-secret>
+    CreateSnowflakeSecret {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Secret name.
+        name: ObjectName,
+        /// All secret options (`TYPE`, credentials, `COMMENT`, …).
+        options: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-secret>
+    AlterSnowflakeSecret {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Secret name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterSnowflakeSecretOperation,
+    },
+    /// ```sql
+    /// DROP SECRET [IF EXISTS] <name>
+    /// ```
+    DropSnowflakeSecret {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Secret name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] SECRET <name>
+    /// ```
+    DescribeSnowflakeSecret {
+        /// Secret name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW SECRETS [ LIKE '<pattern>' ] [ IN <scope> ]
+    ///   [ STARTS WITH '<s>' ] [ LIMIT <n> [ FROM '<s>' ] ]
+    /// ```
+    ShowSnowflakeSecrets {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
@@ -5667,6 +5827,121 @@ pub enum Statement {
     /// SHOW STORAGE INTEGRATIONS [LIKE '<pattern>']
     /// ```
     ShowStorageIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// CREATE [OR REPLACE] API INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-api-integration>
+    CreateApiIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// API integration name.
+        name: ObjectName,
+        /// Configuration parameters (`API_PROVIDER`, `ENABLED`, …).
+        params: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER API INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
+    /// ```
+    AlterApiIntegration {
+        /// API integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET` options.
+        set_options: KeyValueOptions,
+        /// The property names given in an `UNSET` clause.
+        unset_options: Vec<Ident>,
+    },
+    /// ```sql
+    /// DROP API INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropApiIntegration {
+        /// API integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] API INTEGRATION <name>
+    /// ```
+    DescribeApiIntegration {
+        /// API integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW API INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowApiIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// CREATE [OR REPLACE] SECURITY INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-security-integration>
+    CreateSecurityIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Security integration name.
+        name: ObjectName,
+        /// Configuration parameters (`TYPE`, `ENABLED`, provider keys, …).
+        params: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET ...
+    /// ```
+    AlterSecurityIntegration {
+        /// Security integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET` options.
+        set_options: KeyValueOptions,
+    },
+    /// ```sql
+    /// DROP SECURITY INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropSecurityIntegration {
+        /// Security integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] SECURITY INTEGRATION <name>
+    /// ```
+    DescribeSecurityIntegration {
+        /// Security integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW SECURITY INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowSecurityIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// DESC[RIBE] INTEGRATION <name>
+    /// ```
+    /// Family-agnostic describe that resolves `<name>` across integration
+    /// families (storage, catalog, API).
+    DescribeIntegration {
+        /// Integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    /// Family-agnostic listing spanning every integration family.
+    ShowIntegrations {
         /// Optional filter (e.g. `LIKE`).
         filter: Option<ShowStatementFilter>,
     },
@@ -5890,6 +6165,8 @@ pub enum Statement {
         temporary: bool,
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag (Snowflake `CREATE OR ALTER SEQUENCE`).
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Sequence name.
@@ -6194,6 +6471,18 @@ pub enum Statement {
         /// `true` for `GET`, `false` for `PUT`.
         get: bool,
     },
+    /// A bare function-call statement inside a Snowflake Scripting body, e.g.
+    ///
+    /// ```sql
+    /// SYSTEM$LOG_INFO('hello');
+    /// my_udf(1, 2);
+    /// ```
+    ///
+    /// Snowflake Scripting accepts an unquoted `identifier(args)` in statement
+    /// position; it parses here and resolves the callee at execution. This is
+    /// distinct from [`Statement::Call`] (spelled with the `CALL` keyword) so a
+    /// consumer can tell a bare call apart from an explicit `CALL`.
+    BareCall(Function),
 }
 
 impl From<Analyze> for Statement {
@@ -7350,6 +7639,7 @@ impl fmt::Display for Statement {
                 default_collate_spec,
                 clone,
                 comment,
+                with_tags,
             } => {
                 write!(
                     f,
@@ -7378,6 +7668,10 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+
+                if let Some(tags) = with_tags {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
                 }
 
                 if let Some(comment) = comment {
@@ -7515,6 +7809,7 @@ impl fmt::Display for Statement {
             Statement::CreateSequence {
                 temporary,
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 data_type,
@@ -7530,8 +7825,9 @@ impl fmt::Display for Statement {
                 };
                 write!(
                     f,
-                    "CREATE {or_replace}{temporary}SEQUENCE {if_not_exists}{name}{as_type}",
+                    "CREATE {or_replace}{or_alter}{temporary}SEQUENCE {if_not_exists}{name}{as_type}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     temporary = if *temporary { "TEMPORARY " } else { "" },
                     name = name,
@@ -7555,6 +7851,7 @@ impl fmt::Display for Statement {
                 file_format,
                 copy_options,
                 comment,
+                with_tags,
                 ..
             } => {
                 write!(
@@ -7575,6 +7872,9 @@ impl fmt::Display for Statement {
                 }
                 if comment.is_some() {
                     write!(f, " COMMENT='{}'", comment.as_ref().unwrap())?;
+                }
+                if !with_tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?;
                 }
                 Ok(())
             }
@@ -7652,6 +7952,43 @@ impl fmt::Display for Statement {
             }
             Statement::ShowWarehouses { filter } => {
                 write!(f, "SHOW WAREHOUSES")?;
+                if let Some(filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateResourceMonitor {
+                or_replace,
+                if_not_exists,
+                name,
+                with,
+                properties,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}RESOURCE MONITOR {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if *with {
+                    write!(f, " WITH")?;
+                }
+                write!(f, "{properties}")
+            }
+            Statement::AlterResourceMonitor {
+                if_exists,
+                name,
+                properties,
+            } => {
+                write!(f, "ALTER RESOURCE MONITOR ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name} SET")?;
+                write!(f, "{properties}")
+            }
+            Statement::ShowResourceMonitors { filter } => {
+                write!(f, "SHOW RESOURCE MONITORS")?;
                 if let Some(filter) = filter {
                     write!(f, " {filter}")?;
                 }
@@ -8172,6 +8509,111 @@ impl fmt::Display for Statement {
             Statement::ShowMaskingPolicies { show_options } => {
                 write!(f, "SHOW MASKING POLICIES{show_options}")
             }
+            Statement::CreateNetworkRule {
+                or_replace,
+                if_not_exists,
+                name,
+                rule_type,
+                mode,
+                value_list,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}NETWORK RULE {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(rule_type) = rule_type {
+                    write!(f, " TYPE = {rule_type}")?;
+                }
+                if let Some(mode) = mode {
+                    write!(f, " MODE = {mode}")?;
+                }
+                if let Some(values) = value_list {
+                    write!(f, " VALUE_LIST = (")?;
+                    for (i, v) in values.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "'{}'", value::escape_single_quote_string(v))?;
+                    }
+                    write!(f, ")")?;
+                }
+                if let Some(comment) = comment {
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        value::escape_single_quote_string(comment)
+                    )?;
+                }
+                Ok(())
+            }
+            Statement::AlterNetworkRule {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER NETWORK RULE {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropNetworkRule { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP NETWORK RULE {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeNetworkRule { name } => {
+                write!(f, "DESCRIBE NETWORK RULE {name}")
+            }
+            Statement::ShowNetworkRules { show_options } => {
+                write!(f, "SHOW NETWORK RULES{show_options}")
+            }
+            Statement::CreateSnowflakeSecret {
+                or_replace,
+                if_not_exists,
+                name,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}SECRET {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterSnowflakeSecret {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER SECRET {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropSnowflakeSecret { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP SECRET {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeSnowflakeSecret { name } => {
+                write!(f, "DESCRIBE SECRET {name}")
+            }
+            Statement::ShowSnowflakeSecrets { show_options } => {
+                write!(f, "SHOW SECRETS{show_options}")
+            }
             Statement::ShowProcedures { show_options } => {
                 write!(f, "SHOW PROCEDURES{show_options}")?;
                 Ok(())
@@ -8290,6 +8732,120 @@ impl fmt::Display for Statement {
             }
             Statement::ShowStorageIntegrations { filter } => {
                 write!(f, "SHOW STORAGE INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateApiIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                params,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}API INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !params.options.is_empty() {
+                    write!(f, " {params}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterApiIntegration {
+                name,
+                if_exists,
+                set_options,
+                unset_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER API INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )?;
+                if !unset_options.is_empty() {
+                    write!(f, " UNSET {}", display_comma_separated(unset_options))?;
+                } else {
+                    write!(f, " SET")?;
+                    if !set_options.options.is_empty() {
+                        write!(f, " {set_options}")?;
+                    }
+                }
+                Ok(())
+            }
+            Statement::DropApiIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP API INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeApiIntegration { name } => {
+                write!(f, "DESCRIBE API INTEGRATION {name}")
+            }
+            Statement::ShowApiIntegrations { filter } => {
+                write!(f, "SHOW API INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateSecurityIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                params,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}SECURITY INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !params.options.is_empty() {
+                    write!(f, " {params}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterSecurityIntegration {
+                name,
+                if_exists,
+                set_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER SECURITY INTEGRATION {if_exists}{name} SET",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )?;
+                if !set_options.options.is_empty() {
+                    write!(f, " {set_options}")?;
+                }
+                Ok(())
+            }
+            Statement::DropSecurityIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP SECURITY INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeSecurityIntegration { name } => {
+                write!(f, "DESCRIBE SECURITY INTEGRATION {name}")
+            }
+            Statement::ShowSecurityIntegrations { filter } => {
+                write!(f, "SHOW SECURITY INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::DescribeIntegration { name } => {
+                write!(f, "DESCRIBE INTEGRATION {name}")
+            }
+            Statement::ShowIntegrations { filter } => {
+                write!(f, "SHOW INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }
@@ -8527,6 +9083,7 @@ impl fmt::Display for Statement {
             Statement::PutGetFiles { get } => {
                 write!(f, "{}", if *get { "GET" } else { "PUT" })
             }
+            Statement::BareCall(function) => write!(f, "{function}"),
         }
     }
 }
@@ -8553,6 +9110,8 @@ pub enum SequenceOptions {
     Cache(Expr),
     /// `CYCLE` or `NO CYCLE` option.
     Cycle(bool),
+    /// `ORDER` or `NOORDER` option (Snowflake); `true` = `ORDER`, `false` = `NOORDER`.
+    Order(bool),
 }
 
 impl fmt::Display for SequenceOptions {
@@ -8591,6 +9150,9 @@ impl fmt::Display for SequenceOptions {
             }
             SequenceOptions::Cycle(no) => {
                 write!(f, " {}CYCLE", if *no { "NO " } else { "" })
+            }
+            SequenceOptions::Order(order) => {
+                write!(f, " {}", if *order { "ORDER" } else { "NOORDER" })
             }
         }
     }
@@ -9742,6 +10304,11 @@ pub enum GrantObjects {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
+    /// Grant privileges on `ALL SECRETS IN SCHEMA <schema_name> [, ...]`
+    AllSecretsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
     /// Grant privileges on `FUTURE TABLES IN DATABASE <database_name> [, ...]`
     FutureTablesInDatabase {
         /// The target database names.
@@ -9754,6 +10321,11 @@ pub enum GrantObjects {
     },
     /// Grant privileges on `FUTURE FILE FORMATS IN SCHEMA <schema_name> [, ...]`
     FutureFileFormatsInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `FUTURE SECRETS IN SCHEMA <schema_name> [, ...]`
+    FutureSecretsInSchema {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
@@ -9784,6 +10356,8 @@ pub enum GrantObjects {
     Stages(Vec<ObjectName>),
     /// Grant privileges on specific file formats
     FileFormats(Vec<ObjectName>),
+    /// Grant privileges on specific secrets
+    Secrets(Vec<ObjectName>),
     /// Grant privileges on compute pools
     ComputePools(Vec<ObjectName>),
     /// Grant privileges on connections
@@ -9955,6 +10529,13 @@ impl fmt::Display for GrantObjects {
                     display_comma_separated(schemas)
                 )
             }
+            GrantObjects::AllSecretsInSchema { schemas } => {
+                write!(
+                    f,
+                    "ALL SECRETS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
             GrantObjects::FutureTablesInDatabase { databases } => {
                 write!(
                     f,
@@ -9976,6 +10557,13 @@ impl fmt::Display for GrantObjects {
                     display_comma_separated(schemas)
                 )
             }
+            GrantObjects::FutureSecretsInSchema { schemas } => {
+                write!(
+                    f,
+                    "FUTURE SECRETS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
             GrantObjects::FutureFunctionsInSchema { schemas } => {
                 write!(
                     f,
@@ -9994,6 +10582,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::FileFormats(objects) => {
                 write!(f, "FILE FORMAT {}", display_comma_separated(objects))
+            }
+            GrantObjects::Secrets(objects) => {
+                write!(f, "SECRET {}", display_comma_separated(objects))
             }
             GrantObjects::ComputePools(objects) => {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
@@ -10760,6 +11351,9 @@ pub enum ObjectType {
     /// A pipe (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-pipe>
     Pipe,
+    /// A resource monitor (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-resource-monitor>
+    ResourceMonitor,
 }
 
 impl fmt::Display for ObjectType {
@@ -10784,6 +11378,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Warehouse => "WAREHOUSE",
             ObjectType::Task => "TASK",
             ObjectType::Pipe => "PIPE",
+            ObjectType::ResourceMonitor => "RESOURCE MONITOR",
         })
     }
 }
@@ -13548,6 +14143,114 @@ impl fmt::Display for WarehouseParam {
     }
 }
 
+/// Property set shared by `CREATE RESOURCE MONITOR` and
+/// `ALTER RESOURCE MONITOR … SET`. Every field is optional; an omitted
+/// property is `None` / empty.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ResourceMonitorProperties {
+    /// `CREDIT_QUOTA = <n>`.
+    pub credit_quota: Option<Expr>,
+    /// `FREQUENCY = { MONTHLY | DAILY | WEEKLY | YEARLY | NEVER }`.
+    pub frequency: Option<Ident>,
+    /// `START_TIMESTAMP = { <ts> | IMMEDIATELY }`.
+    pub start_timestamp: Option<Expr>,
+    /// `END_TIMESTAMP = <ts>`.
+    pub end_timestamp: Option<Expr>,
+    /// `NOTIFY_USERS = ( <user> [, …] )`.
+    pub notify_users: Vec<Ident>,
+    /// `COMMENT = '<text>'`.
+    pub comment: Option<String>,
+    /// `TRIGGERS ON <n> PERCENT DO <action> [ … ]`.
+    pub triggers: Vec<ResourceMonitorTrigger>,
+}
+
+impl fmt::Display for ResourceMonitorProperties {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(credit_quota) = &self.credit_quota {
+            write!(f, " CREDIT_QUOTA = {credit_quota}")?;
+        }
+        if let Some(frequency) = &self.frequency {
+            write!(f, " FREQUENCY = {frequency}")?;
+        }
+        if let Some(start_timestamp) = &self.start_timestamp {
+            write!(f, " START_TIMESTAMP = {start_timestamp}")?;
+        }
+        if let Some(end_timestamp) = &self.end_timestamp {
+            write!(f, " END_TIMESTAMP = {end_timestamp}")?;
+        }
+        if !self.notify_users.is_empty() {
+            write!(
+                f,
+                " NOTIFY_USERS = ({})",
+                display_comma_separated(&self.notify_users)
+            )?;
+        }
+        if let Some(comment) = &self.comment {
+            write!(
+                f,
+                " COMMENT = '{}'",
+                value::escape_single_quote_string(comment)
+            )?;
+        }
+        if !self.triggers.is_empty() {
+            write!(f, " TRIGGERS")?;
+            for trigger in &self.triggers {
+                write!(f, " {trigger}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A single `ON <n> PERCENT DO <action>` clause of a resource monitor
+/// `TRIGGERS` list.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ResourceMonitorTrigger {
+    /// The `<n>` threshold, a percentage of the credit quota.
+    pub threshold_percent: Expr,
+    /// The action taken when the threshold is reached.
+    pub action: ResourceMonitorTriggerAction,
+}
+
+impl fmt::Display for ResourceMonitorTrigger {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ON {} PERCENT DO {}",
+            self.threshold_percent, self.action
+        )
+    }
+}
+
+/// The action of a resource monitor trigger (`DO …`).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ResourceMonitorTriggerAction {
+    /// `NOTIFY`
+    Notify,
+    /// `SUSPEND`
+    Suspend,
+    /// `SUSPEND_IMMEDIATE`
+    SuspendImmediate,
+}
+
+impl fmt::Display for ResourceMonitorTriggerAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            ResourceMonitorTriggerAction::Notify => "NOTIFY",
+            ResourceMonitorTriggerAction::Suspend => "SUSPEND",
+            ResourceMonitorTriggerAction::SuspendImmediate => "SUSPEND_IMMEDIATE",
+        })
+    }
+}
+
 /// Operations for `ALTER WAREHOUSE`.
 ///
 /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse>.
@@ -13781,6 +14484,8 @@ pub enum AlterSequenceOperation {
     SetComment(String),
     /// `UNSET COMMENT`
     UnsetComment,
+    /// `SET ORDER` or `SET NOORDER`; `true` = `ORDER`, `false` = `NOORDER`.
+    SetOrder(bool),
 }
 
 impl fmt::Display for AlterSequenceOperation {
@@ -13790,6 +14495,9 @@ impl fmt::Display for AlterSequenceOperation {
             AlterSequenceOperation::SetIncrement(value) => write!(f, "SET INCREMENT BY {value}"),
             AlterSequenceOperation::SetComment(value) => write!(f, "SET COMMENT = '{value}'"),
             AlterSequenceOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterSequenceOperation::SetOrder(order) => {
+                write!(f, "SET {}", if *order { "ORDER" } else { "NOORDER" })
+            }
         }
     }
 }

@@ -1511,6 +1511,72 @@ impl fmt::Display for AlterMaskingPolicyOperation {
     }
 }
 
+/// An operation on a network rule in an `ALTER NETWORK RULE` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterNetworkRuleOperation {
+    /// `SET [ VALUE_LIST = ( ... ) ] [ COMMENT = '...' ]`
+    Set {
+        /// Replacement `VALUE_LIST`, when present. `Some(vec![])` for an
+        /// explicit empty list `()`.
+        value_list: Option<Vec<String>>,
+        /// Replacement comment, when present.
+        comment: Option<String>,
+    },
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterNetworkRuleOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterNetworkRuleOperation::Set {
+                value_list,
+                comment,
+            } => {
+                write!(f, "SET")?;
+                if let Some(values) = value_list {
+                    write!(f, " VALUE_LIST = (")?;
+                    for (i, v) in values.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "'{}'", escape_single_quote_string(v))?;
+                    }
+                    write!(f, ")")?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
+            AlterNetworkRuleOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
+}
+
+/// An operation on a secret in a Snowflake `ALTER SECRET` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterSnowflakeSecretOperation {
+    /// `SET <option> = <value> [ ... ]` — the type-specific mutable options,
+    /// captured generically as key-value options.
+    Set(KeyValueOptions),
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterSnowflakeSecretOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterSnowflakeSecretOperation::Set(options) => write!(f, "SET {options}"),
+            AlterSnowflakeSecretOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
+}
+
 /// An operation in an `ALTER TAG` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

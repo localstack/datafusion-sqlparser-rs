@@ -1104,9 +1104,12 @@ impl<'a> Parser<'a> {
                 && self.peek_nth_token_ref(1).token == Token::Assignment
             {
                 // bare assignment: var := expr
+                // Accepts `(EXECUTE IMMEDIATE …)` / `(SHOW …)` payloads the same
+                // way a RESULTSET declaration initializer does, so a dynamic
+                // query can be assigned to an existing RESULTSET variable.
                 let target = self.parse_identifier()?;
                 self.expect_token(&Token::Assignment)?;
-                let value = self.parse_expr()?;
+                let value = self.parse_snowflake_declaration_payload_expr()?;
                 Statement::Assignment { target, value }
             } else if let Some(kind) = loop_control_keyword(&self.peek_nth_token_ref(0).token) {
                 // Loop-control statements only make sense inside a scripting
@@ -1123,6 +1126,27 @@ impl<'a> Parser<'a> {
                 // expressions like `RETURN NULL;` or `IF x IS NULL THEN`.
                 self.next_token();
                 Statement::Null
+            } else if matches!(self.peek_nth_token_ref(0).token,
+                Token::Word(ref w) if w.quote_style.is_none() && w.keyword == Keyword::NoKeyword)
+                && self.peek_nth_token_ref(1).token == Token::LParen
+            {
+                // A bare function-call statement (`identifier(args);`) inside a
+                // scripting body. Snowflake Scripting accepts an unquoted callee
+                // in statement position and resolves it at execution; a quoted
+                // name (`"F"(...)`) is a syntax error, so only unquoted,
+                // non-keyword words followed by `(` enter here. The two-token
+                // lookahead keeps this off bare identifiers and the `word :=`
+                // assignment handled above.
+                let name = self.parse_object_name(false)?;
+                match self.parse_function(name)? {
+                    Expr::Function(func) => Statement::BareCall(func),
+                    other => {
+                        return parser_err!(
+                            format!("Expected a function call but found: {other}"),
+                            self.peek_token_ref().span.start
+                        )
+                    }
+                }
             } else {
                 self.parse_statement()?
             };
@@ -5557,11 +5581,13 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::ROLE) {
             self.parse_create_role(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
-            self.parse_create_sequence(or_replace, temporary)
+            self.parse_create_sequence(or_replace, or_alter, temporary)
         } else if self.parse_keyword(Keyword::STREAM) {
             self.parse_create_stream(or_replace)
         } else if self.parse_keyword(Keyword::PIPE) {
             self.parse_create_pipe(or_replace)
+        } else if self.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITOR]) {
+            self.parse_create_resource_monitor(or_replace)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA or ROLE or SEQUENCE after CREATE OR REPLACE",
@@ -5761,6 +5787,106 @@ impl<'a> Parser<'a> {
             name,
             with_tags,
         })
+    }
+
+    /// Parse `CREATE [OR REPLACE] RESOURCE MONITOR [IF NOT EXISTS] <name>
+    /// [WITH] <properties>`.
+    fn parse_create_resource_monitor(
+        &mut self,
+        or_replace: bool,
+    ) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let with = self.parse_keyword(Keyword::WITH);
+        let properties = self.parse_resource_monitor_properties()?;
+        Ok(Statement::CreateResourceMonitor {
+            or_replace,
+            if_not_exists,
+            name,
+            with,
+            properties,
+        })
+    }
+
+    /// Parse `ALTER RESOURCE MONITOR [IF EXISTS] <name> SET <properties>`
+    /// (the `RESOURCE MONITOR` prefix is already consumed by the dispatcher).
+    fn parse_alter_resource_monitor(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        self.expect_keyword(Keyword::SET)?;
+        let properties = self.parse_resource_monitor_properties()?;
+        Ok(Statement::AlterResourceMonitor {
+            if_exists,
+            name,
+            properties,
+        })
+    }
+
+    /// Parse the whitespace-separated resource-monitor property list shared by
+    /// `CREATE RESOURCE MONITOR` and `ALTER RESOURCE MONITOR … SET`. The
+    /// `TRIGGERS` clause is trailing: it consumes one or more
+    /// `ON <n> PERCENT DO <action>` clauses and ends the list.
+    fn parse_resource_monitor_properties(
+        &mut self,
+    ) -> Result<ResourceMonitorProperties, ParserError> {
+        let mut props = ResourceMonitorProperties::default();
+        loop {
+            if self.parse_keyword(Keyword::CREDIT_QUOTA) {
+                self.expect_token(&Token::Eq)?;
+                props.credit_quota = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::FREQUENCY) {
+                self.expect_token(&Token::Eq)?;
+                props.frequency = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::START_TIMESTAMP) {
+                self.expect_token(&Token::Eq)?;
+                props.start_timestamp = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::END_TIMESTAMP) {
+                self.expect_token(&Token::Eq)?;
+                props.end_timestamp = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::NOTIFY_USERS) {
+                self.expect_token(&Token::Eq)?;
+                self.expect_token(&Token::LParen)?;
+                props.notify_users = self.parse_comma_separated(Parser::parse_identifier)?;
+                self.expect_token(&Token::RParen)?;
+            } else if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                props.comment = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::TRIGGERS) {
+                loop {
+                    self.expect_keyword(Keyword::ON)?;
+                    let threshold_percent = self.parse_expr()?;
+                    self.expect_keyword(Keyword::PERCENT)?;
+                    self.expect_keyword(Keyword::DO)?;
+                    let action = if self.parse_keyword(Keyword::NOTIFY) {
+                        ResourceMonitorTriggerAction::Notify
+                    } else if self.parse_keyword(Keyword::SUSPEND_IMMEDIATE) {
+                        ResourceMonitorTriggerAction::SuspendImmediate
+                    } else if self.parse_keyword(Keyword::SUSPEND) {
+                        ResourceMonitorTriggerAction::Suspend
+                    } else {
+                        return self.expected(
+                            "NOTIFY, SUSPEND, or SUSPEND_IMMEDIATE after DO",
+                            self.peek_token(),
+                        );
+                    };
+                    props.triggers.push(ResourceMonitorTrigger {
+                        threshold_percent,
+                        action,
+                    });
+                    let more = matches!(
+                        &self.peek_token().token,
+                        Token::Word(w) if w.keyword == Keyword::ON
+                    );
+                    if !more {
+                        break;
+                    }
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+        Ok(props)
     }
 
     fn parse_create_account(&mut self) -> Result<Statement, ParserError> {
@@ -6043,6 +6169,21 @@ impl<'a> Parser<'a> {
         let with_managed_access =
             self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
 
+        // Snowflake inline `[ WITH ] TAG ( <t> = '<v>', ... )` clause. The
+        // optional `WITH` shares its keyword with the Trino option list below,
+        // so intercept `WITH TAG` (and the bare `TAG`) here; `parse_keywords`
+        // backtracks when `TAG` does not follow, leaving `WITH (k='v')` intact.
+        let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+            || self.parse_keyword(Keyword::TAG)
+        {
+            self.expect_token(&Token::LParen)?;
+            let tags = self.parse_comma_separated(Parser::parse_tag)?;
+            self.expect_token(&Token::RParen)?;
+            Some(tags)
+        } else {
+            None
+        };
+
         let with = if !with_managed_access && self.peek_keyword(Keyword::WITH) {
             Some(self.parse_options(Keyword::WITH)?)
         } else {
@@ -6074,6 +6215,7 @@ impl<'a> Parser<'a> {
             default_collate_spec,
             clone,
             comment,
+            with_tags,
         })
     }
 
@@ -7336,6 +7478,19 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let names = self.parse_comma_separated(|p| p.parse_object_name(false))?;
 
+        // Snowflake: trailing `WITH TAG ( <t> = '<v>' [, ...] )`. It is
+        // trailing-only, so no other role option may follow. `WITH TAG` is
+        // consumed atomically here; a bare `WITH` (or `WITH <other>`) is left
+        // for the generic option loop below.
+        let mut with_tags = Vec::new();
+        if dialect_of!(self is SnowflakeDialect)
+            && self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+        {
+            self.expect_token(&Token::LParen)?;
+            with_tags = self.parse_comma_separated(Parser::parse_tag)?;
+            self.expect_token(&Token::RParen)?;
+        }
+
         let _ = self.parse_keyword(Keyword::WITH); // [ WITH ]
 
         let optional_keywords = if dialect_of!(self is MsSqlDialect) {
@@ -7554,6 +7709,7 @@ impl<'a> Parser<'a> {
             user,
             admin,
             authorization_owner,
+            with_tags,
         })
     }
 
@@ -8087,6 +8243,8 @@ impl<'a> Parser<'a> {
             ObjectType::Task
         } else if self.parse_keyword(Keyword::PIPE) {
             ObjectType::Pipe
+        } else if self.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITOR]) {
+            ObjectType::ResourceMonitor
         } else if self.parse_keyword(Keyword::FUNCTION) {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
@@ -11725,6 +11883,7 @@ impl<'a> Parser<'a> {
             Keyword::STREAM,
             Keyword::SEQUENCE,
             Keyword::PIPE,
+            Keyword::RESOURCE,
         ])?;
         match object_type {
             Keyword::SCHEMA => {
@@ -11779,9 +11938,13 @@ impl<'a> Parser<'a> {
             Keyword::STREAM => self.parse_alter_stream(),
             Keyword::SEQUENCE => self.parse_alter_sequence(),
             Keyword::PIPE => self.parse_alter_pipe(),
+            Keyword::RESOURCE => {
+                self.expect_keyword(Keyword::MONITOR)?;
+                self.parse_alter_resource_monitor()
+            }
             // unreachable because expect_one_of_keywords used above
             unexpected_keyword => Err(ParserError::ParserError(
-                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, ACCOUNT, TASK, STREAM, SEQUENCE, PIPE}}, got {unexpected_keyword:?}"),
+                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, ACCOUNT, TASK, STREAM, SEQUENCE, PIPE, RESOURCE}}, got {unexpected_keyword:?}"),
             )),
         }
     }
@@ -12198,9 +12361,13 @@ impl<'a> Parser<'a> {
                 let _ = self.parse_keyword(Keyword::BY);
                 let _ = self.consume_token(&Token::Eq);
                 AlterSequenceOperation::SetIncrement(self.parse_number()?)
+            } else if self.parse_keyword(Keyword::ORDER) {
+                AlterSequenceOperation::SetOrder(true)
+            } else if self.parse_keyword(Keyword::NOORDER) {
+                AlterSequenceOperation::SetOrder(false)
             } else {
                 return self.expected(
-                    "RENAME TO, INCREMENT, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
+                    "RENAME TO, INCREMENT, ORDER, NOORDER, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
                     self.peek_token(),
                 );
             }
@@ -14031,7 +14198,11 @@ impl<'a> Parser<'a> {
 
     fn parse_returns_table_columns(&mut self) -> Result<Vec<ColumnDef>, ParserError> {
         self.expect_token(&Token::LParen)?;
-        let columns = self.parse_comma_separated(Parser::parse_returns_table_column)?;
+        // Snowflake accepts an empty column list — `RETURNS TABLE()` — meaning the
+        // result columns are determined at run time. Bare `RETURNS TABLE` without
+        // parentheses remains a syntax error (handled by the caller).
+        let columns =
+            self.parse_comma_separated0(Parser::parse_returns_table_column, Token::RParen)?;
         self.expect_token(&Token::RParen)?;
         Ok(columns)
     }
@@ -18867,6 +19038,15 @@ impl<'a> Parser<'a> {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
             } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::SECRETS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::AllSecretsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
                 Keyword::FUTURE,
                 Keyword::TABLES,
                 Keyword::IN,
@@ -18892,6 +19072,15 @@ impl<'a> Parser<'a> {
                 Keyword::SCHEMA,
             ]) {
                 Some(GrantObjects::FutureFileFormatsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::SECRETS,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::FutureSecretsInSchema {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
             } else if self.parse_keywords(&[
@@ -18925,6 +19114,10 @@ impl<'a> Parser<'a> {
                 ))
             } else if self.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 Some(GrantObjects::FileFormats(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
+            } else if self.parse_keyword(Keyword::SECRET) {
+                Some(GrantObjects::Secrets(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
             } else if self.parse_keyword(Keyword::STAGE) {
@@ -21216,6 +21409,7 @@ impl<'a> Parser<'a> {
     pub fn parse_create_sequence(
         &mut self,
         or_replace: bool,
+        or_alter: bool,
         temporary: bool,
     ) -> Result<Statement, ParserError> {
         //[ IF NOT EXISTS ]
@@ -21241,6 +21435,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::CreateSequence {
             temporary,
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             data_type,
@@ -21251,10 +21446,14 @@ impl<'a> Parser<'a> {
 
     fn parse_create_sequence_options(&mut self) -> Result<Vec<SequenceOptions>, ParserError> {
         // Options may appear in any order (Snowflake) and each keyword may use an
-        // optional `=` assignment form (`START = 1`, `INCREMENT = 1`). Snowflake's
-        // `ORDER`/`NOORDER` ordering guarantee is accepted and ignored.
+        // optional `=` assignment form (`START = 1`, `INCREMENT = 1`). A leading
+        // `WITH` and comma separators between options are both accepted.
         let mut sequence_options = vec![];
+        let _ = self.parse_keyword(Keyword::WITH);
         loop {
+            if !sequence_options.is_empty() {
+                let _ = self.consume_token(&Token::Comma);
+            }
             if self.parse_keyword(Keyword::INCREMENT) {
                 //[ INCREMENT [ BY ] [ = ] increment ]
                 let by = self.parse_keyword(Keyword::BY);
@@ -21285,8 +21484,10 @@ impl<'a> Parser<'a> {
                 sequence_options.push(SequenceOptions::Cycle(true));
             } else if self.parse_keyword(Keyword::CYCLE) {
                 sequence_options.push(SequenceOptions::Cycle(false));
-            } else if self.parse_keyword(Keyword::ORDER) || self.parse_keyword(Keyword::NOORDER) {
-                // Snowflake ordering guarantee — accepted, no effect on emulation.
+            } else if self.parse_keyword(Keyword::ORDER) {
+                sequence_options.push(SequenceOptions::Order(true));
+            } else if self.parse_keyword(Keyword::NOORDER) {
+                sequence_options.push(SequenceOptions::Order(false));
             } else {
                 break;
             }

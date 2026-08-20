@@ -137,7 +137,10 @@ fn parse_sf_create_stream_append_only() {
     // and on an `ON VIEW` source.
     for (sql, expected) in [
         ("CREATE STREAM s ON TABLE t APPEND_ONLY = TRUE", Some(true)),
-        ("CREATE STREAM s ON TABLE t APPEND_ONLY = FALSE", Some(false)),
+        (
+            "CREATE STREAM s ON TABLE t APPEND_ONLY = FALSE",
+            Some(false),
+        ),
         ("CREATE STREAM s ON VIEW v APPEND_ONLY = TRUE", Some(true)),
         (
             "CREATE STREAM s ON TABLE t AT(STREAM => 'S_BASE') APPEND_ONLY = TRUE",
@@ -557,6 +560,35 @@ fn test_snowflake_create_transient_schema() {
         }
         _ => unreachable!(),
     }
+}
+
+#[test]
+fn test_snowflake_create_schema_with_tag() {
+    // `WITH TAG` roundtrips and populates `with_tags`; the bare `TAG (...)`
+    // form (optional `WITH`) normalises to the `WITH TAG` rendering.
+    let sql = "CREATE SCHEMA my_schema WITH TAG (cost_center='sales', env='prod')";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            with_tags,
+            ..
+        } => {
+            assert_eq!("my_schema", schema_name.to_string());
+            let tags = with_tags.expect("with_tags populated");
+            assert_eq!(tags.len(), 2);
+            assert_eq!(tags[0].to_string(), "cost_center='sales'");
+            assert_eq!(tags[1].to_string(), "env='prod'");
+        }
+        _ => unreachable!(),
+    }
+
+    snowflake_and_generic().one_statement_parses_to(
+        "CREATE SCHEMA my_schema TAG (env = 'prod')",
+        "CREATE SCHEMA my_schema WITH TAG (env='prod')",
+    );
+
+    // `WITH MANAGED ACCESS` and the Trino `WITH (k='v')` option list still parse.
+    snowflake_and_generic().verified_stmt("CREATE SCHEMA my_schema WITH MANAGED ACCESS");
 }
 
 #[test]
@@ -1856,6 +1888,12 @@ fn parse_create_sequence_snowflake_options() {
         "CREATE SEQUENCE seq0 START = 1 INCREMENT = 1 ORDER",
         "CREATE SEQUENCE seq0 INCREMENT = 2 START = 5 NOORDER",
         "CREATE SEQUENCE seq0 START WITH 1 INCREMENT 1",
+        "CREATE SEQUENCE seq0 WITH START = 1, INCREMENT = 1",
+        "CREATE SEQUENCE seq0 WITH START = 1, INCREMENT = 1, ORDER",
+        "CREATE SEQUENCE seq0 WITH NOORDER",
+        "ALTER SEQUENCE seq0 SET ORDER",
+        "ALTER SEQUENCE seq0 SET NOORDER",
+        "ALTER SEQUENCE IF EXISTS seq0 SET NOORDER",
     ] {
         snowflake()
             .parse_sql_statements(sql)
@@ -8206,6 +8244,56 @@ fn test_top_level_null_still_errors() {
 }
 
 #[test]
+fn test_scripting_bare_function_call() {
+    // A bare `identifier(args);` inside a scripting body parses as a BareCall.
+    let sql = "BEGIN SYSTEM$LOG_INFO('m'); END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            match &statements[0] {
+                Statement::BareCall(func) => {
+                    assert_eq!("SYSTEM$LOG_INFO", func.name.to_string());
+                }
+                other => panic!("expected BareCall, got {other:?}"),
+            }
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_bare_call_empty_args() {
+    // Zero-argument bare call still parses as a BareCall.
+    let sql = "BEGIN SYSTEM$LOG(); END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert!(matches!(&statements[0], Statement::BareCall(_)));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_quoted_bare_call_errors() {
+    // A quoted callee in statement position is a syntax error — only unquoted,
+    // non-keyword words followed by `(` become a BareCall.
+    assert!(snowflake()
+        .parse_sql_statements("BEGIN \"SYSTEM$LOG_INFO\"('m'); END")
+        .is_err());
+}
+
+#[test]
+fn test_top_level_bare_call_still_errors() {
+    // A bare call outside a scripting context must still error — the arm is
+    // scoped to parse_scripting_statement_list.
+    assert!(snowflake()
+        .parse_sql_statements("SYSTEM$LOG('info','x');")
+        .is_err());
+}
+
+#[test]
 fn test_create_file_format_type_csv() {
     match snowflake().verified_stmt("CREATE FILE FORMAT f TYPE = CSV") {
         Statement::CreateFileFormat {
@@ -9639,6 +9727,199 @@ fn parse_snowflake_external_table_family_roundtrips() {
         "ALTER EXTERNAL TABLE et SET AUTO_REFRESH = TRUE",
         "ALTER EXTERNAL TABLE et ADD PARTITION (dt = '2026-01-01') LOCATION 'json/'",
         "ALTER EXTERNAL TABLE et DROP PARTITION LOCATION 'json/'",
+    ] {
+        let ast = dialect
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+        let rendered = ast[0].to_string();
+        let reparsed = dialect
+            .parse_sql_statements(&rendered)
+            .unwrap_or_else(|e| panic!("failed to reparse {rendered:?}: {e}"));
+        assert_eq!(ast, reparsed, "round trip changed AST\n  in:  {sql}\n  out: {rendered}");
+    }
+}
+
+#[test]
+fn test_create_resource_monitor() {
+    let sql = "CREATE RESOURCE MONITOR rm CREDIT_QUOTA = 100";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateResourceMonitor {
+            or_replace,
+            if_not_exists,
+            name,
+            with,
+            properties,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("rm", name.to_string());
+            assert!(!with);
+            assert_eq!("100", properties.credit_quota.unwrap().to_string());
+            assert!(properties.triggers.is_empty());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_resource_monitor_with_keyword() {
+    let sql = "CREATE OR REPLACE RESOURCE MONITOR rm WITH CREDIT_QUOTA = 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateResourceMonitor {
+            or_replace,
+            if_not_exists,
+            name,
+            with,
+            properties,
+        } => {
+            assert!(or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("rm", name.to_string());
+            assert!(with);
+            assert_eq!("1", properties.credit_quota.unwrap().to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_resource_monitor_if_not_exists_full_properties() {
+    let sql = "CREATE RESOURCE MONITOR IF NOT EXISTS rm WITH CREDIT_QUOTA = 2000 \
+               FREQUENCY = MONTHLY START_TIMESTAMP = 'IMMEDIATELY' END_TIMESTAMP = '2026-12-31' \
+               NOTIFY_USERS = (alice, bob) COMMENT = 'quota monitor' \
+               TRIGGERS ON 80 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND \
+               ON 110 PERCENT DO SUSPEND_IMMEDIATE";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateResourceMonitor {
+            if_not_exists,
+            with,
+            properties,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert!(with);
+            assert_eq!("2000", properties.credit_quota.unwrap().to_string());
+            assert_eq!("MONTHLY", properties.frequency.unwrap().to_string());
+            assert_eq!("'IMMEDIATELY'", properties.start_timestamp.unwrap().to_string());
+            assert_eq!("'2026-12-31'", properties.end_timestamp.unwrap().to_string());
+            assert_eq!(
+                vec!["alice".to_string(), "bob".to_string()],
+                properties
+                    .notify_users
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(Some("quota monitor".to_string()), properties.comment);
+            assert_eq!(3, properties.triggers.len());
+            assert_eq!("80", properties.triggers[0].threshold_percent.to_string());
+            assert_eq!(ResourceMonitorTriggerAction::Notify, properties.triggers[0].action);
+            assert_eq!(ResourceMonitorTriggerAction::Suspend, properties.triggers[1].action);
+            assert_eq!(
+                ResourceMonitorTriggerAction::SuspendImmediate,
+                properties.triggers[2].action
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_resource_monitor_set() {
+    let sql = "ALTER RESOURCE MONITOR rm SET CREDIT_QUOTA = 90";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterResourceMonitor {
+            if_exists,
+            name,
+            properties,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("rm", name.to_string());
+            assert_eq!("90", properties.credit_quota.unwrap().to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_resource_monitor_if_exists_triggers() {
+    let sql = "ALTER RESOURCE MONITOR IF EXISTS rm SET TRIGGERS ON 50 PERCENT DO NOTIFY";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterResourceMonitor {
+            if_exists,
+            properties,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(1, properties.triggers.len());
+            assert_eq!("50", properties.triggers[0].threshold_percent.to_string());
+            assert_eq!(ResourceMonitorTriggerAction::Notify, properties.triggers[0].action);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_resource_monitor() {
+    match snowflake().verified_stmt("DROP RESOURCE MONITOR rm") {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => {
+            assert_eq!(ObjectType::ResourceMonitor, object_type);
+            assert!(!if_exists);
+            assert_eq!("rm", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("DROP RESOURCE MONITOR IF EXISTS rm") {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            ..
+        } => {
+            assert_eq!(ObjectType::ResourceMonitor, object_type);
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_resource_monitors() {
+    match snowflake().verified_stmt("SHOW RESOURCE MONITORS") {
+        Statement::ShowResourceMonitors { filter } => assert!(filter.is_none()),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_resource_monitors_like() {
+    match snowflake().verified_stmt("SHOW RESOURCE MONITORS LIKE 'pat%'") {
+        Statement::ShowResourceMonitors { filter } => match filter.unwrap() {
+            ShowStatementFilter::Like(p) => assert_eq!("pat%", p),
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_resource_monitor_round_trip() {
+    let dialect = TestedDialects::new(vec![Box::new(SnowflakeDialect {})]);
+    for sql in [
+        "CREATE RESOURCE MONITOR rm CREDIT_QUOTA = 100",
+        "CREATE RESOURCE MONITOR rm WITH CREDIT_QUOTA = 100",
+        "CREATE OR REPLACE RESOURCE MONITOR rm WITH CREDIT_QUOTA = 1",
+        "CREATE RESOURCE MONITOR IF NOT EXISTS rm CREDIT_QUOTA = 100 TRIGGERS ON 80 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND ON 110 PERCENT DO SUSPEND_IMMEDIATE",
+        "ALTER RESOURCE MONITOR rm SET CREDIT_QUOTA = 90",
+        "ALTER RESOURCE MONITOR IF EXISTS rm SET TRIGGERS ON 50 PERCENT DO NOTIFY",
+        "DROP RESOURCE MONITOR rm",
+        "DROP RESOURCE MONITOR IF EXISTS rm",
+        "SHOW RESOURCE MONITORS",
+        "SHOW RESOURCE MONITORS LIKE 'pat%'",
     ] {
         let ast = dialect
             .parse_sql_statements(sql)
