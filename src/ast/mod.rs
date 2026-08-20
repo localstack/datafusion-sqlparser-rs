@@ -5040,6 +5040,46 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] RESOURCE MONITOR [IF NOT EXISTS] <name>
+    ///   [WITH] [CREDIT_QUOTA = <n>] [FREQUENCY = <f>]
+    ///   [START_TIMESTAMP = { <ts> | IMMEDIATELY }] [END_TIMESTAMP = <ts>]
+    ///   [NOTIFY_USERS = ( <user> [, …] )]
+    ///   [TRIGGERS ON <n> PERCENT DO { NOTIFY | SUSPEND | SUSPEND_IMMEDIATE } [ … ]]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor>
+    CreateResourceMonitor {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Resource monitor name.
+        name: ObjectName,
+        /// Whether the optional `WITH` keyword preceded the property list.
+        with: bool,
+        /// Parsed property set.
+        properties: ResourceMonitorProperties,
+    },
+    /// ```sql
+    /// ALTER RESOURCE MONITOR [IF EXISTS] <name> SET <properties>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-resource-monitor>
+    AlterResourceMonitor {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Resource monitor name.
+        name: ObjectName,
+        /// Properties set by the `SET` clause.
+        properties: ResourceMonitorProperties,
+    },
+    /// ```sql
+    /// SHOW RESOURCE MONITORS [LIKE '<pattern>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-resource-monitors>
+    ShowResourceMonitors {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// CREATE ACCOUNT <name>
     ///   ADMIN_NAME = <id> ADMIN_PASSWORD = '<pw>'
     ///   [FIRST_NAME = …] [LAST_NAME = …] EMAIL = '<email>'
@@ -7912,6 +7952,43 @@ impl fmt::Display for Statement {
             }
             Statement::ShowWarehouses { filter } => {
                 write!(f, "SHOW WAREHOUSES")?;
+                if let Some(filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateResourceMonitor {
+                or_replace,
+                if_not_exists,
+                name,
+                with,
+                properties,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}RESOURCE MONITOR {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if *with {
+                    write!(f, " WITH")?;
+                }
+                write!(f, "{properties}")
+            }
+            Statement::AlterResourceMonitor {
+                if_exists,
+                name,
+                properties,
+            } => {
+                write!(f, "ALTER RESOURCE MONITOR ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name} SET")?;
+                write!(f, "{properties}")
+            }
+            Statement::ShowResourceMonitors { filter } => {
+                write!(f, "SHOW RESOURCE MONITORS")?;
                 if let Some(filter) = filter {
                     write!(f, " {filter}")?;
                 }
@@ -11274,6 +11351,9 @@ pub enum ObjectType {
     /// A pipe (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-pipe>
     Pipe,
+    /// A resource monitor (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-resource-monitor>
+    ResourceMonitor,
 }
 
 impl fmt::Display for ObjectType {
@@ -11298,6 +11378,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Warehouse => "WAREHOUSE",
             ObjectType::Task => "TASK",
             ObjectType::Pipe => "PIPE",
+            ObjectType::ResourceMonitor => "RESOURCE MONITOR",
         })
     }
 }
@@ -14059,6 +14140,114 @@ pub struct WarehouseParam {
 impl fmt::Display for WarehouseParam {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} = {}", self.name, self.value)
+    }
+}
+
+/// Property set shared by `CREATE RESOURCE MONITOR` and
+/// `ALTER RESOURCE MONITOR … SET`. Every field is optional; an omitted
+/// property is `None` / empty.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/create-resource-monitor>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ResourceMonitorProperties {
+    /// `CREDIT_QUOTA = <n>`.
+    pub credit_quota: Option<Expr>,
+    /// `FREQUENCY = { MONTHLY | DAILY | WEEKLY | YEARLY | NEVER }`.
+    pub frequency: Option<Ident>,
+    /// `START_TIMESTAMP = { <ts> | IMMEDIATELY }`.
+    pub start_timestamp: Option<Expr>,
+    /// `END_TIMESTAMP = <ts>`.
+    pub end_timestamp: Option<Expr>,
+    /// `NOTIFY_USERS = ( <user> [, …] )`.
+    pub notify_users: Vec<Ident>,
+    /// `COMMENT = '<text>'`.
+    pub comment: Option<String>,
+    /// `TRIGGERS ON <n> PERCENT DO <action> [ … ]`.
+    pub triggers: Vec<ResourceMonitorTrigger>,
+}
+
+impl fmt::Display for ResourceMonitorProperties {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(credit_quota) = &self.credit_quota {
+            write!(f, " CREDIT_QUOTA = {credit_quota}")?;
+        }
+        if let Some(frequency) = &self.frequency {
+            write!(f, " FREQUENCY = {frequency}")?;
+        }
+        if let Some(start_timestamp) = &self.start_timestamp {
+            write!(f, " START_TIMESTAMP = {start_timestamp}")?;
+        }
+        if let Some(end_timestamp) = &self.end_timestamp {
+            write!(f, " END_TIMESTAMP = {end_timestamp}")?;
+        }
+        if !self.notify_users.is_empty() {
+            write!(
+                f,
+                " NOTIFY_USERS = ({})",
+                display_comma_separated(&self.notify_users)
+            )?;
+        }
+        if let Some(comment) = &self.comment {
+            write!(
+                f,
+                " COMMENT = '{}'",
+                value::escape_single_quote_string(comment)
+            )?;
+        }
+        if !self.triggers.is_empty() {
+            write!(f, " TRIGGERS")?;
+            for trigger in &self.triggers {
+                write!(f, " {trigger}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A single `ON <n> PERCENT DO <action>` clause of a resource monitor
+/// `TRIGGERS` list.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ResourceMonitorTrigger {
+    /// The `<n>` threshold, a percentage of the credit quota.
+    pub threshold_percent: Expr,
+    /// The action taken when the threshold is reached.
+    pub action: ResourceMonitorTriggerAction,
+}
+
+impl fmt::Display for ResourceMonitorTrigger {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ON {} PERCENT DO {}",
+            self.threshold_percent, self.action
+        )
+    }
+}
+
+/// The action of a resource monitor trigger (`DO …`).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ResourceMonitorTriggerAction {
+    /// `NOTIFY`
+    Notify,
+    /// `SUSPEND`
+    Suspend,
+    /// `SUSPEND_IMMEDIATE`
+    SuspendImmediate,
+}
+
+impl fmt::Display for ResourceMonitorTriggerAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            ResourceMonitorTriggerAction::Notify => "NOTIFY",
+            ResourceMonitorTriggerAction::Suspend => "SUSPEND",
+            ResourceMonitorTriggerAction::SuspendImmediate => "SUSPEND_IMMEDIATE",
+        })
     }
 }
 

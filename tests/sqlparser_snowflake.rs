@@ -9738,3 +9738,196 @@ fn parse_snowflake_external_table_family_roundtrips() {
         assert_eq!(ast, reparsed, "round trip changed AST\n  in:  {sql}\n  out: {rendered}");
     }
 }
+
+#[test]
+fn test_create_resource_monitor() {
+    let sql = "CREATE RESOURCE MONITOR rm CREDIT_QUOTA = 100";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateResourceMonitor {
+            or_replace,
+            if_not_exists,
+            name,
+            with,
+            properties,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("rm", name.to_string());
+            assert!(!with);
+            assert_eq!("100", properties.credit_quota.unwrap().to_string());
+            assert!(properties.triggers.is_empty());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_resource_monitor_with_keyword() {
+    let sql = "CREATE OR REPLACE RESOURCE MONITOR rm WITH CREDIT_QUOTA = 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateResourceMonitor {
+            or_replace,
+            if_not_exists,
+            name,
+            with,
+            properties,
+        } => {
+            assert!(or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("rm", name.to_string());
+            assert!(with);
+            assert_eq!("1", properties.credit_quota.unwrap().to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_resource_monitor_if_not_exists_full_properties() {
+    let sql = "CREATE RESOURCE MONITOR IF NOT EXISTS rm WITH CREDIT_QUOTA = 2000 \
+               FREQUENCY = MONTHLY START_TIMESTAMP = 'IMMEDIATELY' END_TIMESTAMP = '2026-12-31' \
+               NOTIFY_USERS = (alice, bob) COMMENT = 'quota monitor' \
+               TRIGGERS ON 80 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND \
+               ON 110 PERCENT DO SUSPEND_IMMEDIATE";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateResourceMonitor {
+            if_not_exists,
+            with,
+            properties,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert!(with);
+            assert_eq!("2000", properties.credit_quota.unwrap().to_string());
+            assert_eq!("MONTHLY", properties.frequency.unwrap().to_string());
+            assert_eq!("'IMMEDIATELY'", properties.start_timestamp.unwrap().to_string());
+            assert_eq!("'2026-12-31'", properties.end_timestamp.unwrap().to_string());
+            assert_eq!(
+                vec!["alice".to_string(), "bob".to_string()],
+                properties
+                    .notify_users
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(Some("quota monitor".to_string()), properties.comment);
+            assert_eq!(3, properties.triggers.len());
+            assert_eq!("80", properties.triggers[0].threshold_percent.to_string());
+            assert_eq!(ResourceMonitorTriggerAction::Notify, properties.triggers[0].action);
+            assert_eq!(ResourceMonitorTriggerAction::Suspend, properties.triggers[1].action);
+            assert_eq!(
+                ResourceMonitorTriggerAction::SuspendImmediate,
+                properties.triggers[2].action
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_resource_monitor_set() {
+    let sql = "ALTER RESOURCE MONITOR rm SET CREDIT_QUOTA = 90";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterResourceMonitor {
+            if_exists,
+            name,
+            properties,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("rm", name.to_string());
+            assert_eq!("90", properties.credit_quota.unwrap().to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_resource_monitor_if_exists_triggers() {
+    let sql = "ALTER RESOURCE MONITOR IF EXISTS rm SET TRIGGERS ON 50 PERCENT DO NOTIFY";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterResourceMonitor {
+            if_exists,
+            properties,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(1, properties.triggers.len());
+            assert_eq!("50", properties.triggers[0].threshold_percent.to_string());
+            assert_eq!(ResourceMonitorTriggerAction::Notify, properties.triggers[0].action);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_resource_monitor() {
+    match snowflake().verified_stmt("DROP RESOURCE MONITOR rm") {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => {
+            assert_eq!(ObjectType::ResourceMonitor, object_type);
+            assert!(!if_exists);
+            assert_eq!("rm", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("DROP RESOURCE MONITOR IF EXISTS rm") {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            ..
+        } => {
+            assert_eq!(ObjectType::ResourceMonitor, object_type);
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_resource_monitors() {
+    match snowflake().verified_stmt("SHOW RESOURCE MONITORS") {
+        Statement::ShowResourceMonitors { filter } => assert!(filter.is_none()),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_resource_monitors_like() {
+    match snowflake().verified_stmt("SHOW RESOURCE MONITORS LIKE 'pat%'") {
+        Statement::ShowResourceMonitors { filter } => match filter.unwrap() {
+            ShowStatementFilter::Like(p) => assert_eq!("pat%", p),
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_resource_monitor_round_trip() {
+    let dialect = TestedDialects::new(vec![Box::new(SnowflakeDialect {})]);
+    for sql in [
+        "CREATE RESOURCE MONITOR rm CREDIT_QUOTA = 100",
+        "CREATE RESOURCE MONITOR rm WITH CREDIT_QUOTA = 100",
+        "CREATE OR REPLACE RESOURCE MONITOR rm WITH CREDIT_QUOTA = 1",
+        "CREATE RESOURCE MONITOR IF NOT EXISTS rm CREDIT_QUOTA = 100 TRIGGERS ON 80 PERCENT DO NOTIFY ON 100 PERCENT DO SUSPEND ON 110 PERCENT DO SUSPEND_IMMEDIATE",
+        "ALTER RESOURCE MONITOR rm SET CREDIT_QUOTA = 90",
+        "ALTER RESOURCE MONITOR IF EXISTS rm SET TRIGGERS ON 50 PERCENT DO NOTIFY",
+        "DROP RESOURCE MONITOR rm",
+        "DROP RESOURCE MONITOR IF EXISTS rm",
+        "SHOW RESOURCE MONITORS",
+        "SHOW RESOURCE MONITORS LIKE 'pat%'",
+    ] {
+        let ast = dialect
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+        let rendered = ast[0].to_string();
+        let reparsed = dialect
+            .parse_sql_statements(&rendered)
+            .unwrap_or_else(|e| panic!("failed to reparse {rendered:?}: {e}"));
+        assert_eq!(ast, reparsed, "round trip changed AST\n  in:  {sql}\n  out: {rendered}");
+    }
+}

@@ -5586,6 +5586,8 @@ impl<'a> Parser<'a> {
             self.parse_create_stream(or_replace)
         } else if self.parse_keyword(Keyword::PIPE) {
             self.parse_create_pipe(or_replace)
+        } else if self.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITOR]) {
+            self.parse_create_resource_monitor(or_replace)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or WAREHOUSE or TASK or PROCEDURE or SCHEMA or ROLE or SEQUENCE after CREATE OR REPLACE",
@@ -5785,6 +5787,106 @@ impl<'a> Parser<'a> {
             name,
             with_tags,
         })
+    }
+
+    /// Parse `CREATE [OR REPLACE] RESOURCE MONITOR [IF NOT EXISTS] <name>
+    /// [WITH] <properties>`.
+    fn parse_create_resource_monitor(
+        &mut self,
+        or_replace: bool,
+    ) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let with = self.parse_keyword(Keyword::WITH);
+        let properties = self.parse_resource_monitor_properties()?;
+        Ok(Statement::CreateResourceMonitor {
+            or_replace,
+            if_not_exists,
+            name,
+            with,
+            properties,
+        })
+    }
+
+    /// Parse `ALTER RESOURCE MONITOR [IF EXISTS] <name> SET <properties>`
+    /// (the `RESOURCE MONITOR` prefix is already consumed by the dispatcher).
+    fn parse_alter_resource_monitor(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        self.expect_keyword(Keyword::SET)?;
+        let properties = self.parse_resource_monitor_properties()?;
+        Ok(Statement::AlterResourceMonitor {
+            if_exists,
+            name,
+            properties,
+        })
+    }
+
+    /// Parse the whitespace-separated resource-monitor property list shared by
+    /// `CREATE RESOURCE MONITOR` and `ALTER RESOURCE MONITOR … SET`. The
+    /// `TRIGGERS` clause is trailing: it consumes one or more
+    /// `ON <n> PERCENT DO <action>` clauses and ends the list.
+    fn parse_resource_monitor_properties(
+        &mut self,
+    ) -> Result<ResourceMonitorProperties, ParserError> {
+        let mut props = ResourceMonitorProperties::default();
+        loop {
+            if self.parse_keyword(Keyword::CREDIT_QUOTA) {
+                self.expect_token(&Token::Eq)?;
+                props.credit_quota = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::FREQUENCY) {
+                self.expect_token(&Token::Eq)?;
+                props.frequency = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::START_TIMESTAMP) {
+                self.expect_token(&Token::Eq)?;
+                props.start_timestamp = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::END_TIMESTAMP) {
+                self.expect_token(&Token::Eq)?;
+                props.end_timestamp = Some(self.parse_expr()?);
+            } else if self.parse_keyword(Keyword::NOTIFY_USERS) {
+                self.expect_token(&Token::Eq)?;
+                self.expect_token(&Token::LParen)?;
+                props.notify_users = self.parse_comma_separated(Parser::parse_identifier)?;
+                self.expect_token(&Token::RParen)?;
+            } else if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                props.comment = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::TRIGGERS) {
+                loop {
+                    self.expect_keyword(Keyword::ON)?;
+                    let threshold_percent = self.parse_expr()?;
+                    self.expect_keyword(Keyword::PERCENT)?;
+                    self.expect_keyword(Keyword::DO)?;
+                    let action = if self.parse_keyword(Keyword::NOTIFY) {
+                        ResourceMonitorTriggerAction::Notify
+                    } else if self.parse_keyword(Keyword::SUSPEND_IMMEDIATE) {
+                        ResourceMonitorTriggerAction::SuspendImmediate
+                    } else if self.parse_keyword(Keyword::SUSPEND) {
+                        ResourceMonitorTriggerAction::Suspend
+                    } else {
+                        return self.expected(
+                            "NOTIFY, SUSPEND, or SUSPEND_IMMEDIATE after DO",
+                            self.peek_token(),
+                        );
+                    };
+                    props.triggers.push(ResourceMonitorTrigger {
+                        threshold_percent,
+                        action,
+                    });
+                    let more = matches!(
+                        &self.peek_token().token,
+                        Token::Word(w) if w.keyword == Keyword::ON
+                    );
+                    if !more {
+                        break;
+                    }
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+        Ok(props)
     }
 
     fn parse_create_account(&mut self) -> Result<Statement, ParserError> {
@@ -8141,6 +8243,8 @@ impl<'a> Parser<'a> {
             ObjectType::Task
         } else if self.parse_keyword(Keyword::PIPE) {
             ObjectType::Pipe
+        } else if self.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITOR]) {
+            ObjectType::ResourceMonitor
         } else if self.parse_keyword(Keyword::FUNCTION) {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
@@ -11779,6 +11883,7 @@ impl<'a> Parser<'a> {
             Keyword::STREAM,
             Keyword::SEQUENCE,
             Keyword::PIPE,
+            Keyword::RESOURCE,
         ])?;
         match object_type {
             Keyword::SCHEMA => {
@@ -11833,9 +11938,13 @@ impl<'a> Parser<'a> {
             Keyword::STREAM => self.parse_alter_stream(),
             Keyword::SEQUENCE => self.parse_alter_sequence(),
             Keyword::PIPE => self.parse_alter_pipe(),
+            Keyword::RESOURCE => {
+                self.expect_keyword(Keyword::MONITOR)?;
+                self.parse_alter_resource_monitor()
+            }
             // unreachable because expect_one_of_keywords used above
             unexpected_keyword => Err(ParserError::ParserError(
-                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, ACCOUNT, TASK, STREAM, SEQUENCE, PIPE}}, got {unexpected_keyword:?}"),
+                format!("Internal parser error: expected any of {{VIEW, TYPE, COLLATION, TABLE, INDEX, FUNCTION, AGGREGATE, ROLE, POLICY, CONNECTOR, ICEBERG, SCHEMA, USER, OPERATOR, WAREHOUSE, ACCOUNT, TASK, STREAM, SEQUENCE, PIPE, RESOURCE}}, got {unexpected_keyword:?}"),
             )),
         }
     }

@@ -28,8 +28,8 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterNetworkRuleOperation, AlterSnowflakeSecretOperation,
-    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
+    AlterNetworkRuleOperation, AlterProcedure, AlterProcedureOperation,
+    AlterSnowflakeSecretOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
     ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
@@ -768,6 +768,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::WAREHOUSES) {
                 return Some(parse_show_warehouses(parser));
+            }
+            if parser.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITORS]) {
+                return Some(parse_show_resource_monitors(parser));
             }
             if parser.parse_keyword(Keyword::ACCOUNTS) {
                 return Some(parse_show_accounts(parser));
@@ -4192,6 +4195,12 @@ fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> 
 fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowWarehouses { filter })
+}
+
+/// Parse `SHOW RESOURCE MONITORS [LIKE '<pattern>']`
+fn parse_show_resource_monitors(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowResourceMonitors { filter })
 }
 
 /// Parse `SHOW CONNECTIONS [LIKE '<pattern>']`
