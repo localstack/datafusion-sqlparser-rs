@@ -4619,19 +4619,32 @@ fn parse_create_security_integration(
     })
 }
 
-/// Parse `ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET <params>`.
+/// Parse `ALTER SECURITY INTEGRATION [IF EXISTS] <name> { SET <params> | UNSET <names> }`.
 ///
-/// Only the `SET` form is modeled; the `SET` options are captured generically
-/// as key-value options.
+/// `SET` options and `UNSET` property names are captured generically, so the
+/// parser stays agnostic to the type-specific property set.
 fn parse_alter_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    if parser.parse_keyword(Keyword::UNSET) {
+        let unset_options = parser.parse_comma_separated(|p| p.parse_identifier())?;
+        return Ok(Statement::AlterSecurityIntegration {
+            name,
+            if_exists,
+            set_options: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+            unset_options,
+        });
+    }
     parser.expect_keyword(Keyword::SET)?;
     let set_options = parser.parse_key_value_options(false, &[], false)?;
     Ok(Statement::AlterSecurityIntegration {
         name,
         if_exists,
         set_options,
+        unset_options: vec![],
     })
 }
 
