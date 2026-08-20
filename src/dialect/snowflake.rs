@@ -1,0 +1,4667 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#[cfg(not(feature = "std"))]
+use crate::alloc::string::ToString;
+use crate::ast::helpers::attached_token::AttachedToken;
+use crate::ast::helpers::key_value_options::{
+    KeyValueOption, KeyValueOptionKind, KeyValueOptions, KeyValueOptionsDelimiter,
+};
+use crate::ast::helpers::stmt_create_database::CreateDatabaseBuilder;
+use crate::ast::helpers::stmt_create_table::CreateTableBuilder;
+use crate::ast::helpers::stmt_data_loading::{
+    FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
+};
+use crate::ast::{
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
+    AlterNetworkRuleOperation, AlterSnowflakeSecretOperation,
+    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
+    AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
+    CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
+    ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
+    Expr, ExternalTablePartitionColumn, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
+    GeneratedAs, Ident, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
+    IdentityPropertyKind, IdentityPropertyOrder, InitializeKind, Insert,
+    MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
+    MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
+    OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
+    ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
+    StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
+    WrappedCollection,
+};
+use crate::dialect::{Dialect, Precedence};
+use crate::keywords::Keyword;
+use crate::parser::{IsOptional, Parser, ParserError};
+use crate::tokenizer::TokenWithSpan;
+use crate::tokenizer::{Span, Token};
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::{format, vec};
+
+use super::keywords::RESERVED_FOR_IDENTIFIER;
+
+const RESERVED_KEYWORDS_FOR_SELECT_ITEM_OPERATOR: [Keyword; 1] = [Keyword::CONNECT_BY_ROOT];
+
+// See: <https://docs.snowflake.com/en/sql-reference/reserved-keywords>
+const RESERVED_KEYWORDS_FOR_TABLE_FACTOR: &[Keyword] = &[
+    Keyword::ALL,
+    Keyword::ALTER,
+    Keyword::AND,
+    Keyword::ANY,
+    Keyword::AS,
+    Keyword::BETWEEN,
+    Keyword::BY,
+    Keyword::CHECK,
+    Keyword::COLUMN,
+    Keyword::CONNECT,
+    Keyword::CREATE,
+    Keyword::CROSS,
+    Keyword::CURRENT,
+    Keyword::DELETE,
+    Keyword::DISTINCT,
+    Keyword::DROP,
+    Keyword::ELSE,
+    Keyword::EXISTS,
+    Keyword::FOLLOWING,
+    Keyword::FOR,
+    Keyword::FROM,
+    Keyword::FULL,
+    Keyword::GRANT,
+    Keyword::GROUP,
+    Keyword::HAVING,
+    Keyword::ILIKE,
+    Keyword::IN,
+    Keyword::INCREMENT,
+    Keyword::INNER,
+    Keyword::INSERT,
+    Keyword::INTERSECT,
+    Keyword::INTO,
+    Keyword::IS,
+    Keyword::JOIN,
+    Keyword::LEFT,
+    Keyword::LIKE,
+    Keyword::MINUS,
+    Keyword::NATURAL,
+    Keyword::NOT,
+    Keyword::NULL,
+    Keyword::OF,
+    Keyword::ON,
+    Keyword::OR,
+    Keyword::ORDER,
+    Keyword::QUALIFY,
+    Keyword::REGEXP,
+    Keyword::REVOKE,
+    Keyword::RIGHT,
+    Keyword::RLIKE,
+    Keyword::ROW,
+    Keyword::ROWS,
+    Keyword::SAMPLE,
+    Keyword::SELECT,
+    Keyword::SET,
+    Keyword::SOME,
+    Keyword::START,
+    Keyword::TABLE,
+    Keyword::TABLESAMPLE,
+    Keyword::THEN,
+    Keyword::TO,
+    Keyword::TRIGGER,
+    Keyword::UNION,
+    Keyword::UNIQUE,
+    Keyword::UPDATE,
+    Keyword::USING,
+    Keyword::VALUES,
+    Keyword::WHEN,
+    Keyword::WHENEVER,
+    Keyword::WHERE,
+    Keyword::WINDOW,
+    Keyword::WITH,
+];
+
+/// A [`Dialect`] for [Snowflake](https://www.snowflake.com/)
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SnowflakeDialect;
+
+impl Dialect for SnowflakeDialect {
+    // see https://docs.snowflake.com/en/sql-reference/identifiers-syntax.html
+    fn is_identifier_start(&self, ch: char) -> bool {
+        ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_'
+    }
+
+    fn supports_projection_trailing_commas(&self) -> bool {
+        true
+    }
+
+    fn supports_from_trailing_commas(&self) -> bool {
+        true
+    }
+
+    fn supports_create_table_optional_column_type(&self) -> bool {
+        true
+    }
+
+    // Snowflake supports double-dot notation when the schema name is not specified
+    // In this case the default PUBLIC schema is used
+    //
+    // see https://docs.snowflake.com/en/sql-reference/name-resolution#resolution-when-schema-omitted-double-dot-notation
+    fn supports_object_name_double_dot_notation(&self) -> bool {
+        true
+    }
+
+    fn is_identifier_part(&self, ch: char) -> bool {
+        ch.is_ascii_lowercase()
+            || ch.is_ascii_uppercase()
+            || ch.is_ascii_digit()
+            || ch == '$'
+            || ch == '_'
+    }
+
+    // See https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#escape_sequences
+    fn supports_string_literal_backslash_escape(&self) -> bool {
+        true
+    }
+
+    // See https://docs.snowflake.com/en/sql-reference/data-types-text#escape-sequences-in-single-quoted-string-constants
+    fn supports_snowflake_string_literal_escapes(&self) -> bool {
+        true
+    }
+
+    fn supports_within_after_array_aggregation(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/where#joins-in-the-where-clause>
+    fn supports_outer_join_operator(&self) -> bool {
+        true
+    }
+
+    fn supports_connect_by(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-immediate>
+    fn supports_execute_immediate(&self) -> bool {
+        true
+    }
+
+    /// Snowflake scripting accepts `SELECT ... INTO :var` where the target is a
+    /// local variable placeholder rather than a table name.
+    fn supports_select_into_placeholder_target(&self) -> bool {
+        true
+    }
+
+    /// Snowflake scripting accepts `CALL p(...) INTO :var` to capture a
+    /// procedure result into local variables.
+    fn supports_call_into(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
+    fn supports_for_loop_over_cursor(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
+    fn supports_show_in_resultset_cursor(&self) -> bool {
+        true
+    }
+
+    fn supports_match_recognize(&self) -> bool {
+        true
+    }
+
+    // Snowflake uses this syntax for "object constants" (the values of which
+    // are not actually required to be constants).
+    //
+    // https://docs.snowflake.com/en/sql-reference/data-types-semistructured#label-object-constant
+    fn supports_dictionary_syntax(&self) -> bool {
+        true
+    }
+
+    // Snowflake doesn't document this but `FIRST_VALUE(arg, { IGNORE | RESPECT } NULLS)`
+    // works (i.e. inside the argument list instead of after).
+    fn supports_window_function_null_treatment_arg(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/set#syntax)
+    fn supports_parenthesized_set_variables(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/comment)
+    fn supports_comment_on(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/functions/extract)
+    fn supports_extract_comma_syntax(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/functions/flatten)
+    fn supports_subquery_as_function_arg(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/create-view#optional-parameters)
+    fn supports_create_view_comment_syntax(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-semistructured#array)
+    fn supports_array_typedef_without_element_type(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
+    fn supports_parens_around_table_factor(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/values)
+    fn supports_values_as_table_factor(&self) -> bool {
+        true
+    }
+
+    fn parse_statement(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        if parser.parse_keyword(Keyword::BEGIN) {
+            // Snowflake supports both `BEGIN TRANSACTION` and `BEGIN ... END` blocks.
+            // If the next keyword indicates a transaction statement, let the
+            // standard parse_begin() handle it. `BEGIN <kw> := …`, however, is a
+            // scripting block assigning to a variable that happens to be named
+            // after a transaction keyword — an immediately following `:=` keeps
+            // the block on the scripting path.
+            let begins_transaction = parser
+                .peek_one_of_keywords(&[Keyword::TRANSACTION, Keyword::WORK, Keyword::NAME])
+                .is_some()
+                && parser.peek_nth_token_ref(1).token != Token::Assignment;
+            if begins_transaction
+                || matches!(parser.peek_token_ref().token, Token::SemiColon | Token::EOF)
+            {
+                parser.prev_token();
+                return None;
+            }
+            return Some(parser.parse_begin_exception_end());
+        }
+
+        // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
+        // direction and no FROM/IN, so it can't go through the ISO parser.
+        // Intercept only that shape; anything else falls through untouched.
+        if parser.peek_keyword(Keyword::FETCH) {
+            if let Ok(Some(stmt)) = parser.maybe_parse(parse_fetch_into) {
+                return Some(Ok(stmt));
+            }
+        }
+
+        // Snowflake anonymous procedure: `WITH <name> AS PROCEDURE ...`. Every
+        // other `WITH` (ordinary CTE) fails the `AS PROCEDURE` probe and falls
+        // through to the standard query parser.
+        if parser.peek_keyword(Keyword::WITH) {
+            if let Ok(Some(stmt)) = parser.maybe_parse(parse_with_procedure) {
+                return Some(Ok(stmt));
+            }
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DYNAMIC, Keyword::TABLE]) {
+            // ALTER DYNAMIC TABLE
+            return Some(parse_alter_dynamic_table(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::MATERIALIZED, Keyword::VIEW]) {
+            // ALTER MATERIALIZED VIEW
+            return Some(parse_alter_materialized_view(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::EXTERNAL, Keyword::VOLUME]) {
+            // ALTER EXTERNAL VOLUME
+            return Some(parse_alter_external_volume(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::EXTERNAL, Keyword::TABLE]) {
+            // ALTER EXTERNAL TABLE
+            return Some(parse_alter_external_table(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::STORAGE, Keyword::INTEGRATION]) {
+            // ALTER STORAGE INTEGRATION
+            return Some(parse_alter_storage_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::API, Keyword::INTEGRATION]) {
+            // ALTER API INTEGRATION
+            return Some(parse_alter_api_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SECURITY, Keyword::INTEGRATION]) {
+            // ALTER SECURITY INTEGRATION
+            return Some(parse_alter_security_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
+            // ALTER PROCEDURE
+            return Some(parse_alter_procedure(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
+            // ALTER FILE FORMAT
+            return Some(parse_alter_file_format(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::TAG]) {
+            // ALTER TAG
+            return Some(parse_alter_tag(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATABASE]) {
+            // ALTER DATABASE <name> { SET TAG | UNSET TAG }
+            return Some(parse_alter_object_set_tags(parser, ObjectType::Database));
+        }
+
+        // ALTER SCHEMA <name> { SET TAG | UNSET TAG } — intercept only the tag
+        // form; every other ALTER SCHEMA form (RENAME TO, SET OPTIONS, SET
+        // DEFAULT COLLATE, ADD/DROP REPLICA, OWNER TO) fails the closure and
+        // falls through to the generic parse_alter_schema.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::SCHEMA])?;
+            parse_alter_object_set_tags(p, ObjectType::Schema)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        // ALTER WAREHOUSE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept
+        // only the tag form. Every other ALTER WAREHOUSE form (SET <property>,
+        // UNSET, SUSPEND, RESUME, RENAME TO, ABORT ALL QUERIES) fails the closure
+        // and falls through to Parser::parse_alter_warehouse, which also keeps
+        // the bare (name-less) form a syntax error — the tag form requires a name.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::WAREHOUSE])?;
+            parse_alter_object_set_tags(p, ObjectType::Warehouse)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        // ALTER ROLE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form (mirroring ALTER SCHEMA); every other ALTER ROLE form
+        // (RENAME TO, SET/UNSET COMMENT) fails the closure and falls through to
+        // the generic grammar.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::ROLE])?;
+            parse_alter_object_set_tags(p, ObjectType::Role)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        // ALTER STAGE [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form. Every other ALTER STAGE form (SET <property>, RENAME TO)
+        // fails the closure (the `TAG` keyword is absent) and falls through to
+        // parse_alter_stage, which keeps the bare (name-less) form a syntax error.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::STAGE])?;
+            parse_alter_object_set_tags(p, ObjectType::Stage)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
+            // ALTER STAGE
+            return Some(parse_alter_stage(parser));
+        }
+
+        if parser.parse_keywords(&[
+            Keyword::ALTER,
+            Keyword::ROW,
+            Keyword::ACCESS,
+            Keyword::POLICY,
+        ]) {
+            // ALTER ROW ACCESS POLICY
+            return Some(parse_alter_row_access_policy(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::MASKING, Keyword::POLICY]) {
+            // ALTER MASKING POLICY
+            return Some(parse_alter_masking_policy(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::NETWORK, Keyword::RULE]) {
+            // ALTER NETWORK RULE
+            return Some(parse_alter_network_rule(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SECRET]) {
+            // ALTER SECRET
+            return Some(parse_alter_secret(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION]) {
+            // ALTER SESSION
+            let set = match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
+                Some(Keyword::SET) => true,
+                Some(Keyword::UNSET) => false,
+                _ => return Some(parser.expected_ref("SET or UNSET", parser.peek_token_ref())),
+            };
+            return Some(parse_alter_session(parser, set));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::EXTERNAL, Keyword::VOLUME]) {
+            // DROP EXTERNAL VOLUME
+            return Some(parse_drop_external_volume(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::EXTERNAL, Keyword::TABLE]) {
+            // DROP EXTERNAL TABLE
+            return Some(parse_drop_external_table(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::CATALOG, Keyword::INTEGRATION]) {
+            // DROP CATALOG INTEGRATION
+            return Some(parse_drop_catalog_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::STORAGE, Keyword::INTEGRATION]) {
+            // DROP STORAGE INTEGRATION
+            return Some(parse_drop_storage_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::API, Keyword::INTEGRATION]) {
+            // DROP API INTEGRATION
+            return Some(parse_drop_api_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SECURITY, Keyword::INTEGRATION]) {
+            // DROP SECURITY INTEGRATION
+            return Some(parse_drop_security_integration(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
+            // DROP FILE FORMAT
+            return Some(parse_drop_file_format(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::TAG]) {
+            // DROP TAG
+            return Some(parse_drop_tag(parser));
+        }
+
+        if parser.parse_keywords(&[
+            Keyword::DROP,
+            Keyword::ROW,
+            Keyword::ACCESS,
+            Keyword::POLICY,
+        ]) {
+            // DROP ROW ACCESS POLICY
+            return Some(parse_drop_row_access_policy(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::MASKING, Keyword::POLICY]) {
+            // DROP MASKING POLICY
+            return Some(parse_drop_masking_policy(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::NETWORK, Keyword::RULE]) {
+            // DROP NETWORK RULE
+            return Some(parse_drop_network_rule(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SECRET]) {
+            // DROP SECRET
+            return Some(parse_drop_secret(parser));
+        }
+
+        if parser
+            .parse_one_of_keywords(&[Keyword::DESC, Keyword::DESCRIBE])
+            .is_some()
+        {
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
+                // DESC[RIBE] EXTERNAL VOLUME
+                return Some(parse_describe_external_volume(parser));
+            }
+            if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
+                // DESC[RIBE] STORAGE INTEGRATION
+                return Some(parse_describe_storage_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
+                // DESC[RIBE] API INTEGRATION
+                return Some(parse_describe_api_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
+                // DESC[RIBE] SECURITY INTEGRATION
+                return Some(parse_describe_security_integration(parser));
+            }
+            if parser.parse_keyword(Keyword::INTEGRATION) {
+                // DESC[RIBE] INTEGRATION (family-agnostic)
+                return Some(parse_describe_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
+                // DESC[RIBE] FILE FORMAT
+                return Some(parse_describe_file_format(parser));
+            }
+            if parser.parse_keyword(Keyword::WAREHOUSE) {
+                // DESC[RIBE] WAREHOUSE
+                return Some(parse_describe_warehouse(parser));
+            }
+            if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+                // DESC[RIBE] ROW ACCESS POLICY
+                return Some(parse_describe_row_access_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
+                // DESC[RIBE] MASKING POLICY
+                return Some(parse_describe_masking_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
+                // DESC[RIBE] NETWORK RULE
+                return Some(parse_describe_network_rule(parser));
+            }
+            if parser.parse_keyword(Keyword::SECRET) {
+                // DESC[RIBE] SECRET
+                return Some(parse_describe_secret(parser));
+            }
+            // not handled — put back DESC/DESCRIBE
+            parser.prev_token();
+        }
+
+        if parser.parse_keyword(Keyword::CREATE) {
+            // possibly CREATE STAGE
+            //[ OR  REPLACE ]
+            let or_replace = parser.parse_keywords(&[Keyword::OR, Keyword::REPLACE]);
+
+            // CREATE [OR REPLACE] EXTERNAL VOLUME
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
+                return Some(parse_create_external_volume(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] EXTERNAL TABLE
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::TABLE]) {
+                return Some(parse_create_external_table(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] CATALOG INTEGRATION
+            if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATION]) {
+                return Some(parse_create_catalog_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] STORAGE INTEGRATION
+            if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATION]) {
+                return Some(parse_create_storage_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] API INTEGRATION
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
+                return Some(parse_create_api_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SECURITY INTEGRATION
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
+                return Some(parse_create_security_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] ROW ACCESS POLICY
+            if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
+                return Some(parse_create_row_access_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] MASKING POLICY
+            if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
+                return Some(parse_create_masking_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] NETWORK RULE
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
+                return Some(parse_create_network_rule(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SECRET
+            if parser.parse_keyword(Keyword::SECRET) {
+                return Some(parse_create_secret(or_replace, parser));
+            }
+
+            // LOCAL | GLOBAL
+            let global = match parser.parse_one_of_keywords(&[Keyword::LOCAL, Keyword::GLOBAL]) {
+                Some(Keyword::LOCAL) => Some(false),
+                Some(Keyword::GLOBAL) => Some(true),
+                _ => None,
+            };
+
+            let mut temporary = false;
+            let mut volatile = false;
+            let mut transient = false;
+            let mut iceberg = false;
+
+            // Snowflake allows a leading `TRANSIENT` before `DYNAMIC`
+            // (`CREATE [OR REPLACE] [TRANSIENT] DYNAMIC [ICEBERG] TABLE`); the
+            // standalone `TRANSIENT` modifier for plain tables is still handled
+            // by the modifier group below.
+            let dynamic = if parser.parse_keyword(Keyword::DYNAMIC) {
+                true
+            } else if parser.parse_keywords(&[Keyword::TRANSIENT, Keyword::DYNAMIC]) {
+                transient = true;
+                true
+            } else {
+                false
+            };
+
+            match parser.parse_one_of_keywords(&[
+                Keyword::TEMP,
+                Keyword::TEMPORARY,
+                Keyword::VOLATILE,
+                Keyword::TRANSIENT,
+                Keyword::ICEBERG,
+            ]) {
+                Some(Keyword::TEMP | Keyword::TEMPORARY) => temporary = true,
+                Some(Keyword::VOLATILE) => volatile = true,
+                Some(Keyword::TRANSIENT) => transient = true,
+                Some(Keyword::ICEBERG) => iceberg = true,
+                _ => {}
+            }
+
+            // CREATE [OR REPLACE] HYBRID TABLE — the "hybrid" property has no
+            // observable effect here, so the modifier is discarded and the
+            // statement is parsed as an ordinary table.
+            let hybrid = parser.parse_keyword(Keyword::HYBRID);
+
+            // CREATE [OR REPLACE] [ TEMP | TEMPORARY | VOLATILE ] FILE FORMAT.
+            // For file formats VOLATILE is a synonym of TEMPORARY.
+            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
+                return Some(parse_create_file_format(
+                    or_replace,
+                    temporary || volatile,
+                    parser,
+                ));
+            }
+
+            // CREATE [OR REPLACE] TAG
+            if parser.parse_keyword(Keyword::TAG) {
+                return Some(parse_create_tag(or_replace, parser));
+            }
+
+            if parser.parse_keyword(Keyword::STAGE) {
+                // OK - this is CREATE STAGE statement
+                return Some(parse_create_stage(or_replace, temporary, parser));
+            } else if parser.parse_keyword(Keyword::TABLE) {
+                return Some(
+                    parse_create_table(
+                        or_replace, global, temporary, volatile, transient, iceberg, dynamic,
+                        parser,
+                    )
+                    .map(Into::into),
+                );
+            } else if parser.parse_keyword(Keyword::DATABASE) {
+                if parser.parse_keyword(Keyword::ROLE) {
+                    return Some(parser.parse_create_database_role(or_replace));
+                }
+                return Some(parse_create_database(or_replace, transient, parser));
+            } else {
+                // Not a Snowflake-specific CREATE form — rewind the consumed
+                // tokens so the generic `parse_create` re-parses from `CREATE`.
+                // The TEMP/VOLATILE/TRANSIENT/ICEBERG group is one token and
+                // must be rewound too, else generic forms that follow it strand
+                // the modifier (e.g. `CREATE TRANSIENT SCHEMA`). `LOCAL`/`GLOBAL`
+                // are deliberately left stranded so invalid combinations such as
+                // `CREATE LOCAL GLOBAL TABLE` still surface as errors.
+                let mut back = 1;
+                if or_replace {
+                    back += 2
+                }
+                if temporary || volatile || transient || iceberg {
+                    back += 1
+                }
+                if hybrid {
+                    back += 1
+                }
+                for _i in 0..back {
+                    parser.prev_token();
+                }
+            }
+        }
+        if parser.parse_keywords(&[Keyword::COPY, Keyword::INTO]) {
+            // COPY INTO
+            return Some(parse_copy_into(parser));
+        }
+
+        if let Some(kw) = parser.parse_one_of_keywords(&[
+            Keyword::LIST,
+            Keyword::LS,
+            Keyword::REMOVE,
+            Keyword::RM,
+        ]) {
+            return Some(parse_file_staging_command(kw, parser));
+        }
+
+        if parser.parse_keyword(Keyword::SHOW) {
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUMES]) {
+                return Some(parse_show_external_volumes(parser));
+            }
+            if parser.parse_keywords(&[Keyword::CATALOG, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_catalog_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::STORAGE, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_storage_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_api_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_security_integrations(parser));
+            }
+            if parser.parse_keyword(Keyword::INTEGRATIONS) {
+                // SHOW INTEGRATIONS (family-agnostic)
+                return Some(parse_show_integrations(parser));
+            }
+            if parser.parse_keyword(Keyword::WAREHOUSES) {
+                return Some(parse_show_warehouses(parser));
+            }
+            if parser.parse_keyword(Keyword::ACCOUNTS) {
+                return Some(parse_show_accounts(parser));
+            }
+            let terse = parser.parse_keyword(Keyword::TERSE);
+            if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLES]) {
+                return Some(parse_show_objects(terse, true, parser));
+            }
+            if parser.parse_keyword(Keyword::OBJECTS) {
+                return Some(parse_show_objects(terse, false, parser));
+            }
+            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMATS]) {
+                return Some(parse_show_file_formats(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::STAGES) {
+                return Some(parse_show_stages(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::TAGS) {
+                return Some(parse_show_tags(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::SEQUENCES) {
+                return Some(parse_show_sequences(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::PRIMARY) {
+                return Some(parse_show_keys(ShowKeysKind::Primary, terse, parser));
+            }
+            if parser.parse_keyword(Keyword::IMPORTED) {
+                return Some(parse_show_keys(ShowKeysKind::Imported, terse, parser));
+            }
+            if parser.parse_keyword(Keyword::EXPORTED) {
+                return Some(parse_show_keys(ShowKeysKind::Exported, terse, parser));
+            }
+            if parser.parse_keyword(Keyword::UNIQUE) {
+                return Some(parse_show_keys(ShowKeysKind::Unique, terse, parser));
+            }
+            if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICIES]) {
+                return Some(parse_show_row_access_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICIES]) {
+                return Some(parse_show_masking_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
+                return Some(parse_show_network_rules(parser));
+            }
+            if parser.parse_keyword(Keyword::SECRETS) {
+                return Some(parse_show_secrets(parser));
+            }
+            if parser.parse_keyword(Keyword::PROCEDURES) {
+                return Some(parse_show_procedures(parser));
+            }
+            if parser.parse_keyword(Keyword::CONNECTIONS) {
+                return Some(parse_show_connections(parser));
+            }
+            if parser.parse_keyword(Keyword::SHARES) {
+                return Some(parse_show_shares(parser));
+            }
+            //Give back Keyword::TERSE
+            if terse {
+                parser.prev_token();
+            }
+            //Give back Keyword::SHOW
+            parser.prev_token();
+        }
+
+        // Check for multi-table INSERT
+        // `INSERT [OVERWRITE] ALL ... or INSERT [OVERWRITE] FIRST ...`
+        if parser.parse_keyword(Keyword::INSERT) {
+            let insert_token = parser.get_current_token().clone();
+            let overwrite = parser.parse_keyword(Keyword::OVERWRITE);
+
+            // Check for ALL or FIRST keyword
+            if let Some(kw) = parser.parse_one_of_keywords(&[Keyword::ALL, Keyword::FIRST]) {
+                let multi_table_insert_type = match kw {
+                    Keyword::FIRST => MultiTableInsertType::First,
+                    _ => MultiTableInsertType::All,
+                };
+                return Some(parse_multi_table_insert(
+                    parser,
+                    insert_token,
+                    overwrite,
+                    multi_table_insert_type,
+                ));
+            }
+
+            // Not a multi-table insert, rewind
+            if overwrite {
+                parser.prev_token(); // rewind OVERWRITE
+            }
+            parser.prev_token(); // rewind INSERT
+        }
+
+        None
+    }
+
+    fn parse_column_option(
+        &self,
+        parser: &mut Parser,
+    ) -> Result<Option<Result<Option<ColumnOption>, ParserError>>, ParserError> {
+        parser.maybe_parse(|parser| {
+            let with = parser.parse_keyword(Keyword::WITH);
+
+            if parser.parse_keyword(Keyword::IDENTITY) {
+                Ok(parse_identity_property(parser)
+                    .map(|p| Some(ColumnOption::Identity(IdentityPropertyKind::Identity(p)))))
+            } else if parser.parse_keyword(Keyword::AUTOINCREMENT) {
+                Ok(parse_identity_property(parser).map(|p| {
+                    Some(ColumnOption::Identity(IdentityPropertyKind::Autoincrement(
+                        p,
+                    )))
+                }))
+            } else if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
+                Ok(parse_column_policy_property(parser, with)
+                    .map(|p| Some(ColumnOption::Policy(ColumnPolicy::MaskingPolicy(p)))))
+            } else if parser.parse_keywords(&[Keyword::PROJECTION, Keyword::POLICY]) {
+                Ok(parse_column_policy_property(parser, with)
+                    .map(|p| Some(ColumnOption::Policy(ColumnPolicy::ProjectionPolicy(p)))))
+            } else if parser.parse_keywords(&[Keyword::TAG]) {
+                Ok(parse_column_tags(parser, with).map(|p| Some(ColumnOption::Tags(p))))
+            } else if !with && parser.parse_keyword(Keyword::AS) {
+                // Snowflake external-table virtual column: `<col> <type> AS <expr>`,
+                // with or without parentheses around the expression.
+                let parenthesised = parser.consume_token(&Token::LParen);
+                let expr = parser.parse_expr()?;
+                if parenthesised {
+                    parser.expect_token(&Token::RParen)?;
+                }
+                Ok(Ok(Some(ColumnOption::Generated {
+                    generated_as: GeneratedAs::Always,
+                    sequence_options: None,
+                    generation_expr: Some(expr),
+                    generation_expr_mode: None,
+                    generated_keyword: false,
+                })))
+            } else {
+                Err(ParserError::ParserError("not found match".to_string()))
+            }
+        })
+    }
+
+    fn get_next_precedence(&self, parser: &Parser) -> Option<Result<u8, ParserError>> {
+        let token = parser.peek_token_ref();
+        // Snowflake supports the `:` cast operator unlike other dialects
+        match &token.token {
+            Token::Colon => Some(Ok(self.prec_value(Precedence::DoubleColon))),
+            _ => None,
+        }
+    }
+
+    fn describe_requires_table_keyword(&self) -> bool {
+        true
+    }
+
+    fn allow_extract_custom(&self) -> bool {
+        true
+    }
+
+    fn allow_extract_single_quotes(&self) -> bool {
+        true
+    }
+
+    /// Snowflake expects the `LIKE` option before the `IN` option,
+    /// for example: <https://docs.snowflake.com/en/sql-reference/sql/show-views#syntax>
+    fn supports_show_like_before_in(&self) -> bool {
+        true
+    }
+
+    fn supports_left_associative_joins_without_parens(&self) -> bool {
+        false
+    }
+
+    fn is_reserved_for_identifier(&self, kw: Keyword) -> bool {
+        // Unreserve some keywords that Snowflake accepts as identifiers
+        // See: https://docs.snowflake.com/en/sql-reference/reserved-keywords
+        if matches!(kw, Keyword::INTERVAL) {
+            false
+        } else {
+            RESERVED_FOR_IDENTIFIER.contains(&kw)
+        }
+    }
+
+    fn supports_partiql(&self) -> bool {
+        true
+    }
+
+    fn is_column_alias(&self, kw: &Keyword, parser: &mut Parser) -> bool {
+        match kw {
+            // The following keywords can be considered an alias as long as
+            // they are not followed by other tokens that may change their meaning
+            // e.g. `SELECT * EXCEPT (col1) FROM tbl`
+            Keyword::EXCEPT
+            // e.g. `INSERT INTO t SELECT 1 RETURNING *`
+            | Keyword::RETURNING if !matches!(parser.peek_token_ref().token, Token::Comma | Token::EOF) =>
+            {
+                false
+            }
+
+            // e.g. `SELECT 1 LIMIT 5` - not an alias
+            // e.g. `SELECT 1 OFFSET 5 ROWS` - not an alias
+            Keyword::LIMIT | Keyword::OFFSET if peek_for_limit_options(parser) => false,
+
+            // `FETCH` can be considered an alias as long as it's not followed by `FIRST`` or `NEXT`
+            // which would give it a different meanings, for example:
+            // `SELECT 1 FETCH FIRST 10 ROWS` - not an alias
+            // `SELECT 1 FETCH 10` - not an alias
+            Keyword::FETCH if parser.peek_one_of_keywords(&[Keyword::FIRST, Keyword::NEXT]).is_some()
+                    || peek_for_limit_options(parser) =>
+            {
+                false
+            }
+
+            // Reserved keywords by the Snowflake dialect, which seem to be less strictive
+            // than what is listed in `keywords::RESERVED_FOR_COLUMN_ALIAS`. The following
+            // keywords were tested with the this statement: `SELECT 1 <KW>`.
+            Keyword::FROM
+            | Keyword::GROUP
+            | Keyword::HAVING
+            | Keyword::INTERSECT
+            | Keyword::INTO
+            | Keyword::MINUS
+            | Keyword::ORDER
+            | Keyword::SELECT
+            | Keyword::UNION
+            | Keyword::WHERE
+            | Keyword::WITH => false,
+
+            // Any other word is considered an alias
+            _ => true,
+        }
+    }
+
+    fn is_table_alias(&self, kw: &Keyword, parser: &mut Parser) -> bool {
+        match kw {
+            // The following keywords can be considered an alias as long as
+            // they are not followed by other tokens that may change their meaning
+            Keyword::RETURNING
+            | Keyword::INNER
+            | Keyword::USING
+            | Keyword::PIVOT
+            | Keyword::UNPIVOT
+            | Keyword::EXCEPT
+            | Keyword::MATCH_RECOGNIZE
+                if !matches!(parser.peek_token_ref().token, Token::SemiColon | Token::EOF) =>
+            {
+                false
+            }
+
+            // `LIMIT` can be considered an alias as long as it's not followed by a value. For example:
+            // `SELECT * FROM tbl LIMIT WHERE 1=1` - alias
+            // `SELECT * FROM tbl LIMIT 3` - not an alias
+            Keyword::LIMIT | Keyword::OFFSET if peek_for_limit_options(parser) => false,
+
+            // `FETCH` can be considered an alias as long as it's not followed by `FIRST`` or `NEXT`
+            // which would give it a different meanings, for example:
+            // `SELECT * FROM tbl FETCH FIRST 10 ROWS` - not an alias
+            // `SELECT * FROM tbl FETCH 10` - not an alias
+            Keyword::FETCH
+                if parser
+                    .peek_one_of_keywords(&[Keyword::FIRST, Keyword::NEXT])
+                    .is_some()
+                    || peek_for_limit_options(parser) =>
+            {
+                false
+            }
+
+            // All sorts of join-related keywords can be considered aliases unless additional
+            // keywords change their meaning.
+            Keyword::RIGHT | Keyword::LEFT | Keyword::SEMI | Keyword::ANTI
+                if parser
+                    .peek_one_of_keywords(&[Keyword::JOIN, Keyword::OUTER])
+                    .is_some() =>
+            {
+                false
+            }
+
+            Keyword::GLOBAL if parser.peek_keyword(Keyword::FULL) => false,
+
+            // Reserved keywords by the Snowflake dialect, which seem to be less strictive
+            // than what is listed in `keywords::RESERVED_FOR_TABLE_ALIAS`. The following
+            // keywords were tested with the this statement: `SELECT <KW>.* FROM tbl <KW>`.
+            Keyword::WITH
+            | Keyword::ORDER
+            | Keyword::SELECT
+            | Keyword::WHERE
+            | Keyword::GROUP
+            | Keyword::HAVING
+            | Keyword::LATERAL
+            | Keyword::UNION
+            | Keyword::INTERSECT
+            | Keyword::MINUS
+            | Keyword::ON
+            | Keyword::JOIN
+            | Keyword::INNER
+            | Keyword::CROSS
+            | Keyword::FULL
+            | Keyword::LEFT
+            | Keyword::RIGHT
+            | Keyword::NATURAL
+            | Keyword::USING
+            | Keyword::ASOF
+            | Keyword::MATCH_CONDITION
+            | Keyword::SET
+            | Keyword::QUALIFY
+            | Keyword::FOR
+            | Keyword::START
+            | Keyword::CONNECT
+            | Keyword::SAMPLE
+            | Keyword::TABLESAMPLE
+            | Keyword::FROM => false,
+
+            // Any other word is considered an alias
+            _ => true,
+        }
+    }
+
+    fn is_table_factor(&self, kw: &Keyword, parser: &mut Parser) -> bool {
+        match kw {
+            Keyword::LIMIT if peek_for_limit_options(parser) => false,
+            // Table function
+            Keyword::TABLE if matches!(parser.peek_token_ref().token, Token::LParen) => true,
+            _ => !RESERVED_KEYWORDS_FOR_TABLE_FACTOR.contains(kw),
+        }
+    }
+
+    /// See: <https://docs.snowflake.com/en/sql-reference/constructs/at-before>
+    fn supports_table_versioning(&self) -> bool {
+        true
+    }
+
+    /// See: <https://docs.snowflake.com/en/sql-reference/constructs/group-by>
+    fn supports_group_by_expr(&self) -> bool {
+        true
+    }
+
+    /// See: <https://docs.snowflake.com/en/sql-reference/constraints-properties>
+    fn supports_informational_constraint_properties(&self) -> bool {
+        true
+    }
+
+    /// See: <https://docs.snowflake.com/en/sql-reference/constructs/connect-by>
+    fn get_reserved_keywords_for_select_item_operator(&self) -> &[Keyword] {
+        &RESERVED_KEYWORDS_FOR_SELECT_ITEM_OPERATOR
+    }
+
+    fn supports_space_separated_column_options(&self) -> bool {
+        true
+    }
+
+    fn supports_comma_separated_drop_column_list(&self) -> bool {
+        true
+    }
+
+    fn supports_comma_separated_add_column_list(&self) -> bool {
+        true
+    }
+
+    fn supports_alter_column_comment(&self) -> bool {
+        true
+    }
+
+    fn is_identifier_generating_function_name(
+        &self,
+        ident: &Ident,
+        name_parts: &[ObjectNamePart],
+    ) -> bool {
+        ident.quote_style.is_none()
+            && ident.value.to_lowercase() == "identifier"
+            && !name_parts
+                .iter()
+                .any(|p| matches!(p, ObjectNamePart::Function(_)))
+    }
+
+    // For example: `SELECT IDENTIFIER('alias1').* FROM tbl AS alias1`
+    fn supports_select_expr_star(&self) -> bool {
+        true
+    }
+
+    fn supports_select_wildcard_exclude(&self) -> bool {
+        true
+    }
+
+    fn supports_semantic_view_table_factor(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
+    fn supports_select_wildcard_replace(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
+    fn supports_select_wildcard_ilike(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
+    fn supports_select_wildcard_rename(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/user-guide/querying-semistructured#label-higher-order-functions>
+    fn supports_lambda_functions(&self) -> bool {
+        true
+    }
+
+    fn supports_comma_separated_trim(&self) -> bool {
+        true
+    }
+}
+
+// Peeks ahead to identify tokens that are expected after
+// a LIMIT/FETCH keyword.
+fn peek_for_limit_options(parser: &Parser) -> bool {
+    match &parser.peek_token_ref().token {
+        Token::Number(_, _) | Token::Placeholder(_) => true,
+        Token::SingleQuotedString(val) if val.is_empty() => true,
+        Token::DollarQuotedString(DollarQuotedString { value, .. }) if value.is_empty() => true,
+        Token::Word(w) if w.keyword == Keyword::NULL => true,
+        _ => false,
+    }
+}
+
+fn parse_file_staging_command(kw: Keyword, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let stage = parse_snowflake_stage_name(parser)?;
+    let pattern = if parser.parse_keyword(Keyword::PATTERN) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_literal_string()?)
+    } else {
+        None
+    };
+
+    match kw {
+        Keyword::LIST | Keyword::LS => Ok(Statement::List(FileStagingCommand { stage, pattern })),
+        Keyword::REMOVE | Keyword::RM => {
+            Ok(Statement::Remove(FileStagingCommand { stage, pattern }))
+        }
+        _ => Err(ParserError::ParserError(
+            "unexpected stage command, expecting LIST, LS, REMOVE or RM".to_string(),
+        )),
+    }
+}
+
+/// Parse snowflake alter dynamic table.
+/// <https://docs.snowflake.com/en/sql-reference/sql/alter-dynamic-table>
+fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    // Use parse_object_name(true) to support IDENTIFIER() function
+    let table_name = parser.parse_object_name(true)?;
+
+    let operation = if parser.parse_keyword(Keyword::REFRESH) {
+        AlterTableOperation::Refresh { subpath: None }
+    } else if parser.parse_keyword(Keyword::SUSPEND) {
+        AlterTableOperation::Suspend
+    } else if parser.parse_keyword(Keyword::RESUME) {
+        AlterTableOperation::Resume
+    } else if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterTableOperation::RenameTable {
+            table_name: RenameTableNameKind::To(new_name),
+        }
+    } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
+        parser.expect_token(&Token::LParen)?;
+        let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+        parser.expect_token(&Token::RParen)?;
+        AlterTableOperation::ClusterBy { exprs }
+    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
+        AlterTableOperation::DropClusteringKey
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_dynamic_table_properties(parser, false)?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_dynamic_table_properties(parser, true)?,
+        }
+    } else {
+        return parser.expected_ref(
+            "REFRESH, SUSPEND, RESUME, RENAME, SET, UNSET, CLUSTER BY, \
+             or DROP CLUSTERING KEY after ALTER DYNAMIC TABLE",
+            parser.peek_token_ref(),
+        );
+    };
+
+    let end_token = if parser.peek_token_ref().token == Token::SemiColon {
+        parser.peek_token_ref().clone()
+    } else {
+        parser.get_current_token().clone()
+    };
+
+    Ok(Statement::AlterTable(AlterTable {
+        name: table_name,
+        if_exists,
+        only: false,
+        operations: vec![operation],
+        location: None,
+        on_cluster: None,
+        table_type: Some(AlterTableType::Dynamic),
+        end_token: AttachedToken(end_token),
+    }))
+}
+
+/// Parse the property list of `ALTER DYNAMIC TABLE … SET/UNSET`. Properties are
+/// space- or comma-separated. Each becomes an [`SqlOption::KeyValue`] whose
+/// value is a string literal — including identifier values (`WAREHOUSE = wh`)
+/// and keyword values (`TARGET_LAG = DOWNSTREAM`) — so the identifier
+/// canonicalizer never rewrites the user's casing (SHOW echoes it verbatim).
+/// `UNSET <prop>` is encoded as `<prop> = NULL`.
+fn parse_alter_dynamic_table_properties(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<Vec<SqlOption>, ParserError> {
+    let mut options = vec![parse_alter_dynamic_table_property(parser, unset)?];
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+            break;
+        }
+        options.push(parse_alter_dynamic_table_property(parser, unset)?);
+    }
+    Ok(options)
+}
+
+/// Parse one `ALTER DYNAMIC TABLE … SET/UNSET` property into an
+/// [`SqlOption::KeyValue`]. See [`parse_alter_dynamic_table_properties`].
+fn parse_alter_dynamic_table_property(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<SqlOption, ParserError> {
+    let key_token = parser.next_token();
+    let key = match &key_token.token {
+        Token::Word(w) if w.quote_style.is_none() => w.value.to_uppercase(),
+        _ => return parser.expected("a dynamic table property name", key_token),
+    };
+
+    if key == "IMMUTABLE" {
+        parser.expect_keyword_is(Keyword::WHERE)?;
+        let value = if unset {
+            Value::Null
+        } else {
+            parser.expect_token(&Token::LParen)?;
+            let predicate = parser.parse_expr()?;
+            parser.expect_token(&Token::RParen)?;
+            Value::SingleQuotedString(predicate.to_string())
+        };
+        return Ok(SqlOption::KeyValue {
+            key: Ident::new("IMMUTABLE_WHERE"),
+            value: Expr::Value(value.into()),
+        });
+    }
+
+    if unset {
+        if !matches!(
+            key.as_str(),
+            "COMMENT" | "INITIALIZATION_WAREHOUSE" | "SCHEDULER"
+        ) {
+            return parser.expected(
+                "COMMENT, INITIALIZATION_WAREHOUSE, SCHEDULER, or IMMUTABLE WHERE after UNSET",
+                key_token,
+            );
+        }
+        return Ok(SqlOption::KeyValue {
+            key: Ident::new(key),
+            value: Expr::Value(Value::Null.into()),
+        });
+    }
+
+    if !matches!(
+        key.as_str(),
+        "TARGET_LAG" | "WAREHOUSE" | "INITIALIZATION_WAREHOUSE" | "COMMENT" | "SCHEDULER"
+    ) {
+        return parser.expected("a dynamic table property name", key_token);
+    }
+    parser.expect_token(&Token::Eq)?;
+    let value_token = parser.next_token();
+    let value = match &value_token.token {
+        Token::SingleQuotedString(s) => s.clone(),
+        // WAREHOUSE / INITIALIZATION_WAREHOUSE keep the user's verbatim
+        // spelling; other keyword values (bare DOWNSTREAM) are uppercased.
+        Token::Word(w)
+            if w.quote_style.is_none()
+                && key != "WAREHOUSE"
+                && key != "INITIALIZATION_WAREHOUSE" =>
+        {
+            w.value.to_uppercase()
+        }
+        Token::Word(w) if w.quote_style.is_none() => w.value.clone(),
+        _ => return parser.expected("a property value", value_token),
+    };
+    Ok(SqlOption::KeyValue {
+        key: Ident::new(key),
+        value: Expr::Value(Value::SingleQuotedString(value).into()),
+    })
+}
+
+/// Parse Snowflake scripting `FETCH <cursor> INTO <var> [, <var> ...]`.
+///
+/// The caller has verified the next keyword is `FETCH` and runs this via
+/// `maybe_parse`, so a non-scripting `FETCH` simply errors out and rewinds.
+fn parse_fetch_into(parser: &mut Parser) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::FETCH)?;
+    let cursor = parser.parse_identifier()?;
+    parser.expect_keyword(Keyword::INTO)?;
+    let into = parser.parse_scripting_into_targets()?;
+    Ok(Statement::FetchInto { cursor, into })
+}
+
+/// Parse `ALTER PROCEDURE [IF EXISTS] <name> ( [<arg_type> [, ...]] )
+/// { RENAME TO ... | SET COMMENT = ... | UNSET COMMENT | EXECUTE AS CALLER|OWNER }`.
+///
+/// The `ALTER PROCEDURE` keywords are already consumed by the caller.
+fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    parser.expect_token(&Token::LParen)?;
+    let args = if parser.peek_token_ref().token == Token::RParen {
+        vec![]
+    } else {
+        parser.parse_comma_separated(Parser::parse_data_type)?
+    };
+    parser.expect_token(&Token::RParen)?;
+
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterProcedureOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+        let execute_as = if parser.parse_keyword(Keyword::CALLER) {
+            ProcedureExecuteAs::Caller
+        } else {
+            parser.expect_keyword_is(Keyword::OWNER)?;
+            ProcedureExecuteAs::Owner
+        };
+        AlterProcedureOperation::ExecuteAs(execute_as)
+    } else if parser.parse_keyword(Keyword::SET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        parser.expect_token(&Token::Eq)?;
+        AlterProcedureOperation::SetComment {
+            comment: parser.parse_expr()?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        AlterProcedureOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "RENAME TO, SET COMMENT, UNSET COMMENT, or EXECUTE AS after ALTER PROCEDURE",
+            parser.peek_token_ref(),
+        );
+    };
+
+    Ok(Statement::AlterProcedure(AlterProcedure {
+        if_exists,
+        name,
+        args,
+        operation,
+    }))
+}
+
+/// Parse Snowflake anonymous procedure:
+/// `WITH <name> AS PROCEDURE (<args>) RETURNS <type> LANGUAGE <lang>
+/// [EXECUTE AS ...] AS <body> CALL <name>(<args>)`.
+///
+/// The caller runs this via `maybe_parse`, so an ordinary CTE fails the
+/// `AS PROCEDURE` probe and rewinds.
+fn parse_with_procedure(parser: &mut Parser) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::WITH)?;
+    let name = parser.parse_identifier()?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    parser.expect_keyword_is(Keyword::PROCEDURE)?;
+
+    let params = parser.parse_optional_procedure_parameters()?;
+
+    let returns = if parser.parse_keyword(Keyword::RETURNS) {
+        Some(parser.parse_data_type()?)
+    } else {
+        None
+    };
+    // Snowflake allows a `NOT NULL` return-type annotation; drop it.
+    let _ = parser.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+
+    let language = if parser.parse_keyword(Keyword::LANGUAGE) {
+        Some(parser.parse_identifier()?)
+    } else {
+        None
+    };
+
+    let execute_as = if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+        if parser.parse_keyword(Keyword::CALLER) {
+            Some(ProcedureExecuteAs::Caller)
+        } else {
+            parser.expect_keyword_is(Keyword::OWNER)?;
+            Some(ProcedureExecuteAs::Owner)
+        }
+    } else {
+        None
+    };
+
+    parser.expect_keyword_is(Keyword::AS)?;
+    let body = parser.parse_procedure_body()?;
+
+    parser.expect_keyword(Keyword::CALL)?;
+    let call = Box::new(parser.parse_call()?);
+
+    Ok(Statement::WithProcedure {
+        name,
+        params,
+        returns,
+        language,
+        execute_as,
+        body,
+        call,
+    })
+}
+
+/// Parse snowflake alter materialized view.
+/// <https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view>
+///
+/// Every clause except `RENAME TO` is an accept-and-no-op downstream; only the
+/// object identity and, for `RENAME TO`, the new name carry meaning. The
+/// operation is tagged [`AlterTableType::MaterializedView`] so the emulator can
+/// route it to the view machinery.
+fn parse_alter_materialized_view(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(true)?;
+
+    let operation = if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterTableOperation::RenameTable {
+            table_name: RenameTableNameKind::To(new_name),
+        }
+    } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
+        parser.expect_token(&Token::LParen)?;
+        let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+        parser.expect_token(&Token::RParen)?;
+        AlterTableOperation::ClusterBy { exprs }
+    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
+        AlterTableOperation::DropClusteringKey
+    } else if parser.parse_keyword(Keyword::SUSPEND) {
+        let _ = parser.parse_keyword(Keyword::RECLUSTER);
+        AlterTableOperation::Suspend
+    } else if parser.parse_keyword(Keyword::RESUME) {
+        let _ = parser.parse_keyword(Keyword::RECLUSTER);
+        AlterTableOperation::Resume
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_materialized_view_properties(parser, false)?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterTableOperation::SetOptionsParens {
+            options: parse_alter_materialized_view_properties(parser, true)?,
+        }
+    } else {
+        return parser.expected_ref(
+            "RENAME, CLUSTER BY, DROP CLUSTERING KEY, SUSPEND, RESUME, SET, \
+             or UNSET after ALTER MATERIALIZED VIEW",
+            parser.peek_token_ref(),
+        );
+    };
+
+    let end_token = if parser.peek_token_ref().token == Token::SemiColon {
+        parser.peek_token_ref().clone()
+    } else {
+        parser.get_current_token().clone()
+    };
+
+    Ok(Statement::AlterTable(AlterTable {
+        name,
+        if_exists,
+        only: false,
+        operations: vec![operation],
+        location: None,
+        on_cluster: None,
+        table_type: Some(AlterTableType::MaterializedView),
+        end_token: AttachedToken(end_token),
+    }))
+}
+
+/// Parse the comma-separated property list of `ALTER MATERIALIZED VIEW …
+/// SET/UNSET { SECURE | COMMENT | CONTACT | DATA_METRIC_SCHEDULE }`. The list is
+/// only preserved for round-tripping; the emulator treats every property as a
+/// no-op.
+fn parse_alter_materialized_view_properties(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<Vec<SqlOption>, ParserError> {
+    let mut options = vec![parse_alter_materialized_view_property(parser, unset)?];
+    while parser.consume_token(&Token::Comma) {
+        options.push(parse_alter_materialized_view_property(parser, unset)?);
+    }
+    Ok(options)
+}
+
+/// Parse one `SET`/`UNSET` property. `SECURE` is a bare flag; `CONTACT` takes a
+/// `purpose[= contact]` pair; everything else takes `= <value>` on SET.
+fn parse_alter_materialized_view_property(
+    parser: &mut Parser,
+    unset: bool,
+) -> Result<SqlOption, ParserError> {
+    let key_token = parser.next_token();
+    let key = match &key_token.token {
+        Token::Word(w) => w.value.to_uppercase(),
+        _ => return parser.expected("a materialized view property name", key_token),
+    };
+
+    let value = if key == "SECURE" {
+        Expr::Value(Value::Boolean(!unset).into())
+    } else if key == "CONTACT" {
+        let purpose = parser.parse_identifier()?;
+        if unset {
+            Expr::Value(Value::SingleQuotedString(purpose.value).into())
+        } else {
+            parser.expect_token(&Token::Eq)?;
+            let contact = parser.parse_object_name(false)?;
+            Expr::Value(Value::SingleQuotedString(format!("{}={contact}", purpose.value)).into())
+        }
+    } else if unset {
+        Expr::Value(Value::Null.into())
+    } else {
+        parser.expect_token(&Token::Eq)?;
+        parser.parse_expr()?
+    };
+
+    Ok(SqlOption::KeyValue {
+        key: Ident::new(key),
+        value,
+    })
+}
+
+/// Parse snowflake alter external table.
+/// <https://docs.snowflake.com/en/sql-reference/sql/alter-external-table>
+fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let table_name = parser.parse_object_name(true)?;
+
+    let operation = if parser.parse_keyword(Keyword::REFRESH) {
+        // Optional subpath for refreshing specific partitions
+        let subpath = match parser.peek_token().token {
+            Token::SingleQuotedString(s) => {
+                parser.next_token();
+                Some(s)
+            }
+            _ => None,
+        };
+        AlterTableOperation::Refresh { subpath }
+    } else if parser.parse_keywords(&[Keyword::ADD, Keyword::FILES]) {
+        AlterTableOperation::AddFiles {
+            files: parse_external_table_file_list(parser)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::REMOVE, Keyword::FILES]) {
+        AlterTableOperation::RemoveFiles {
+            files: parse_external_table_file_list(parser)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::ADD, Keyword::PARTITION]) {
+        parser.expect_token(&Token::LParen)?;
+        let mut partitions = Vec::new();
+        loop {
+            let column = parser.parse_identifier()?;
+            parser.expect_token(&Token::Eq)?;
+            let value = parser.parse_literal_string()?;
+            partitions.push(ExternalTablePartitionColumn { column, value });
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+        parser.expect_token(&Token::RParen)?;
+        parser.expect_keyword_is(Keyword::LOCATION)?;
+        let location = parser.parse_literal_string()?;
+        AlterTableOperation::AddExternalPartition {
+            partitions,
+            location,
+        }
+    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::PARTITION]) {
+        parser.expect_keyword_is(Keyword::LOCATION)?;
+        let location = parser.parse_literal_string()?;
+        AlterTableOperation::DropExternalPartition { location }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::AUTO_REFRESH]) {
+        let _ = parser.consume_token(&Token::Eq);
+        let value = parser.parse_keyword(Keyword::TRUE);
+        if !value {
+            parser.expect_keyword_is(Keyword::FALSE)?;
+        }
+        AlterTableOperation::SetAutoRefresh { value }
+    } else {
+        return parser.expected_ref(
+            "REFRESH, ADD FILES, REMOVE FILES, ADD/DROP PARTITION or SET AUTO_REFRESH after ALTER EXTERNAL TABLE",
+            parser.peek_token_ref(),
+        );
+    };
+
+    let end_token = if parser.peek_token_ref().token == Token::SemiColon {
+        parser.peek_token_ref().clone()
+    } else {
+        parser.get_current_token().clone()
+    };
+
+    Ok(Statement::AlterTable(AlterTable {
+        name: table_name,
+        if_exists,
+        only: false,
+        operations: vec![operation],
+        location: None,
+        on_cluster: None,
+        table_type: Some(AlterTableType::External),
+        end_token: AttachedToken(end_token),
+    }))
+}
+
+/// Parse a Snowflake `CREATE [OR REPLACE] EXTERNAL TABLE` statement. The
+/// `EXTERNAL TABLE` keywords have already been consumed.
+/// <https://docs.snowflake.com/en/sql-reference/sql/create-external-table>
+fn parse_create_external_table(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let table_name = parser.parse_object_name(false)?;
+    let (columns, constraints) = parser.parse_columns()?;
+
+    // The Hive `CREATE EXTERNAL TABLE … STORED AS … LOCATION '<path>'` form is
+    // reachable under the Snowflake dialect too, and other dialects depend on
+    // it. When the trailing clauses are Hive-shaped, hand off to the Hive
+    // grammar rather than the Snowflake one.
+    if is_hive_external_table_tail(parser) {
+        return parse_hive_external_table_tail(
+            parser,
+            table_name,
+            columns,
+            constraints,
+            or_replace,
+            if_not_exists,
+        );
+    }
+
+    let mut builder = CreateTableBuilder::new(table_name)
+        .or_replace(or_replace)
+        .if_not_exists(if_not_exists)
+        .external(true)
+        .hive_formats(None)
+        .columns(columns)
+        .constraints(constraints);
+
+    // Snowflake does not fix the order of the trailing clauses, so parse them in
+    // a loop until an unrecognised token (e.g. `;` or EOF) is reached.
+    loop {
+        if parser.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
+            let exprs = if parser.consume_token(&Token::LParen) {
+                let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+                parser.expect_token(&Token::RParen)?;
+                exprs
+            } else {
+                vec![parser.parse_expr()?]
+            };
+            let expr = if exprs.len() == 1 {
+                exprs.into_iter().next().expect("len checked")
+            } else {
+                Expr::Tuple(exprs)
+            };
+            builder = builder.partition_by(Some(Box::new(expr)));
+        } else if parser.parse_keyword(Keyword::LOCATION) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.location(Some(parse_external_table_location(parser)?));
+        } else if parser.parse_keyword(Keyword::FILE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            let options = parser.parse_key_value_options(true, &[], false)?;
+            builder = builder.stage_file_format(Some(options));
+        } else if parser.parse_keyword(Keyword::PATTERN) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.pattern(Some(parser.parse_literal_string()?));
+        } else if parser.parse_keyword(Keyword::REFRESH_ON_CREATE) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.refresh_on_create(Some(parser.parse_boolean_string()?));
+        } else if parser.parse_keyword(Keyword::AUTO_REFRESH) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder.auto_refresh = Some(parser.parse_boolean_string()?);
+        } else if parser.parse_keyword(Keyword::PARTITION_TYPE) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.partition_type(Some(parser.parse_identifier()?.value));
+        } else if parser.parse_keyword(Keyword::TABLE_FORMAT) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.table_format(Some(parser.parse_identifier()?.value));
+        } else if parser.parse_keyword(Keyword::AWS_SNS_TOPIC) {
+            let _ = parser.consume_token(&Token::Eq);
+            builder = builder.aws_sns_topic(Some(parser.parse_literal_string()?));
+        } else if parser.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]) {
+            builder = builder.copy_grants(true);
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.prev_token();
+            if let Some(comment) = parser.parse_optional_inline_comment()? {
+                builder = builder.comment_after_column_def(Some(comment));
+            }
+        } else if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+            || parser.parse_keyword(Keyword::TAG)
+        {
+            parser.expect_token(&Token::LParen)?;
+            let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+            parser.expect_token(&Token::RParen)?;
+            builder = builder.with_tags(Some(tags));
+        } else if parser.parse_keywords(&[Keyword::WITH, Keyword::ROW])
+            || parser.parse_keyword(Keyword::ROW)
+        {
+            parser.expect_keywords(&[Keyword::ACCESS, Keyword::POLICY])?;
+            let policy = parser.parse_object_name(false)?;
+            parser.expect_keyword_is(Keyword::ON)?;
+            parser.expect_token(&Token::LParen)?;
+            let policy_columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+            parser.expect_token(&Token::RParen)?;
+            builder =
+                builder.with_row_access_policy(Some(RowAccessPolicy::new(policy, policy_columns)));
+        } else {
+            break;
+        }
+    }
+
+    Ok(Statement::CreateTable(builder.build()))
+}
+
+/// Whether the clauses following the column list are Hive-shaped (`STORED AS`,
+/// `ROW FORMAT`, `PARTITIONED BY`, `CLUSTERED BY`, `TBLPROPERTIES`, or a
+/// `LOCATION '<string>'` rather than the Snowflake `LOCATION=@stage`).
+fn is_hive_external_table_tail(parser: &Parser) -> bool {
+    match &parser.peek_token_ref().token {
+        Token::Word(w) => match w.keyword {
+            Keyword::STORED
+            | Keyword::ROW
+            | Keyword::PARTITIONED
+            | Keyword::CLUSTERED
+            | Keyword::TBLPROPERTIES => true,
+            Keyword::LOCATION => {
+                matches!(
+                    parser.peek_nth_token_ref(1).token,
+                    Token::SingleQuotedString(_)
+                )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Build a Hive-form `CREATE EXTERNAL TABLE` from an already-parsed name and
+/// column list, mirroring [`Parser::parse_create_external_table`].
+fn parse_hive_external_table_tail(
+    parser: &mut Parser,
+    table_name: ObjectName,
+    columns: Vec<crate::ast::ColumnDef>,
+    constraints: Vec<crate::ast::TableConstraint>,
+    or_replace: bool,
+    if_not_exists: bool,
+) -> Result<Statement, ParserError> {
+    let hive_distribution = parser.parse_hive_distribution()?;
+    let hive_formats = parser.parse_hive_formats()?;
+    let file_format = hive_formats
+        .as_ref()
+        .and_then(|hf| hf.storage.as_ref())
+        .and_then(|storage| match storage {
+            crate::ast::HiveIOFormat::FileFormat { format } => Some(*format),
+            crate::ast::HiveIOFormat::IOF { .. } | crate::ast::HiveIOFormat::Using { .. } => None,
+        });
+    let location = hive_formats.as_ref().and_then(|hf| hf.location.clone());
+    let table_properties = parser.parse_options(Keyword::TBLPROPERTIES)?;
+    let table_options = if table_properties.is_empty() {
+        crate::ast::CreateTableOptions::None
+    } else {
+        crate::ast::CreateTableOptions::TableProperties(table_properties)
+    };
+    Ok(Statement::CreateTable(
+        CreateTableBuilder::new(table_name)
+            .columns(columns)
+            .constraints(constraints)
+            .hive_distribution(hive_distribution)
+            .hive_formats(hive_formats)
+            .table_options(table_options)
+            .or_replace(or_replace)
+            .if_not_exists(if_not_exists)
+            .external(true)
+            .file_format(file_format)
+            .location(location)
+            .build(),
+    ))
+}
+
+/// Parse a Snowflake `DROP EXTERNAL TABLE` statement. The `DROP EXTERNAL TABLE`
+/// keywords have already been consumed.
+/// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
+fn parse_drop_external_table(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let names = parser.parse_comma_separated(|p| p.parse_object_name(false))?;
+    let cascade = parser.parse_keyword(Keyword::CASCADE);
+    let restrict = !cascade && parser.parse_keyword(Keyword::RESTRICT);
+    Ok(Statement::Drop {
+        object_type: ObjectType::ExternalTable,
+        if_exists,
+        names,
+        cascade,
+        restrict,
+        purge: false,
+        temporary: false,
+        table: None,
+    })
+}
+
+/// Parse the `@stage[/subpath]` reference used as an external-table `LOCATION`,
+/// carrying the whole reference (including any `/` subpath) through as one
+/// string.
+fn parse_external_table_location(parser: &mut Parser) -> Result<String, ParserError> {
+    let mut parts = Vec::new();
+    loop {
+        parts.push(parse_stage_name_identifier(parser)?.value);
+        if !parser.consume_token(&Token::Period) {
+            break;
+        }
+    }
+    Ok(parts.join("."))
+}
+
+/// Parse a parenthesised, comma-separated list of quoted staged file paths,
+/// as used by `ALTER EXTERNAL TABLE … ADD/REMOVE FILES ( '<path>' [, …] )`.
+fn parse_external_table_file_list(parser: &mut Parser) -> Result<Vec<String>, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    let mut files = Vec::new();
+    loop {
+        files.push(parser.parse_literal_string()?);
+        if !parser.consume_token(&Token::Comma) {
+            break;
+        }
+    }
+    parser.expect_token(&Token::RParen)?;
+    Ok(files)
+}
+
+/// Parse snowflake alter session.
+/// <https://docs.snowflake.com/en/sql-reference/sql/alter-session>
+fn parse_alter_session(parser: &mut Parser, set: bool) -> Result<Statement, ParserError> {
+    let session_options = parse_session_options(parser, set)?;
+    Ok(Statement::AlterSession {
+        set,
+        session_params: KeyValueOptions {
+            options: session_options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+    })
+}
+
+/// Parse snowflake create table statement.
+/// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
+/// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
+#[allow(clippy::too_many_arguments)]
+pub fn parse_create_table(
+    or_replace: bool,
+    global: Option<bool>,
+    temporary: bool,
+    volatile: bool,
+    transient: bool,
+    iceberg: bool,
+    dynamic: bool,
+    parser: &mut Parser,
+) -> Result<CreateTable, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let table_name = parser.parse_object_name(false)?;
+
+    let mut builder = CreateTableBuilder::new(table_name)
+        .or_replace(or_replace)
+        .if_not_exists(if_not_exists)
+        .temporary(temporary)
+        .transient(transient)
+        .volatile(volatile)
+        .iceberg(iceberg)
+        .global(global)
+        .dynamic(dynamic)
+        .hive_formats(None);
+
+    // Snowflake does not enforce order of the parameters in the statement. The parser needs to
+    // parse the statement in a loop.
+    //
+    // "CREATE TABLE x COPY GRANTS (c INT)" and "CREATE TABLE x (c INT) COPY GRANTS" are both
+    // accepted by Snowflake
+
+    let mut plain_options = vec![];
+
+    loop {
+        let next_token = parser.next_token();
+        match &next_token.token {
+            Token::Word(word) => match word.keyword {
+                Keyword::COPY => {
+                    parser.expect_keyword_is(Keyword::GRANTS)?;
+                    builder = builder.copy_grants(true);
+                }
+                Keyword::COMMENT => {
+                    // Rewind the COMMENT keyword
+                    parser.prev_token();
+                    if let Some(comment_def) = parser.parse_optional_inline_comment()? {
+                        plain_options.push(SqlOption::Comment(comment_def))
+                    }
+                }
+                Keyword::AS => {
+                    let query = parser.parse_query()?;
+                    builder = builder.query(Some(query));
+                }
+                Keyword::CLONE => {
+                    let clone = parser.parse_object_name(false).ok();
+                    builder = builder.clone_clause(clone);
+                }
+                Keyword::LIKE => {
+                    let name = parser.parse_object_name(false)?;
+                    builder = builder.like(Some(CreateTableLikeKind::Plain(
+                        crate::ast::CreateTableLike {
+                            name,
+                            defaults: None,
+                        },
+                    )));
+                }
+                Keyword::CLUSTER => {
+                    parser.expect_keyword_is(Keyword::BY)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let cluster_by = Some(WrappedCollection::Parentheses(
+                        parser.parse_comma_separated(|p| p.parse_expr())?,
+                    ));
+                    parser.expect_token(&Token::RParen)?;
+
+                    builder = builder.cluster_by(cluster_by)
+                }
+                Keyword::ENABLE_SCHEMA_EVOLUTION => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.enable_schema_evolution(Some(parser.parse_boolean_string()?));
+                }
+                Keyword::CHANGE_TRACKING => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.change_tracking(Some(parser.parse_boolean_string()?));
+                }
+                Keyword::STAGE_FILE_FORMAT => {
+                    parser.expect_token(&Token::Eq)?;
+                    let options = parser.parse_key_value_options(true, &[], false)?;
+                    builder = builder.stage_file_format(Some(options));
+                }
+                Keyword::DATA_RETENTION_TIME_IN_DAYS => {
+                    parser.expect_token(&Token::Eq)?;
+                    let data_retention_time_in_days = parser.parse_literal_uint()?;
+                    builder =
+                        builder.data_retention_time_in_days(Some(data_retention_time_in_days));
+                }
+                Keyword::MAX_DATA_EXTENSION_TIME_IN_DAYS => {
+                    parser.expect_token(&Token::Eq)?;
+                    let max_data_extension_time_in_days = parser.parse_literal_uint()?;
+                    builder = builder
+                        .max_data_extension_time_in_days(Some(max_data_extension_time_in_days));
+                }
+                Keyword::DEFAULT_DDL_COLLATION => {
+                    parser.expect_token(&Token::Eq)?;
+                    let default_ddl_collation = parser.parse_literal_string()?;
+                    builder = builder.default_ddl_collation(Some(default_ddl_collation));
+                }
+                // WITH is optional, we just verify that next token is one of the expected ones and
+                // fallback to the default match statement
+                Keyword::WITH => {
+                    parser.expect_one_of_keywords(&[
+                        Keyword::AGGREGATION,
+                        Keyword::STORAGE,
+                        Keyword::TAG,
+                        Keyword::ROW,
+                    ])?;
+                    parser.prev_token();
+                }
+                Keyword::AGGREGATION => {
+                    parser.expect_keyword_is(Keyword::POLICY)?;
+                    let aggregation_policy = parser.parse_object_name(false)?;
+                    builder = builder.with_aggregation_policy(Some(aggregation_policy));
+                }
+                Keyword::ROW => {
+                    parser.expect_keywords(&[Keyword::ACCESS, Keyword::POLICY])?;
+                    let policy = parser.parse_object_name(false)?;
+                    parser.expect_keyword_is(Keyword::ON)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+                    parser.expect_token(&Token::RParen)?;
+
+                    builder =
+                        builder.with_row_access_policy(Some(RowAccessPolicy::new(policy, columns)))
+                }
+                Keyword::STORAGE => {
+                    parser.expect_keywords(&[Keyword::LIFECYCLE, Keyword::POLICY])?;
+                    let policy = parser.parse_object_name(false)?;
+                    parser.expect_keyword_is(Keyword::ON)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+                    parser.expect_token(&Token::RParen)?;
+
+                    builder = builder.with_storage_lifecycle_policy(Some(StorageLifecyclePolicy {
+                        policy,
+                        on: columns,
+                    }))
+                }
+                Keyword::TAG => {
+                    parser.expect_token(&Token::LParen)?;
+                    let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+                    parser.expect_token(&Token::RParen)?;
+                    builder = builder.with_tags(Some(tags));
+                }
+                Keyword::ON if parser.parse_keyword(Keyword::COMMIT) => {
+                    let on_commit = Some(parser.parse_create_table_on_commit()?);
+                    builder = builder.on_commit(on_commit);
+                }
+                Keyword::EXTERNAL_VOLUME => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.external_volume = Some(parser.parse_literal_string()?);
+                }
+                Keyword::CATALOG => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.catalog = Some(parser.parse_literal_string()?);
+                }
+                Keyword::CATALOG_TABLE_NAME => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.catalog_table_name = Some(parser.parse_literal_string()?);
+                }
+                Keyword::AUTO_REFRESH => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.auto_refresh = Some(parser.parse_boolean_string()?);
+                }
+                Keyword::BASE_LOCATION => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.base_location = Some(parser.parse_literal_string()?);
+                }
+                Keyword::CATALOG_SYNC => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.catalog_sync = Some(parser.parse_literal_string()?);
+                }
+                Keyword::STORAGE_SERIALIZATION_POLICY => {
+                    parser.expect_token(&Token::Eq)?;
+
+                    builder.storage_serialization_policy =
+                        Some(parse_storage_serialization_policy(parser)?);
+                }
+                Keyword::IF if parser.parse_keywords(&[Keyword::NOT, Keyword::EXISTS]) => {
+                    builder = builder.if_not_exists(true);
+                }
+                Keyword::TARGET_LAG => {
+                    parser.expect_token(&Token::Eq)?;
+                    // TARGET_LAG accepts a quoted duration ('1 minute') or the
+                    // bare keyword DOWNSTREAM.
+                    let target_lag = if parser.parse_keyword(Keyword::DOWNSTREAM) {
+                        "DOWNSTREAM".to_string()
+                    } else {
+                        parser.parse_literal_string()?
+                    };
+                    builder = builder.target_lag(Some(target_lag));
+                }
+                Keyword::WAREHOUSE => {
+                    parser.expect_token(&Token::Eq)?;
+                    let warehouse = parser.parse_identifier()?;
+                    builder = builder.warehouse(Some(warehouse.value));
+                }
+                Keyword::INITIALIZATION_WAREHOUSE => {
+                    parser.expect_token(&Token::Eq)?;
+                    let warehouse = parser.parse_identifier()?;
+                    builder = builder.initialization_warehouse(Some(warehouse.value));
+                }
+                Keyword::SCHEDULER => {
+                    parser.expect_token(&Token::Eq)?;
+                    // SCHEDULER accepts a quoted string ('DISABLE') or a bare
+                    // keyword (the GET_DDL spelling, e.g. DISABLE).
+                    let value_token = parser.next_token();
+                    let scheduler = match &value_token.token {
+                        Token::SingleQuotedString(s) => s.clone(),
+                        Token::Word(w) => w.value.clone(),
+                        _ => return parser.expected("a scheduler value", value_token),
+                    };
+                    builder = builder.scheduler(Some(scheduler));
+                }
+                Keyword::IMMUTABLE => {
+                    parser.expect_keyword_is(Keyword::WHERE)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let predicate = parser.parse_expr()?;
+                    parser.expect_token(&Token::RParen)?;
+                    builder = builder.immutable_where(Some(predicate.to_string()));
+                }
+                Keyword::AT | Keyword::BEFORE => {
+                    parser.prev_token();
+                    let version = parser.maybe_parse_table_version()?;
+                    builder = builder.version(version);
+                }
+                Keyword::REFRESH_MODE => {
+                    parser.expect_token(&Token::Eq)?;
+                    let refresh_mode = match parser.parse_one_of_keywords(&[
+                        Keyword::AUTO,
+                        Keyword::FULL,
+                        Keyword::INCREMENTAL,
+                    ]) {
+                        Some(Keyword::AUTO) => Some(RefreshModeKind::Auto),
+                        Some(Keyword::FULL) => Some(RefreshModeKind::Full),
+                        Some(Keyword::INCREMENTAL) => Some(RefreshModeKind::Incremental),
+                        _ => return parser.expected("AUTO, FULL or INCREMENTAL", next_token),
+                    };
+                    builder = builder.refresh_mode(refresh_mode);
+                }
+                Keyword::INITIALIZE => {
+                    parser.expect_token(&Token::Eq)?;
+                    let initialize = match parser
+                        .parse_one_of_keywords(&[Keyword::ON_CREATE, Keyword::ON_SCHEDULE])
+                    {
+                        Some(Keyword::ON_CREATE) => Some(InitializeKind::OnCreate),
+                        Some(Keyword::ON_SCHEDULE) => Some(InitializeKind::OnSchedule),
+                        _ => return parser.expected("ON_CREATE or ON_SCHEDULE", next_token),
+                    };
+                    builder = builder.initialize(initialize);
+                }
+                Keyword::REQUIRE if parser.parse_keyword(Keyword::USER) => {
+                    builder = builder.require_user(true);
+                }
+                _ => {
+                    return parser.expected("end of statement", next_token);
+                }
+            },
+            Token::LParen => {
+                parser.prev_token();
+                let (columns, constraints) = parser.parse_columns()?;
+                builder = builder.columns(columns).constraints(constraints);
+            }
+            // Snowflake accepts Iceberg table options either space- or comma-separated.
+            Token::Comma => {}
+            Token::EOF => {
+                break;
+            }
+            Token::SemiColon => {
+                parser.prev_token();
+                break;
+            }
+            _ => {
+                return parser.expected("end of statement", next_token);
+            }
+        }
+    }
+    let table_options = if !plain_options.is_empty() {
+        crate::ast::CreateTableOptions::Plain(plain_options)
+    } else {
+        crate::ast::CreateTableOptions::None
+    };
+
+    builder = builder.table_options(table_options);
+
+    // Snowflake-managed Iceberg tables require BASE_LOCATION. Tables bound to
+    // an external catalog integration (an explicit non-SNOWFLAKE CATALOG, or
+    // CATALOG_TABLE_NAME for externally-managed reads) do not.
+    let external_catalog = builder
+        .catalog
+        .as_deref()
+        .is_some_and(|c| !c.eq_ignore_ascii_case("SNOWFLAKE"));
+    if iceberg
+        && builder.base_location.is_none()
+        && builder.catalog_table_name.is_none()
+        && !external_catalog
+    {
+        return Err(ParserError::ParserError(
+            "BASE_LOCATION is required for ICEBERG tables".to_string(),
+        ));
+    }
+
+    Ok(builder.build())
+}
+
+/// Parse snowflake create database statement.
+/// <https://docs.snowflake.com/en/sql-reference/sql/create-database>
+pub fn parse_create_database(
+    or_replace: bool,
+    transient: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut builder = CreateDatabaseBuilder::new(name)
+        .or_replace(or_replace)
+        .transient(transient)
+        .if_not_exists(if_not_exists);
+
+    loop {
+        let next_token = parser.next_token();
+        match &next_token.token {
+            Token::Word(word) => match word.keyword {
+                Keyword::CLONE => {
+                    builder = builder.clone_clause(Some(parser.parse_object_name(false)?));
+                }
+                Keyword::DATA_RETENTION_TIME_IN_DAYS => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder =
+                        builder.data_retention_time_in_days(Some(parser.parse_literal_uint()?));
+                }
+                Keyword::MAX_DATA_EXTENSION_TIME_IN_DAYS => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder =
+                        builder.max_data_extension_time_in_days(Some(parser.parse_literal_uint()?));
+                }
+                Keyword::EXTERNAL_VOLUME => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.external_volume(Some(parser.parse_literal_string()?));
+                }
+                Keyword::CATALOG => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.catalog(Some(parser.parse_literal_string()?));
+                }
+                Keyword::REPLACE_INVALID_CHARACTERS => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder =
+                        builder.replace_invalid_characters(Some(parser.parse_boolean_string()?));
+                }
+                Keyword::DEFAULT_DDL_COLLATION => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.default_ddl_collation(Some(parser.parse_literal_string()?));
+                }
+                Keyword::STORAGE_SERIALIZATION_POLICY => {
+                    parser.expect_token(&Token::Eq)?;
+                    let policy = parse_storage_serialization_policy(parser)?;
+                    builder = builder.storage_serialization_policy(Some(policy));
+                }
+                Keyword::COMMENT => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.comment(Some(parser.parse_literal_string()?));
+                }
+                Keyword::CATALOG_SYNC => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.catalog_sync(Some(parser.parse_literal_string()?));
+                }
+                Keyword::CATALOG_SYNC_NAMESPACE_FLATTEN_DELIMITER => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.catalog_sync_namespace_flatten_delimiter(Some(
+                        parser.parse_literal_string()?,
+                    ));
+                }
+                Keyword::CATALOG_SYNC_NAMESPACE_MODE => {
+                    parser.expect_token(&Token::Eq)?;
+                    let mode =
+                        match parser.parse_one_of_keywords(&[Keyword::NEST, Keyword::FLATTEN]) {
+                            Some(Keyword::NEST) => CatalogSyncNamespaceMode::Nest,
+                            Some(Keyword::FLATTEN) => CatalogSyncNamespaceMode::Flatten,
+                            _ => {
+                                return parser.expected("NEST or FLATTEN", next_token);
+                            }
+                        };
+                    builder = builder.catalog_sync_namespace_mode(Some(mode));
+                }
+                Keyword::WITH => {
+                    if parser.parse_keyword(Keyword::TAG) {
+                        parser.expect_token(&Token::LParen)?;
+                        let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+                        parser.expect_token(&Token::RParen)?;
+                        builder = builder.with_tags(Some(tags));
+                    } else if parser.parse_keyword(Keyword::CONTACT) {
+                        parser.expect_token(&Token::LParen)?;
+                        let contacts = parser.parse_comma_separated(|p| {
+                            let purpose = p.parse_identifier()?.value;
+                            p.expect_token(&Token::Eq)?;
+                            let contact = p.parse_identifier()?.value;
+                            Ok(ContactEntry { purpose, contact })
+                        })?;
+                        parser.expect_token(&Token::RParen)?;
+                        builder = builder.with_contacts(Some(contacts));
+                    } else {
+                        return parser.expected("TAG or CONTACT", next_token);
+                    }
+                }
+                _ => return parser.expected("end of statement", next_token),
+            },
+            Token::SemiColon | Token::EOF => break,
+            _ => return parser.expected("end of statement", next_token),
+        }
+    }
+    Ok(builder.build())
+}
+
+pub fn parse_storage_serialization_policy(
+    parser: &mut Parser,
+) -> Result<StorageSerializationPolicy, ParserError> {
+    let next_token = parser.next_token();
+    match &next_token.token {
+        Token::Word(w) => match w.keyword {
+            Keyword::COMPATIBLE => Ok(StorageSerializationPolicy::Compatible),
+            Keyword::OPTIMIZED => Ok(StorageSerializationPolicy::Optimized),
+            _ => parser.expected("storage_serialization_policy", next_token),
+        },
+        _ => parser.expected("storage_serialization_policy", next_token),
+    }
+}
+
+pub fn parse_create_stage(
+    or_replace: bool,
+    temporary: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    //[ IF NOT EXISTS ]
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let StageProperties {
+        stage_params,
+        directory_table_params,
+        file_format,
+        copy_options,
+        comment,
+    } = parse_stage_properties(parser)?;
+
+    // Trailing `WITH TAG (<t> = '<v>' [, ...])`. The property loop above breaks
+    // on the `WITH` keyword, so the clause is naturally trailing-only.
+    let mut with_tags = Vec::new();
+    if parser.parse_keyword(Keyword::WITH) {
+        parser.expect_keyword(Keyword::TAG)?;
+        parser.expect_token(&Token::LParen)?;
+        with_tags = parser.parse_comma_separated(Parser::parse_tag)?;
+        parser.expect_token(&Token::RParen)?;
+    }
+
+    Ok(Statement::CreateStage {
+        or_replace,
+        temporary,
+        if_not_exists,
+        name,
+        stage_params,
+        directory_table_params,
+        file_format,
+        copy_options,
+        comment,
+        with_tags,
+    })
+}
+
+/// The shared property groups parsed by both `CREATE STAGE` and
+/// `ALTER STAGE ... SET`.
+struct StageProperties {
+    stage_params: StageParamsObject,
+    directory_table_params: KeyValueOptions,
+    file_format: KeyValueOptions,
+    copy_options: KeyValueOptions,
+    comment: Option<String>,
+}
+
+/// Parse the stage property groups (`internalStageParams`/`externalStageParams`,
+/// `DIRECTORY`, `FILE_FORMAT`, `COPY_OPTIONS`, `COMMENT`) shared by
+/// `CREATE STAGE` and `ALTER STAGE ... SET`.
+///
+/// Snowflake accepts these groups in any order (e.g. `FILE_FORMAT = (...) URL =
+/// '...'`), so the groups are matched in a loop until none remains rather than
+/// in a fixed sequence. Each group may appear at most once.
+fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, ParserError> {
+    let empty_options = || KeyValueOptions {
+        options: vec![],
+        delimiter: KeyValueOptionsDelimiter::Space,
+    };
+    let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
+    let mut encryption = empty_options();
+    let mut credentials = empty_options();
+    let mut directory_table_params = Vec::new();
+    let mut file_format = Vec::new();
+    let mut copy_options = Vec::new();
+    let mut comment = None;
+
+    loop {
+        // [ internalStageParams | externalStageParams ]
+        if url.is_none() && parser.parse_keyword(Keyword::URL) {
+            parser.expect_token(&Token::Eq)?;
+            url = Some(match parser.next_token().token {
+                Token::SingleQuotedString(word) => Ok(word),
+                _ => parser.expected_ref("a URL statement", parser.peek_token_ref()),
+            }?);
+        } else if storage_integration.is_none()
+            && parser.parse_keyword(Keyword::STORAGE_INTEGRATION)
+        {
+            parser.expect_token(&Token::Eq)?;
+            storage_integration = Some(parser.next_token().token.to_string());
+        } else if endpoint.is_none() && parser.parse_keyword(Keyword::ENDPOINT) {
+            parser.expect_token(&Token::Eq)?;
+            endpoint = Some(match parser.next_token().token {
+                Token::SingleQuotedString(word) => Ok(word),
+                _ => parser.expected_ref("an endpoint statement", parser.peek_token_ref()),
+            }?);
+        } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
+            parser.expect_token(&Token::Eq)?;
+            credentials.options = parser.parse_key_value_options(true, &[], false)?.options;
+        } else if encryption.options.is_empty() && parser.parse_keyword(Keyword::ENCRYPTION) {
+            parser.expect_token(&Token::Eq)?;
+            encryption.options = parser.parse_key_value_options(true, &[], false)?.options;
+        } else if directory_table_params.is_empty() && parser.parse_keyword(Keyword::DIRECTORY) {
+            parser.expect_token(&Token::Eq)?;
+            directory_table_params = parser.parse_key_value_options(true, &[], false)?.options;
+        } else if file_format.is_empty() && parser.parse_keyword(Keyword::FILE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            if parser.peek_token().token == Token::LParen {
+                file_format = parser.parse_key_value_options(true, &[], false)?.options;
+            } else {
+                // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>`
+                // is sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` —
+                // normalize it.
+                let tok = parser.peek_token();
+                let value = match tok.token {
+                    Token::Word(w) => {
+                        parser.next_token();
+                        Value::Placeholder(w.value.clone()).with_span(tok.span)
+                    }
+                    _ => parser.parse_value()?,
+                };
+                file_format = vec![KeyValueOption {
+                    option_name: "FORMAT_NAME".to_string(),
+                    option_value: KeyValueOptionKind::Single(value),
+                }];
+            }
+        } else if copy_options.is_empty() && parser.parse_keyword(Keyword::COPY_OPTIONS) {
+            parser.expect_token(&Token::Eq)?;
+            copy_options = parser.parse_key_value_options(true, &[], false)?.options;
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else {
+            break;
+        }
+    }
+
+    Ok(StageProperties {
+        stage_params: StageParamsObject {
+            url,
+            encryption,
+            endpoint,
+            storage_integration,
+            credentials,
+        },
+        directory_table_params: KeyValueOptions {
+            options: directory_table_params,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        file_format: KeyValueOptions {
+            options: file_format,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        copy_options: KeyValueOptions {
+            options: copy_options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        comment,
+    })
+}
+
+/// Parse `ALTER STAGE [IF EXISTS] <name> { SET ... | RENAME TO <new_name> }`
+fn parse_alter_stage(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterStageOperation::RenameTo(parser.parse_object_name(false)?)
+    } else if parser.parse_keyword(Keyword::SET) {
+        let StageProperties {
+            stage_params,
+            directory_table_params,
+            file_format,
+            copy_options,
+            comment,
+        } = parse_stage_properties(parser)?;
+        AlterStageOperation::Set {
+            stage_params,
+            directory_table_params,
+            file_format,
+            copy_options,
+            comment,
+        }
+    } else {
+        return parser.expected(
+            "SET or RENAME TO after ALTER STAGE <name>",
+            parser.peek_token(),
+        );
+    };
+
+    Ok(Statement::AlterStage {
+        name,
+        if_exists,
+        operation,
+    })
+}
+
+pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserError> {
+    let mut ident = String::new();
+    while let Some(next_token) = parser.next_token_no_skip() {
+        match &next_token.token {
+            Token::Whitespace(_) | Token::SemiColon => break,
+            Token::Period => {
+                parser.prev_token();
+                break;
+            }
+            Token::LParen | Token::RParen => {
+                parser.prev_token();
+                break;
+            }
+            Token::Comma => {
+                parser.prev_token();
+                break;
+            }
+            Token::AtSign => ident.push('@'),
+            Token::Tilde => ident.push('~'),
+            Token::Mod => ident.push('%'),
+            Token::Div => ident.push('/'),
+            Token::Plus => ident.push('+'),
+            Token::Minus => ident.push('-'),
+            Token::Eq => ident.push('='),
+            Token::Colon => ident.push(':'),
+            Token::Number(n, _) => ident.push_str(n),
+            Token::Word(w) => ident.push_str(&w.to_string()),
+            _ => return parser.expected_ref("stage name identifier", parser.peek_token_ref()),
+        }
+    }
+    Ok(Ident::new(ident))
+}
+
+/// Parses a Snowflake stage name, which may start with `@` for internal stages.
+/// Examples: `@mystage`, `@namespace.stage`, `schema.table`
+pub fn parse_snowflake_stage_name(parser: &mut Parser) -> Result<ObjectName, ParserError> {
+    match parser.next_token().token {
+        Token::AtSign => {
+            parser.prev_token();
+            let mut idents = vec![];
+            loop {
+                idents.push(parse_stage_name_identifier(parser)?);
+                if !parser.consume_token(&Token::Period) {
+                    break;
+                }
+            }
+            Ok(ObjectName::from(idents))
+        }
+        // A wire placeholder (`?`, `$n`, `?name`) in stage-name position: the
+        // bound value is a stage reference resolved server-side, so carry the
+        // placeholder text through as a single identifier part.
+        Token::Placeholder(s) => Ok(ObjectName::from(vec![Ident::new(s)])),
+        _ => {
+            parser.prev_token();
+            Ok(parser.parse_object_name(false)?)
+        }
+    }
+}
+
+/// Parses a `COPY INTO` statement. Snowflake has two variants, `COPY INTO <table>`
+/// and `COPY INTO <location>` which have different syntax.
+pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let kind = match &parser.peek_token_ref().token {
+        // Indicates an internal stage
+        Token::AtSign => CopyIntoSnowflakeKind::Location,
+        // Indicates an external stage, i.e. s3://, gcs:// or azure://
+        Token::SingleQuotedString(s) if s.contains("://") => CopyIntoSnowflakeKind::Location,
+        _ => CopyIntoSnowflakeKind::Table,
+    };
+
+    let mut files: Vec<ValueWithSpan> = vec![];
+    let mut from_transformations: Option<Vec<StageLoadSelectItemKind>> = None;
+    let mut from_stage_alias = None;
+    let mut from_stage = None;
+    let mut from_stage_args = None;
+    let mut stage_params = StageParamsObject {
+        url: None,
+        encryption: KeyValueOptions {
+            options: vec![],
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        endpoint: None,
+        storage_integration: None,
+        credentials: KeyValueOptions {
+            options: vec![],
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+    };
+    let mut from_query = None;
+    let mut partition = None;
+    let mut file_format = Vec::new();
+    let mut pattern = None;
+    let mut validation_mode = None;
+    let mut copy_options = Vec::new();
+
+    let into: ObjectName = parse_snowflake_stage_name(parser)?;
+    if kind == CopyIntoSnowflakeKind::Location {
+        stage_params = parse_stage_params(parser)?;
+    }
+
+    let into_columns = match &parser.peek_token().token {
+        Token::LParen => Some(parser.parse_parenthesized_column_list(IsOptional::Optional, true)?),
+        _ => None,
+    };
+
+    parser.expect_keyword_is(Keyword::FROM)?;
+    match parser.next_token().token {
+        Token::LParen if kind == CopyIntoSnowflakeKind::Table => {
+            // Data load with transformations
+            parser.expect_keyword_is(Keyword::SELECT)?;
+            from_transformations = parse_select_items_for_data_load(parser)?;
+
+            parser.expect_keyword_is(Keyword::FROM)?;
+            from_stage = Some(parse_snowflake_stage_name(parser)?);
+            // Inline stage table-function args (querying-stage syntax):
+            // `@stage (FILE_FORMAT => …, PATTERN => …)`.
+            if parser.consume_token(&Token::LParen) {
+                from_stage_args = Some(parser.parse_table_function_args()?);
+            }
+            stage_params = parse_stage_params(parser)?;
+
+            // Parse an optional alias
+            from_stage_alias = parser
+                .maybe_parse_table_alias()?
+                .map(|table_alias| table_alias.name);
+            parser.expect_token(&Token::RParen)?;
+        }
+        Token::LParen if kind == CopyIntoSnowflakeKind::Location => {
+            // Data unload with a query
+            from_query = Some(parser.parse_query()?);
+            parser.expect_token(&Token::RParen)?;
+        }
+        _ => {
+            parser.prev_token();
+            from_stage = Some(parse_snowflake_stage_name(parser)?);
+            stage_params = parse_stage_params(parser)?;
+
+            // as
+            from_stage_alias = if parser.parse_keyword(Keyword::AS) {
+                Some(match parser.next_token().token {
+                    Token::Word(w) => Ok(Ident::new(w.value)),
+                    _ => parser.expected_ref("stage alias", parser.peek_token_ref()),
+                }?)
+            } else {
+                None
+            };
+        }
+    }
+
+    loop {
+        // FILE_FORMAT
+        if parser.parse_keyword(Keyword::FILE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            if parser.peek_token().token == Token::LParen {
+                let paren_span = parser.peek_token().span;
+                file_format = parser.parse_key_value_options(true, &[], false)?.options;
+                if file_format.is_empty() {
+                    // Snowflake parses an empty `FILE_FORMAT = ()` as a reference
+                    // to its internal empty-constant-list token and then resolves
+                    // that as a format name, so the clause fails with
+                    // "File format 'TOK_CONSTANT_LIST' does not exist". Mirror
+                    // that by lowering `()` to `FORMAT_NAME = TOK_CONSTANT_LIST`.
+                    file_format = vec![KeyValueOption {
+                        option_name: "FORMAT_NAME".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("TOK_CONSTANT_LIST".to_string())
+                                .with_span(paren_span),
+                        ),
+                    }];
+                }
+            } else {
+                // Shorthand `FILE_FORMAT = '<name>'` / `FILE_FORMAT = <ident>`
+                // is sugar for `FILE_FORMAT = (FORMAT_NAME = <name>)` —
+                // normalize it (mirrors CREATE STAGE).
+                let tok = parser.peek_token();
+                let value = match tok.token {
+                    Token::Word(w) => {
+                        parser.next_token();
+                        Value::Placeholder(w.value.clone()).with_span(tok.span)
+                    }
+                    _ => parser.parse_value()?,
+                };
+                file_format = vec![KeyValueOption {
+                    option_name: "FORMAT_NAME".to_string(),
+                    option_value: KeyValueOptionKind::Single(value),
+                }];
+            }
+        // PARTITION BY
+        } else if parser.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
+            partition = Some(Box::new(parser.parse_expr()?))
+        // FILES
+        } else if parser.parse_keyword(Keyword::FILES) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            let mut continue_loop = true;
+            while continue_loop {
+                continue_loop = false;
+                let next_token = parser.next_token();
+                match next_token.token {
+                    // A bind placeholder is accepted here so the statement
+                    // parses; whether it is a legal FILES value is decided
+                    // downstream (real Snowflake rejects a bound `?`).
+                    Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                        parser.prev_token();
+                        files.push(parser.parse_value()?);
+                    }
+                    _ => parser.expected("file token", next_token)?,
+                };
+                if parser.next_token().token.eq(&Token::Comma) {
+                    continue_loop = true;
+                } else {
+                    parser.prev_token(); // not a comma, need to go back
+                }
+            }
+            parser.expect_token(&Token::RParen)?;
+        // PATTERN
+        } else if parser.parse_keyword(Keyword::PATTERN) {
+            parser.expect_token(&Token::Eq)?;
+            let next_token = parser.next_token();
+            pattern = Some(match next_token.token {
+                Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                    parser.prev_token();
+                    parser.parse_value()?
+                }
+                _ => parser.expected("pattern", next_token)?,
+            });
+        // VALIDATION MODE
+        } else if parser.parse_keyword(Keyword::VALIDATION_MODE) {
+            parser.expect_token(&Token::Eq)?;
+            validation_mode = Some(parser.next_token().token.to_string());
+        // COPY OPTIONS
+        } else if parser.parse_keyword(Keyword::COPY_OPTIONS) {
+            parser.expect_token(&Token::Eq)?;
+            copy_options = parser.parse_key_value_options(true, &[], false)?.options;
+        } else {
+            match parser.next_token().token {
+                // Leave the statement terminator for the caller: inside a
+                // `BEGIN … END` body the surrounding statement list expects to
+                // consume the `;` itself.
+                Token::SemiColon => {
+                    parser.prev_token();
+                    break;
+                }
+                Token::EOF => break,
+                Token::Comma => continue,
+                // In `COPY INTO <location>` the copy options do not have a shared key
+                // like in `COPY INTO <table>`
+                Token::Word(key) => copy_options.push(parser.parse_key_value_option(&key, false)?),
+                _ => {
+                    return parser
+                        .expected_ref("another copy option, ; or EOF'", parser.peek_token_ref())
+                }
+            }
+        }
+    }
+
+    Ok(Statement::CopyIntoSnowflake {
+        kind,
+        into,
+        into_columns,
+        from_obj: from_stage,
+        from_obj_alias: from_stage_alias,
+        from_obj_args: from_stage_args,
+        stage_params,
+        from_transformations,
+        from_query,
+        files: if files.is_empty() { None } else { Some(files) },
+        pattern,
+        file_format: KeyValueOptions {
+            options: file_format,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        copy_options: KeyValueOptions {
+            options: copy_options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        validation_mode,
+        partition,
+    })
+}
+
+fn parse_select_items_for_data_load(
+    parser: &mut Parser,
+) -> Result<Option<Vec<StageLoadSelectItemKind>>, ParserError> {
+    let mut select_items: Vec<StageLoadSelectItemKind> = vec![];
+    loop {
+        match parser.maybe_parse(parse_select_item_for_data_load)? {
+            // [<alias>.]$<file_col_num>[.<element>] [ , [<alias>.]$<file_col_num>[.<element>] ... ]
+            Some(item) => select_items.push(StageLoadSelectItemKind::StageLoadSelectItem(item)),
+            // Fallback, try to parse a standard SQL select item
+            None => select_items.push(StageLoadSelectItemKind::SelectItem(
+                parser.parse_select_item()?,
+            )),
+        }
+        if matches!(parser.peek_token_ref().token, Token::Comma) {
+            parser.advance_token();
+        } else {
+            break;
+        }
+    }
+    Ok(Some(select_items))
+}
+
+fn parse_select_item_for_data_load(
+    parser: &mut Parser,
+) -> Result<StageLoadSelectItem, ParserError> {
+    let mut alias: Option<Ident> = None;
+    let mut file_col_num: i32 = 0;
+    let mut element: Option<Ident> = None;
+    let mut item_as: Option<Ident> = None;
+
+    let next_token = parser.next_token();
+    match next_token.token {
+        Token::Placeholder(w) => {
+            file_col_num = w.to_string().split_off(1).parse::<i32>().map_err(|e| {
+                ParserError::ParserError(format!("Could not parse '{w}' as i32: {e}"))
+            })?;
+            Ok(())
+        }
+        Token::Word(w) => {
+            alias = Some(Ident::new(w.value));
+            Ok(())
+        }
+        _ => parser.expected("alias or file_col_num", next_token),
+    }?;
+
+    if alias.is_some() {
+        parser.expect_token(&Token::Period)?;
+        // now we get col_num token
+        let col_num_token = parser.next_token();
+        match col_num_token.token {
+            Token::Placeholder(w) => {
+                file_col_num = w.to_string().split_off(1).parse::<i32>().map_err(|e| {
+                    ParserError::ParserError(format!("Could not parse '{w}' as i32: {e}"))
+                })?;
+                Ok(())
+            }
+            _ => parser.expected("file_col_num", col_num_token),
+        }?;
+    }
+
+    // try extracting optional element
+    match parser.next_token().token {
+        Token::Colon => {
+            // parse element
+            element = Some(Ident::new(match parser.next_token().token {
+                Token::Word(w) => Ok(w.value),
+                _ => parser.expected_ref("file_col_num", parser.peek_token_ref()),
+            }?));
+        }
+        _ => {
+            // element not present move back
+            parser.prev_token();
+        }
+    }
+
+    // as
+    if parser.parse_keyword(Keyword::AS) {
+        item_as = Some(match parser.next_token().token {
+            Token::Word(w) => Ok(Ident::new(w.value)),
+            _ => parser.expected_ref("column item alias", parser.peek_token_ref()),
+        }?);
+    }
+
+    // The data-load item grammar only covers [<alias>.]$<num>[:<element>] [AS <alias>].
+    // If the item was not fully consumed here — e.g. a dotted sub-path (`$1:a.b`) or a
+    // `::TYPE` cast follows — roll back by failing so the caller's general select-item
+    // fallback parses the extended shape. Items are separated by `,` and terminated by
+    // the trailing `FROM @stage`, so anything else means the item continues.
+    if !matches!(parser.peek_token_ref().token, Token::Comma) && !parser.peek_keyword(Keyword::FROM)
+    {
+        return parser.expected_ref("end of data load select item", parser.peek_token_ref());
+    }
+
+    Ok(StageLoadSelectItem {
+        alias,
+        file_col_num,
+        element,
+        item_as,
+    })
+}
+
+fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserError> {
+    let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
+    let mut encryption: KeyValueOptions = KeyValueOptions {
+        options: vec![],
+        delimiter: KeyValueOptionsDelimiter::Space,
+    };
+    let mut credentials: KeyValueOptions = KeyValueOptions {
+        options: vec![],
+        delimiter: KeyValueOptionsDelimiter::Space,
+    };
+
+    // URL
+    if parser.parse_keyword(Keyword::URL) {
+        parser.expect_token(&Token::Eq)?;
+        url = Some(match parser.next_token().token {
+            Token::SingleQuotedString(word) => Ok(word),
+            _ => parser.expected_ref("a URL statement", parser.peek_token_ref()),
+        }?)
+    }
+
+    // STORAGE INTEGRATION
+    if parser.parse_keyword(Keyword::STORAGE_INTEGRATION) {
+        parser.expect_token(&Token::Eq)?;
+        storage_integration = Some(parser.next_token().token.to_string());
+    }
+
+    // ENDPOINT
+    if parser.parse_keyword(Keyword::ENDPOINT) {
+        parser.expect_token(&Token::Eq)?;
+        endpoint = Some(match parser.next_token().token {
+            Token::SingleQuotedString(word) => Ok(word),
+            _ => parser.expected_ref("an endpoint statement", parser.peek_token_ref()),
+        }?)
+    }
+
+    // CREDENTIALS
+    if parser.parse_keyword(Keyword::CREDENTIALS) {
+        parser.expect_token(&Token::Eq)?;
+        credentials = KeyValueOptions {
+            options: parser.parse_key_value_options(true, &[], false)?.options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        };
+    }
+
+    // ENCRYPTION
+    if parser.parse_keyword(Keyword::ENCRYPTION) {
+        parser.expect_token(&Token::Eq)?;
+        encryption = KeyValueOptions {
+            options: parser.parse_key_value_options(true, &[], false)?.options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        };
+    }
+
+    Ok(StageParamsObject {
+        url,
+        encryption,
+        endpoint,
+        storage_integration,
+        credentials,
+    })
+}
+
+/// Parses options separated by blank spaces, commas, or new lines like:
+/// ABORT_DETACHED_QUERY = { TRUE | FALSE }
+///      [ ACTIVE_PYTHON_PROFILER = { 'LINE' | 'MEMORY' } ]
+///      [ BINARY_INPUT_FORMAT = '\<string\>' ]
+fn parse_session_options(
+    parser: &mut Parser,
+    set: bool,
+) -> Result<Vec<KeyValueOption>, ParserError> {
+    let mut options: Vec<KeyValueOption> = Vec::new();
+    let empty = String::new;
+    loop {
+        let peeked_token = parser.peek_token();
+        match peeked_token.token {
+            Token::SemiColon | Token::EOF => break,
+            Token::Comma => {
+                parser.advance_token();
+                continue;
+            }
+            Token::Word(key) => {
+                parser.advance_token();
+                if set {
+                    let option = parser.parse_key_value_option(&key, false)?;
+                    options.push(option);
+                } else {
+                    options.push(KeyValueOption {
+                        option_name: key.value,
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder(empty()).with_span(Span {
+                                start: peeked_token.span.end,
+                                end: peeked_token.span.end,
+                            }),
+                        ),
+                    });
+                }
+            }
+            _ => {
+                return parser.expected("another option or end of statement", peeked_token);
+            }
+        }
+    }
+    if options.is_empty() {
+        Err(ParserError::ParserError(
+            "expected at least one option".to_string(),
+        ))
+    } else {
+        Ok(options)
+    }
+}
+
+/// Parsing a property of identity or autoincrement column option
+/// Syntax:
+/// ```sql
+/// [ (seed , increment) | START num INCREMENT num ] [ ORDER | NOORDER ]
+/// ```
+/// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
+fn parse_identity_property(parser: &mut Parser) -> Result<IdentityProperty, ParserError> {
+    let parameters = if parser.consume_token(&Token::LParen) {
+        let seed = parser.parse_number()?;
+        parser.expect_token(&Token::Comma)?;
+        let increment = parser.parse_number()?;
+        parser.expect_token(&Token::RParen)?;
+
+        Some(IdentityPropertyFormatKind::FunctionCall(
+            IdentityParameters { seed, increment },
+        ))
+    } else if parser.parse_keyword(Keyword::START) {
+        let seed = parser.parse_number()?;
+        parser.expect_keyword_is(Keyword::INCREMENT)?;
+        let increment = parser.parse_number()?;
+
+        Some(IdentityPropertyFormatKind::StartAndIncrement(
+            IdentityParameters { seed, increment },
+        ))
+    } else {
+        None
+    };
+    let order = match parser.parse_one_of_keywords(&[Keyword::ORDER, Keyword::NOORDER]) {
+        Some(Keyword::ORDER) => Some(IdentityPropertyOrder::Order),
+        Some(Keyword::NOORDER) => Some(IdentityPropertyOrder::NoOrder),
+        _ => None,
+    };
+    Ok(IdentityProperty { parameters, order })
+}
+
+/// Parsing a policy property of column option
+/// Syntax:
+/// ```sql
+/// <policy_name> [ USING ( <col_name> , <cond_col1> , ... )
+/// ```
+/// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
+fn parse_column_policy_property(
+    parser: &mut Parser,
+    with: bool,
+) -> Result<ColumnPolicyProperty, ParserError> {
+    let policy_name = parser.parse_object_name(false)?;
+    let using_columns = if parser.parse_keyword(Keyword::USING) {
+        parser.expect_token(&Token::LParen)?;
+        let columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+        parser.expect_token(&Token::RParen)?;
+        Some(columns)
+    } else {
+        None
+    };
+
+    Ok(ColumnPolicyProperty {
+        with,
+        policy_name,
+        using_columns,
+    })
+}
+
+/// Parsing tags list of column
+/// Syntax:
+/// ```sql
+/// ( <tag_name> = '<tag_value>' [ , <tag_name> = '<tag_value>' , ... ] )
+/// ```
+/// [Snowflake]: https://docs.snowflake.com/en/sql-reference/sql/create-table
+fn parse_column_tags(parser: &mut Parser, with: bool) -> Result<TagsColumnOption, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+    parser.expect_token(&Token::RParen)?;
+
+    Ok(TagsColumnOption { with, tags })
+}
+
+/// Parse snowflake show objects.
+/// <https://docs.snowflake.com/en/sql-reference/sql/show-objects>
+fn parse_show_objects(
+    terse: bool,
+    dynamic: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowObjects(ShowObjects {
+        terse,
+        dynamic,
+        show_options,
+    }))
+}
+
+/// Parse multi-table INSERT statement.
+///
+/// Syntax:
+/// ```sql
+/// -- Unconditional multi-table insert
+/// INSERT [ OVERWRITE ] ALL
+///   intoClause [ ... ]
+/// <subquery>
+///
+/// -- Conditional multi-table insert
+/// INSERT [ OVERWRITE ] { FIRST | ALL }
+///   { WHEN <condition> THEN intoClause [ ... ] }
+///   [ ... ]
+///   [ ELSE intoClause ]
+/// <subquery>
+/// ```
+///
+/// See: <https://docs.snowflake.com/en/sql-reference/sql/insert-multi-table>
+fn parse_multi_table_insert(
+    parser: &mut Parser,
+    insert_token: TokenWithSpan,
+    overwrite: bool,
+    multi_table_insert_type: MultiTableInsertType,
+) -> Result<Statement, ParserError> {
+    // Check if this is conditional (has WHEN clauses) or unconditional (direct INTO clauses)
+    let is_conditional = parser.peek_keyword(Keyword::WHEN);
+
+    let (multi_table_into_clauses, multi_table_when_clauses, multi_table_else_clause) =
+        if is_conditional {
+            // Conditional multi-table insert: WHEN clauses
+            let (when_clauses, else_clause) = parse_multi_table_insert_when_clauses(parser)?;
+            (vec![], when_clauses, else_clause)
+        } else {
+            // Unconditional multi-table insert: direct INTO clauses
+            let into_clauses = parse_multi_table_insert_into_clauses(parser)?;
+            (into_clauses, vec![], None)
+        };
+
+    // Parse the source query
+    let source = parser.parse_query()?;
+
+    Ok(Statement::Insert(Insert {
+        insert_token: insert_token.into(),
+        optimizer_hints: vec![],
+        or: None,
+        ignore: false,
+        into: false,
+        table: TableObject::TableName(ObjectName(vec![])), // Not used for multi-table insert
+        table_alias: None,
+        columns: vec![],
+        overwrite,
+        source: Some(source),
+        assignments: vec![],
+        partitioned: None,
+        after_columns: vec![],
+        has_table_keyword: false,
+        on: None,
+        returning: None,
+        output: None,
+        replace_into: false,
+        priority: None,
+        insert_alias: None,
+        settings: None,
+        format_clause: None,
+        multi_table_insert_type: Some(multi_table_insert_type),
+        multi_table_into_clauses,
+        multi_table_when_clauses,
+        multi_table_else_clause,
+    }))
+}
+
+/// Parse one or more INTO clauses for multi-table INSERT.
+fn parse_multi_table_insert_into_clauses(
+    parser: &mut Parser,
+) -> Result<Vec<MultiTableInsertIntoClause>, ParserError> {
+    let mut into_clauses = vec![];
+    while parser.parse_keyword(Keyword::INTO) {
+        into_clauses.push(parse_multi_table_insert_into_clause(parser)?);
+    }
+    if into_clauses.is_empty() {
+        return parser.expected_ref("INTO clause in multi-table INSERT", parser.peek_token_ref());
+    }
+    Ok(into_clauses)
+}
+
+/// Parse a single INTO clause for multi-table INSERT.
+///
+/// Syntax: `INTO <table> [ ( <columns> ) ] [ VALUES ( <values> ) ]`
+fn parse_multi_table_insert_into_clause(
+    parser: &mut Parser,
+) -> Result<MultiTableInsertIntoClause, ParserError> {
+    let table_name = parser.parse_object_name(false)?;
+
+    // Parse optional column list: ( <column_name> [, ...] )
+    let columns = parser
+        .maybe_parse(|p| p.parse_parenthesized_column_list(IsOptional::Mandatory, false))?
+        .unwrap_or_default();
+
+    // Parse optional VALUES clause
+    let values = if parser.parse_keyword(Keyword::VALUES) {
+        parser.expect_token(&Token::LParen)?;
+        let values = parser.parse_comma_separated(parse_multi_table_insert_value)?;
+        parser.expect_token(&Token::RParen)?;
+        Some(MultiTableInsertValues { values })
+    } else {
+        None
+    };
+
+    Ok(MultiTableInsertIntoClause {
+        table_name,
+        columns,
+        values,
+    })
+}
+
+/// Parse a single value in a multi-table INSERT VALUES clause.
+fn parse_multi_table_insert_value(
+    parser: &mut Parser,
+) -> Result<MultiTableInsertValue, ParserError> {
+    if parser.parse_keyword(Keyword::DEFAULT) {
+        Ok(MultiTableInsertValue::Default)
+    } else {
+        Ok(MultiTableInsertValue::Expr(parser.parse_expr()?))
+    }
+}
+
+/// Parse WHEN clauses for conditional multi-table INSERT.
+fn parse_multi_table_insert_when_clauses(
+    parser: &mut Parser,
+) -> Result<
+    (
+        Vec<MultiTableInsertWhenClause>,
+        Option<Vec<MultiTableInsertIntoClause>>,
+    ),
+    ParserError,
+> {
+    let mut when_clauses = vec![];
+    let mut else_clause = None;
+
+    // Parse WHEN clauses
+    while parser.parse_keyword(Keyword::WHEN) {
+        let condition = parser.parse_expr()?;
+        parser.expect_keyword(Keyword::THEN)?;
+
+        // Parse INTO clauses for this WHEN
+        let into_clauses = parse_multi_table_insert_into_clauses(parser)?;
+
+        when_clauses.push(MultiTableInsertWhenClause {
+            condition,
+            into_clauses,
+        });
+    }
+
+    // Parse optional ELSE clause
+    if parser.parse_keyword(Keyword::ELSE) {
+        else_clause = Some(parse_multi_table_insert_into_clauses(parser)?);
+    }
+
+    if when_clauses.is_empty() {
+        return parser.expected_ref(
+            "at least one WHEN clause in conditional multi-table INSERT",
+            parser.peek_token_ref(),
+        );
+    }
+
+    Ok((when_clauses, else_clause))
+}
+
+/// Parse `CREATE [OR REPLACE] EXTERNAL VOLUME [IF NOT EXISTS] <name> ...`
+fn parse_create_external_volume(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    parser.expect_keyword(Keyword::STORAGE_LOCATIONS)?;
+    parser.expect_token(&Token::Eq)?;
+    parser.expect_token(&Token::LParen)?;
+
+    let mut storage_locations = vec![];
+    loop {
+        parser.expect_token(&Token::LParen)?;
+        storage_locations.push(parse_external_volume_storage_location(parser)?);
+        parser.expect_token(&Token::RParen)?;
+        if !parser.consume_token(&Token::Comma) {
+            break;
+        }
+    }
+    parser.expect_token(&Token::RParen)?;
+
+    let mut allow_writes = None;
+    let mut comment = None;
+
+    if parser.parse_keyword(Keyword::ALLOW_WRITES) {
+        parser.expect_token(&Token::Eq)?;
+        allow_writes = Some(parser.parse_keyword(Keyword::TRUE));
+        if !allow_writes.unwrap_or(false) {
+            parser.expect_keyword(Keyword::FALSE)?;
+        }
+    }
+
+    if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        comment = Some(parser.parse_comment_value()?);
+    }
+
+    Ok(Statement::CreateExternalVolume {
+        or_replace,
+        if_not_exists,
+        name,
+        storage_locations,
+        allow_writes,
+        comment,
+    })
+}
+
+/// Parse a single storage location: `NAME = '...' STORAGE_PROVIDER = '...' ...`
+///
+/// `NAME` and `STORAGE_PROVIDER` must appear first (in that order). After
+/// those two, `STORAGE_BASE_URL` (required) and the optional fields
+/// (`STORAGE_AWS_ROLE_ARN`, `STORAGE_AWS_EXTERNAL_ID`, `ENCRYPTION`) may
+/// appear in any order, separated by commas or whitespace. Real Snowflake
+/// accepts the flexible ordering — mirror that here so fixtures like
+/// `NAME = '…' STORAGE_PROVIDER = '…' STORAGE_AWS_ROLE_ARN = '…'
+///  STORAGE_BASE_URL = '…'` parse correctly.
+fn parse_external_volume_storage_location(
+    parser: &mut Parser,
+) -> Result<ExternalVolumeStorageLocation, ParserError> {
+    parser.expect_keyword(Keyword::NAME)?;
+    parser.expect_token(&Token::Eq)?;
+    let name = parser.parse_literal_string()?;
+
+    // separators may be commas or whitespace — consume optional comma
+    let _ = parser.consume_token(&Token::Comma);
+
+    parser.expect_keyword(Keyword::STORAGE_PROVIDER)?;
+    parser.expect_token(&Token::Eq)?;
+    let storage_provider = parser.parse_literal_string()?;
+
+    let mut storage_base_url: Option<String> = None;
+    let mut storage_aws_role_arn = None;
+    let mut storage_aws_external_id = None;
+    let mut encryption = None;
+
+    // Parse the remaining fields (STORAGE_BASE_URL + optionals) in any order
+    // (comma-or-whitespace separated). Duplicates are rejected.
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if parser.parse_keyword(Keyword::STORAGE_BASE_URL) {
+            if storage_base_url.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate STORAGE_BASE_URL in STORAGE_LOCATION".to_string(),
+                ));
+            }
+            parser.expect_token(&Token::Eq)?;
+            storage_base_url = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::STORAGE_AWS_ROLE_ARN) {
+            if storage_aws_role_arn.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate STORAGE_AWS_ROLE_ARN in STORAGE_LOCATION".to_string(),
+                ));
+            }
+            parser.expect_token(&Token::Eq)?;
+            storage_aws_role_arn = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::STORAGE_AWS_EXTERNAL_ID) {
+            if storage_aws_external_id.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate STORAGE_AWS_EXTERNAL_ID in STORAGE_LOCATION".to_string(),
+                ));
+            }
+            parser.expect_token(&Token::Eq)?;
+            storage_aws_external_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::ENCRYPTION) {
+            if encryption.is_some() {
+                return Err(ParserError::ParserError(
+                    "duplicate ENCRYPTION in STORAGE_LOCATION".to_string(),
+                ));
+            }
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            encryption = Some(parse_external_volume_encryption(parser)?);
+            parser.expect_token(&Token::RParen)?;
+        } else {
+            break;
+        }
+    }
+
+    let storage_base_url = storage_base_url.ok_or_else(|| {
+        ParserError::ParserError("STORAGE_BASE_URL is required in STORAGE_LOCATION".to_string())
+    })?;
+
+    Ok(ExternalVolumeStorageLocation {
+        name,
+        storage_provider,
+        storage_base_url,
+        storage_aws_role_arn,
+        storage_aws_external_id,
+        encryption,
+    })
+}
+
+/// Parse encryption options: `TYPE = '...' [KMS_KEY_ID = '...']`
+fn parse_external_volume_encryption(
+    parser: &mut Parser,
+) -> Result<ExternalVolumeEncryption, ParserError> {
+    parser.expect_keyword(Keyword::TYPE)?;
+    parser.expect_token(&Token::Eq)?;
+    let kind = parser.parse_literal_string()?;
+
+    let mut kms_key_id = None;
+    if parser.parse_keyword(Keyword::KMS_KEY_ID) {
+        parser.expect_token(&Token::Eq)?;
+        kms_key_id = Some(parser.parse_literal_string()?);
+    }
+
+    Ok(ExternalVolumeEncryption { kind, kms_key_id })
+}
+
+/// Parse `ALTER EXTERNAL VOLUME [IF EXISTS] <name> ...`
+fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let operation = if parser.parse_keyword(Keyword::ADD) {
+        parser.expect_keyword(Keyword::STORAGE_LOCATION)?;
+        parser.expect_token(&Token::Eq)?;
+        parser.expect_token(&Token::LParen)?;
+        let loc = parse_external_volume_storage_location(parser)?;
+        parser.expect_token(&Token::RParen)?;
+        AlterExternalVolumeOperation::AddStorageLocation(loc)
+    } else if parser.parse_keyword(Keyword::SET) {
+        parser.expect_keyword(Keyword::ALLOW_WRITES)?;
+        parser.expect_token(&Token::Eq)?;
+        if parser.parse_keyword(Keyword::TRUE) {
+            AlterExternalVolumeOperation::SetAllowWrites(true)
+        } else {
+            parser.expect_keyword(Keyword::FALSE)?;
+            AlterExternalVolumeOperation::SetAllowWrites(false)
+        }
+    } else if parser.parse_keyword(Keyword::REMOVE) {
+        parser.expect_keyword(Keyword::STORAGE_LOCATION)?;
+        let loc_name = parser.parse_literal_string()?;
+        AlterExternalVolumeOperation::RemoveStorageLocation(loc_name)
+    } else {
+        return parser.expected(
+            "ADD, SET, or REMOVE after ALTER EXTERNAL VOLUME <name>",
+            parser.peek_token(),
+        );
+    };
+
+    Ok(Statement::AlterExternalVolume {
+        name,
+        if_exists,
+        operation,
+    })
+}
+
+/// Parse `DROP EXTERNAL VOLUME [IF EXISTS] <name>`
+fn parse_drop_external_volume(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropExternalVolume { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] EXTERNAL VOLUME <name>`
+fn parse_describe_external_volume(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeExternalVolume { name })
+}
+
+/// Parse `SHOW EXTERNAL VOLUMES [LIKE '<pattern>']`
+fn parse_show_external_volumes(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowExternalVolumes { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT [IF NOT EXISTS] <name> ...`
+fn parse_create_file_format(
+    or_replace: bool,
+    temporary: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut format_type = None;
+    let mut like_source = None;
+
+    if parser.parse_keyword(Keyword::LIKE) {
+        like_source = Some(parser.parse_object_name(false)?);
+    } else if parser.parse_keyword(Keyword::TYPE) {
+        parser.expect_token(&Token::Eq)?;
+        // A bind placeholder is accepted here so the statement parses; real
+        // Snowflake rejects it downstream as an invalid type. A genuine bind
+        // marker is an unquoted `Ident` whose value is the marker text, which
+        // no literal unquoted type identifier can be.
+        format_type = Some(match parser.peek_token().token {
+            Token::Placeholder(s) => {
+                parser.next_token();
+                Ident::new(s)
+            }
+            _ => parser.parse_identifier()?,
+        });
+    }
+
+    // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
+    if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon)
+    {
+        return parser.expected(
+            "end of statement after CREATE FILE FORMAT ... LIKE",
+            parser.peek_token(),
+        );
+    }
+
+    // `COMMENT` may appear anywhere among the options (Snowflake accepts any
+    // order, like CREATE TABLE / CREATE DATABASE), so it is parsed in the same
+    // loop rather than only as a trailing clause. It is hoisted into its own
+    // AST field; the remaining key-value options stay in `options`.
+    let mut comment = None;
+    let mut option_list: Vec<KeyValueOption> = Vec::new();
+    let mut delimiter = KeyValueOptionsDelimiter::Space;
+    if like_source.is_none() {
+        loop {
+            if parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_comment_value()?);
+                continue;
+            }
+            if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+                break;
+            }
+            let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
+            if parsed.options.is_empty() {
+                break;
+            }
+            if parsed.delimiter == KeyValueOptionsDelimiter::Comma {
+                delimiter = KeyValueOptionsDelimiter::Comma;
+            }
+            option_list.extend(parsed.options);
+        }
+    }
+    let options = KeyValueOptions {
+        options: option_list,
+        delimiter,
+    };
+
+    Ok(Statement::CreateFileFormat {
+        or_replace,
+        temporary,
+        if_not_exists,
+        name,
+        format_type,
+        options,
+        like_source,
+        comment,
+    })
+}
+
+/// Parse `ALTER FILE FORMAT [IF EXISTS] <name> ...`
+fn parse_alter_file_format(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterFileFormatOperation::RenameTo(parser.parse_object_name(false)?)
+    } else if parser.parse_keyword(Keyword::SET) {
+        let options = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
+        let comment = if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            Some(parser.parse_comment_value()?)
+        } else {
+            None
+        };
+        if options.options.is_empty() && comment.is_none() {
+            return parser.expected(
+                "at least one option after ALTER FILE FORMAT <name> SET",
+                parser.peek_token(),
+            );
+        }
+        AlterFileFormatOperation::Set { options, comment }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        let mut options = vec![];
+        let mut unset_comment = false;
+        loop {
+            if parser.parse_keyword(Keyword::COMMENT) {
+                unset_comment = true;
+            } else {
+                options.push(parser.parse_identifier()?);
+            }
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+        if options.is_empty() && !unset_comment {
+            return parser.expected(
+                "at least one option after ALTER FILE FORMAT <name> UNSET",
+                parser.peek_token(),
+            );
+        }
+        AlterFileFormatOperation::Unset {
+            options,
+            unset_comment,
+        }
+    } else {
+        return parser.expected(
+            "RENAME TO, SET, or UNSET after ALTER FILE FORMAT <name>",
+            parser.peek_token(),
+        );
+    };
+
+    Ok(Statement::AlterFileFormat {
+        name,
+        if_exists,
+        operation,
+    })
+}
+
+/// Parse `DROP FILE FORMAT [IF EXISTS] <name>`
+fn parse_drop_file_format(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropFileFormat { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] FILE FORMAT <name>`
+fn parse_describe_file_format(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeFileFormat { name })
+}
+
+/// Parse `SHOW [TERSE] FILE FORMATS [ ... ]`
+fn parse_show_file_formats(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowFileFormats {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] STAGES [ ... ]`
+fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowStages {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `CREATE [OR REPLACE] TAG [IF NOT EXISTS] <name>
+///   [ ALLOWED_VALUES '<val>' [ , ... ] ] [ COMMENT = '<comment>' ]`
+fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut allowed_values = Vec::new();
+    if parser.parse_keyword(Keyword::ALLOWED_VALUES) {
+        loop {
+            allowed_values.push(parser.parse_literal_string()?);
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+    }
+
+    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_comment_value()?)
+    } else {
+        None
+    };
+
+    Ok(Statement::CreateTag {
+        or_replace,
+        if_not_exists,
+        name,
+        allowed_values,
+        comment,
+    })
+}
+
+/// Parse a comma-separated list of `MASKING POLICY <name>` items, where the
+/// `MASKING POLICY` keywords are repeated before each policy name.
+fn parse_masking_policy_list(parser: &mut Parser) -> Result<Vec<ObjectName>, ParserError> {
+    let mut policies = Vec::new();
+    loop {
+        parser.expect_keywords(&[Keyword::MASKING, Keyword::POLICY])?;
+        policies.push(parser.parse_object_name(false)?);
+        if !parser.consume_token(&Token::Comma) {
+            break;
+        }
+    }
+    Ok(policies)
+}
+
+/// Parse `ALTER TAG [IF EXISTS] <name> { RENAME TO <new_name>
+///   | SET MASKING POLICY <p> [, MASKING POLICY <p> ...] [FORCE]
+///   | UNSET MASKING POLICY <p> [, MASKING POLICY <p> ...] }`
+fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let policies = parse_masking_policy_list(parser)?;
+        let force = parser.parse_keyword(Keyword::FORCE);
+        AlterTagOperation::SetMaskingPolicy { policies, force }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        let policies = parse_masking_policy_list(parser)?;
+        AlterTagOperation::UnsetMaskingPolicy { policies }
+    } else {
+        parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterTagOperation::RenameTo { new_name }
+    };
+    Ok(Statement::AlterTag {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP TAG [IF EXISTS] <name>`
+fn parse_drop_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropTag { name, if_exists })
+}
+
+/// Parse the tail of `ALTER <object_type> <name> { SET TAG <t> = '<v>' [, ...]
+/// | UNSET TAG <t> [, ...] }` after the object-type keyword has been consumed.
+fn parse_alter_object_set_tags(
+    parser: &mut Parser,
+    object_type: ObjectType,
+) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let object_name = parser.parse_object_name(false)?;
+    let unset = matches!(
+        parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])?,
+        Keyword::UNSET
+    );
+    parser.expect_keyword(Keyword::TAG)?;
+
+    let mut set_tags = Vec::new();
+    let mut unset_tags = Vec::new();
+    if unset {
+        loop {
+            unset_tags.push(parser.parse_object_name(false)?);
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+    } else {
+        loop {
+            let key = parser.parse_object_name(false)?;
+            parser.expect_token(&Token::Eq)?;
+            let value = parser.parse_literal_string()?;
+            set_tags.push(Tag::new(key, value));
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+    }
+
+    Ok(Statement::SetTags {
+        object_type,
+        object_name,
+        if_exists,
+        unset,
+        set_tags,
+        unset_tags,
+    })
+}
+
+/// Parse `SHOW [TERSE] TAGS [ ... ]`
+fn parse_show_tags(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowTags {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] SEQUENCES [ ... ]`
+fn parse_show_sequences(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowSequences {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] { PRIMARY | IMPORTED | EXPORTED } KEYS [ ... ]`
+fn parse_show_keys(
+    kind: ShowKeysKind,
+    terse: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::KEYS)?;
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowKeys {
+        kind,
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `DESC[RIBE] WAREHOUSE <name>`
+fn parse_describe_warehouse(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeWarehouse { name })
+}
+
+/// Parse `CREATE [OR REPLACE] ROW ACCESS POLICY [IF NOT EXISTS] <name>
+///   AS (<arg> <type>[, ...]) RETURNS <type> -> <body>`
+fn parse_create_row_access_policy(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    parser.expect_token(&Token::LParen)?;
+    let args = parser.parse_comma_separated(|p| {
+        let arg_name = p.parse_identifier()?;
+        let data_type = p.parse_data_type()?;
+        Ok(OperateFunctionArg {
+            mode: None,
+            name: Some(arg_name),
+            data_type,
+            default_expr: None,
+        })
+    })?;
+    parser.expect_token(&Token::RParen)?;
+    parser.expect_keyword_is(Keyword::RETURNS)?;
+    let return_type = parser.parse_data_type()?;
+    parser.expect_token(&Token::Arrow)?;
+    let policy_expr = parser.parse_expr()?;
+    Ok(Statement::CreateRowAccessPolicy {
+        or_replace,
+        if_not_exists,
+        name,
+        args,
+        return_type,
+        policy_expr,
+    })
+}
+
+/// Parse `ALTER ROW ACCESS POLICY [IF EXISTS] <name> RENAME TO <new_name>`
+fn parse_alter_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+    let new_name = parser.parse_object_name(false)?;
+    Ok(Statement::AlterRowAccessPolicy {
+        if_exists,
+        name,
+        new_name,
+    })
+}
+
+/// Parse `DROP ROW ACCESS POLICY [IF EXISTS] <name>`
+fn parse_drop_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropRowAccessPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] ROW ACCESS POLICY <name>`
+fn parse_describe_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeRowAccessPolicy { name })
+}
+
+/// Parse `SHOW ROW ACCESS POLICIES [LIKE '<pattern>']`
+fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowRowAccessPolicies { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] MASKING POLICY [IF NOT EXISTS] <name>
+///   AS (<arg> <type>[, ...]) RETURNS <type> -> <body> [COMMENT = '<comment>']`
+fn parse_create_masking_policy(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword_is(Keyword::AS)?;
+    parser.expect_token(&Token::LParen)?;
+    let args = parser.parse_comma_separated(|p| {
+        let arg_name = p.parse_identifier()?;
+        let data_type = p.parse_data_type()?;
+        Ok(OperateFunctionArg {
+            mode: None,
+            name: Some(arg_name),
+            data_type,
+            default_expr: None,
+        })
+    })?;
+    parser.expect_token(&Token::RParen)?;
+    parser.expect_keyword_is(Keyword::RETURNS)?;
+    let return_type = parser.parse_data_type()?;
+    parser.expect_token(&Token::Arrow)?;
+    let policy_expr = parser.parse_expr()?;
+    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_comment_value()?)
+    } else {
+        None
+    };
+    Ok(Statement::CreateMaskingPolicy {
+        or_replace,
+        if_not_exists,
+        name,
+        args,
+        return_type,
+        policy_expr,
+        comment,
+    })
+}
+
+/// Parse `ALTER MASKING POLICY [IF EXISTS] <name>
+///   { SET BODY -> <expr> | RENAME TO <name> | SET COMMENT = '<comment>' | UNSET COMMENT }`
+fn parse_alter_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::BODY]) {
+        parser.expect_token(&Token::Arrow)?;
+        AlterMaskingPolicyOperation::SetBody {
+            body: parser.parse_expr()?,
+        }
+    } else if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterMaskingPolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
+        parser.expect_token(&Token::Eq)?;
+        AlterMaskingPolicyOperation::SetComment {
+            comment: parser.parse_comment_value()?,
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterMaskingPolicyOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "SET BODY, RENAME TO, SET COMMENT, or UNSET COMMENT",
+            parser.peek_token_ref(),
+        );
+    };
+    Ok(Statement::AlterMaskingPolicy {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP MASKING POLICY [IF EXISTS] <name>`
+fn parse_drop_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropMaskingPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] MASKING POLICY <name>`
+fn parse_describe_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeMaskingPolicy { name })
+}
+
+/// Parse `SHOW MASKING POLICIES [LIKE '<pattern>'] [IN <scope>]`
+fn parse_show_masking_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowMaskingPolicies { show_options })
+}
+
+/// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when
+/// it is next, returning whether it was present.
+fn parse_value_list_keyword(parser: &mut Parser) -> bool {
+    if let Token::Word(w) = &parser.peek_token_ref().token {
+        if w.value.eq_ignore_ascii_case("VALUE_LIST") {
+            parser.advance_token();
+            return true;
+        }
+    }
+    false
+}
+
+/// Parse `( '<v>' [, ...] )` — the value list of a network rule. An empty
+/// `()` yields an empty vector.
+fn parse_network_rule_value_list(parser: &mut Parser) -> Result<Vec<String>, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    if parser.consume_token(&Token::RParen) {
+        return Ok(vec![]);
+    }
+    let values = parser.parse_comma_separated(|p| p.parse_literal_string())?;
+    parser.expect_token(&Token::RParen)?;
+    Ok(values)
+}
+
+/// Parse `CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
+///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
+///   [ COMMENT = '<comment>' ]`. The property clauses may appear in any order.
+fn parse_create_network_rule(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let mut rule_type = None;
+    let mut mode = None;
+    let mut value_list = None;
+    let mut comment = None;
+    loop {
+        if rule_type.is_none() && parser.parse_keyword(Keyword::TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            rule_type = Some(parser.parse_identifier()?);
+        } else if mode.is_none() && parser.parse_keyword(Keyword::MODE) {
+            parser.expect_token(&Token::Eq)?;
+            mode = Some(parser.parse_identifier()?);
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else if value_list.is_none() && parse_value_list_keyword(parser) {
+            parser.expect_token(&Token::Eq)?;
+            value_list = Some(parse_network_rule_value_list(parser)?);
+        } else {
+            break;
+        }
+    }
+    Ok(Statement::CreateNetworkRule {
+        or_replace,
+        if_not_exists,
+        name,
+        rule_type,
+        mode,
+        value_list,
+        comment,
+    })
+}
+
+/// Parse `ALTER NETWORK RULE [IF EXISTS] <name>
+///   { SET [ VALUE_LIST = ( ... ) ] [ COMMENT = '...' ] | UNSET COMMENT }`
+fn parse_alter_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let mut value_list = None;
+        let mut comment = None;
+        loop {
+            if value_list.is_none() && parse_value_list_keyword(parser) {
+                parser.expect_token(&Token::Eq)?;
+                value_list = Some(parse_network_rule_value_list(parser)?);
+            } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_comment_value()?);
+            } else {
+                break;
+            }
+        }
+        if value_list.is_none() && comment.is_none() {
+            return parser.expected_ref("VALUE_LIST or COMMENT", parser.peek_token_ref());
+        }
+        AlterNetworkRuleOperation::Set {
+            value_list,
+            comment,
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterNetworkRuleOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "SET VALUE_LIST/COMMENT or UNSET COMMENT",
+            parser.peek_token_ref(),
+        );
+    };
+    Ok(Statement::AlterNetworkRule {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP NETWORK RULE [IF EXISTS] <name>`
+fn parse_drop_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropNetworkRule { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] NETWORK RULE <name>`
+fn parse_describe_network_rule(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeNetworkRule { name })
+}
+
+/// Parse `SHOW NETWORK RULES [LIKE '<pattern>'] [IN <scope>] [STARTS WITH ...] [LIMIT ...]`
+fn parse_show_network_rules(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowNetworkRules { show_options })
+}
+
+/// Parse `CREATE [OR REPLACE] SECRET [IF NOT EXISTS] <name> <options>`.
+///
+/// Options (`TYPE`, `USERNAME`, `SECRET_STRING`, `PASSWORD`,
+/// `API_AUTHENTICATION`, `OAUTH_SCOPES`, `OAUTH_REFRESH_TOKEN`,
+/// `ALGORITHM`, `COMMENT`, …) are captured generically as key-value options,
+/// so the parser stays agnostic to the per-type property set.
+fn parse_create_secret(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateSnowflakeSecret {
+        or_replace,
+        if_not_exists,
+        name,
+        options,
+    })
+}
+
+/// Parse `ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }`.
+fn parse_alter_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let options = parser.parse_key_value_options(false, &[], false)?;
+        if options.options.is_empty() {
+            return parser.expected_ref("at least one option to SET", parser.peek_token_ref());
+        }
+        AlterSnowflakeSecretOperation::Set(options)
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterSnowflakeSecretOperation::UnsetComment
+    } else {
+        return parser.expected_ref("SET <options> or UNSET COMMENT", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterSnowflakeSecret {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP SECRET [IF EXISTS] <name>`.
+fn parse_drop_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSnowflakeSecret { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] SECRET <name>`.
+fn parse_describe_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSnowflakeSecret { name })
+}
+
+/// Parse `SHOW SECRETS [LIKE '<pattern>'] [IN <scope>] [STARTS WITH ...] [LIMIT ...]`.
+fn parse_show_secrets(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowSnowflakeSecrets { show_options })
+}
+
+/// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`
+fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowProcedures { show_options })
+}
+
+/// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`
+fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowWarehouses { filter })
+}
+
+/// Parse `SHOW CONNECTIONS [LIKE '<pattern>']`
+fn parse_show_connections(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowConnections { filter })
+}
+
+/// Parse `SHOW SHARES [LIKE '<pattern>']`
+fn parse_show_shares(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowShares { filter })
+}
+
+/// Parse `SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']`
+fn parse_show_accounts(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let history = parser.parse_keyword(Keyword::HISTORY);
+    let like = if parser.parse_keyword(Keyword::LIKE) {
+        Some(parser.parse_literal_string()?)
+    } else {
+        None
+    };
+    Ok(Statement::ShowAccounts { history, like })
+}
+
+/// Parse `CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...`
+fn parse_create_catalog_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    // Option order is flexible — accumulate each possibility in a loop.
+    let mut catalog_source: Option<CatalogSource> = None;
+    let mut table_format: Option<CatalogTableFormat> = None;
+    let mut catalog_namespace: Option<String> = None;
+    let mut rest_config: Option<CatalogRestConfig> = None;
+    let mut rest_authentication: Option<CatalogRestAuthentication> = None;
+    let mut enabled: Option<bool> = None;
+    let mut refresh_interval_seconds: Option<u64> = None;
+    let mut comment: Option<String> = None;
+
+    loop {
+        if parser.parse_keyword(Keyword::CATALOG_SOURCE) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_source = Some(parse_catalog_source(parser)?);
+        } else if parser.parse_keyword(Keyword::TABLE_FORMAT) {
+            parser.expect_token(&Token::Eq)?;
+            table_format = Some(parse_catalog_table_format(parser)?);
+        } else if parser.parse_keyword(Keyword::CATALOG_NAMESPACE) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_namespace = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::REST_CONFIG) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            rest_config = Some(parse_catalog_rest_config(parser)?);
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::REST_AUTHENTICATION) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            rest_authentication = Some(parse_catalog_rest_authentication(parser)?);
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::ENABLED) {
+            parser.expect_token(&Token::Eq)?;
+            enabled = Some(parse_bool_literal(parser)?);
+        } else if parser.parse_keyword(Keyword::REFRESH_INTERVAL_SECONDS) {
+            parser.expect_token(&Token::Eq)?;
+            refresh_interval_seconds = Some(parser.parse_literal_uint()?);
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else {
+            break;
+        }
+    }
+
+    let catalog_source = catalog_source.ok_or_else(|| {
+        ParserError::ParserError("CATALOG_SOURCE is required in CREATE CATALOG INTEGRATION".into())
+    })?;
+    let table_format = table_format.ok_or_else(|| {
+        ParserError::ParserError("TABLE_FORMAT is required in CREATE CATALOG INTEGRATION".into())
+    })?;
+    let enabled = enabled.ok_or_else(|| {
+        ParserError::ParserError("ENABLED is required in CREATE CATALOG INTEGRATION".into())
+    })?;
+
+    Ok(Statement::CreateCatalogIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        catalog_source,
+        table_format,
+        catalog_namespace,
+        rest_config,
+        rest_authentication,
+        enabled,
+        refresh_interval_seconds,
+        comment,
+    })
+}
+
+/// Parse a `CATALOG_SOURCE` identifier. Known values map to enum variants;
+/// unknown identifiers are kept as-is to stay forward-compatible.
+fn parse_catalog_source(parser: &mut Parser) -> Result<CatalogSource, ParserError> {
+    let ident = parser.parse_identifier()?;
+    let upper = ident.value.to_uppercase();
+    Ok(match upper.as_str() {
+        "ICEBERG_REST" => CatalogSource::IcebergRest,
+        "SNOWFLAKE" => CatalogSource::Snowflake,
+        "GLUE" => CatalogSource::Glue,
+        "POLARIS" => CatalogSource::Polaris,
+        _ => CatalogSource::Other(ident.value),
+    })
+}
+
+/// Parse a `TABLE_FORMAT` identifier. Only `ICEBERG` is currently supported.
+fn parse_catalog_table_format(parser: &mut Parser) -> Result<CatalogTableFormat, ParserError> {
+    let ident = parser.parse_identifier()?;
+    if ident.value.eq_ignore_ascii_case("ICEBERG") {
+        Ok(CatalogTableFormat::Iceberg)
+    } else {
+        parser.expected("ICEBERG", parser.peek_token())
+    }
+}
+
+/// Parse the body of `REST_CONFIG = ( … )`.
+fn parse_catalog_rest_config(parser: &mut Parser) -> Result<CatalogRestConfig, ParserError> {
+    let mut catalog_uri: Option<String> = None;
+    let mut catalog_name: Option<String> = None;
+    let mut catalog_api_type: Option<String> = None;
+    let mut warehouse: Option<String> = None;
+    let mut access_delegation_mode: Option<String> = None;
+
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if parser.parse_keyword(Keyword::CATALOG_URI) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_uri = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::CATALOG_NAME) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_name = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::CATALOG_API_TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            catalog_api_type = Some(parser.parse_identifier()?.value);
+        } else if parser.parse_keyword(Keyword::WAREHOUSE) {
+            parser.expect_token(&Token::Eq)?;
+            warehouse = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::ACCESS_DELEGATION_MODE) {
+            parser.expect_token(&Token::Eq)?;
+            access_delegation_mode = Some(parser.parse_identifier()?.value);
+        } else {
+            break;
+        }
+    }
+
+    let catalog_uri = catalog_uri
+        .ok_or_else(|| ParserError::ParserError("CATALOG_URI is required in REST_CONFIG".into()))?;
+
+    Ok(CatalogRestConfig {
+        catalog_uri,
+        catalog_name,
+        catalog_api_type,
+        warehouse,
+        access_delegation_mode,
+    })
+}
+
+/// Parse one `OAUTH_ALLOWED_SCOPES` value. Snowflake accepts unquoted scopes
+/// that embed a colon (e.g. `PRINCIPAL_ROLE:ALL`); the tokenizer splits those
+/// across `:`, so reassemble the colon-joined segments into one scope string.
+fn parse_oauth_scope(parser: &mut Parser) -> Result<String, ParserError> {
+    let mut scope = parse_oauth_scope_segment(parser)?;
+    while parser.consume_token(&Token::Colon) {
+        scope.push(':');
+        scope.push_str(&parse_oauth_scope_segment(parser)?);
+    }
+    Ok(scope)
+}
+
+/// A single segment of an OAuth scope: a bare word (keyword or not) or a
+/// quoted string.
+fn parse_oauth_scope_segment(parser: &mut Parser) -> Result<String, ParserError> {
+    let token = parser.next_token();
+    match token.token {
+        Token::Word(w) => Ok(w.value),
+        Token::SingleQuotedString(s) | Token::DoubleQuotedString(s) => Ok(s),
+        _ => parser.expected("OAUTH scope", token),
+    }
+}
+
+/// Parse the body of `REST_AUTHENTICATION = ( … )`.
+fn parse_catalog_rest_authentication(
+    parser: &mut Parser,
+) -> Result<CatalogRestAuthentication, ParserError> {
+    let mut auth_type: Option<String> = None;
+    let mut oauth_client_id: Option<String> = None;
+    let mut oauth_client_secret: Option<String> = None;
+    let mut oauth_allowed_scopes: Vec<String> = vec![];
+    let mut aws_access_key_id: Option<String> = None;
+    let mut aws_secret_access_key: Option<String> = None;
+    let mut aws_region: Option<String> = None;
+    let mut aws_service: Option<String> = None;
+
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        if parser.parse_keyword(Keyword::TYPE) {
+            parser.expect_token(&Token::Eq)?;
+            auth_type = Some(parser.parse_identifier()?.value);
+        } else if parser.parse_keyword(Keyword::OAUTH_CLIENT_ID) {
+            parser.expect_token(&Token::Eq)?;
+            oauth_client_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::OAUTH_CLIENT_SECRET) {
+            parser.expect_token(&Token::Eq)?;
+            oauth_client_secret = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::OAUTH_ALLOWED_SCOPES) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            loop {
+                oauth_allowed_scopes.push(parse_oauth_scope(parser)?);
+                if !parser.consume_token(&Token::Comma) {
+                    break;
+                }
+            }
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::AWS_ACCESS_KEY_ID) {
+            parser.expect_token(&Token::Eq)?;
+            aws_access_key_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_SECRET_ACCESS_KEY) {
+            parser.expect_token(&Token::Eq)?;
+            aws_secret_access_key = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_REGION) {
+            parser.expect_token(&Token::Eq)?;
+            aws_region = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_SERVICE) {
+            parser.expect_token(&Token::Eq)?;
+            aws_service = Some(parser.parse_literal_string()?);
+        } else {
+            break;
+        }
+    }
+
+    let auth_type = auth_type.ok_or_else(|| {
+        ParserError::ParserError("TYPE is required in REST_AUTHENTICATION".into())
+    })?;
+
+    Ok(CatalogRestAuthentication {
+        auth_type,
+        oauth_client_id,
+        oauth_client_secret,
+        oauth_allowed_scopes,
+        aws_access_key_id,
+        aws_secret_access_key,
+        aws_region,
+        aws_service,
+    })
+}
+
+/// Parse `TRUE` or `FALSE`.
+fn parse_bool_literal(parser: &mut Parser) -> Result<bool, ParserError> {
+    if parser.parse_keyword(Keyword::TRUE) {
+        Ok(true)
+    } else if parser.parse_keyword(Keyword::FALSE) {
+        Ok(false)
+    } else {
+        parser.expected("TRUE or FALSE", parser.peek_token())
+    }
+}
+
+/// Parse `DROP CATALOG INTEGRATION [IF EXISTS] <name>`
+fn parse_drop_catalog_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropCatalogIntegration { name, if_exists })
+}
+
+/// Parse `SHOW CATALOG INTEGRATIONS [LIKE '<pattern>']`
+fn parse_show_catalog_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowCatalogIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] STORAGE INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`TYPE`, `ENABLED`, `STORAGE_PROVIDER`, `STORAGE_AWS_ROLE_ARN`,
+/// `STORAGE_ALLOWED_LOCATIONS`, `STORAGE_BLOCKED_LOCATIONS`, `COMMENT`, plus
+/// GCS/Azure provider variants) are captured generically as key-value options,
+/// so the parser stays agnostic to the provider-specific property set.
+fn parse_create_storage_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateStorageIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER STORAGE INTEGRATION [IF EXISTS] <name> SET <params>`.
+///
+/// Only the `SET` form is modeled; the emulator consumes it in a follow-up
+/// task. The `SET` options are captured generically as key-value options.
+fn parse_alter_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterStorageIntegration {
+        name,
+        if_exists,
+        set_options,
+    })
+}
+
+/// Parse `DROP STORAGE INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropStorageIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] STORAGE INTEGRATION <name>`.
+fn parse_describe_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeStorageIntegration { name })
+}
+
+/// Parse `SHOW STORAGE INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_storage_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowStorageIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] API INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`API_PROVIDER`, `API_AWS_ROLE_ARN`, `API_ALLOWED_PREFIXES`,
+/// `ENABLED`, plus azure/google/git provider variants) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// provider-specific property set.
+fn parse_create_api_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateApiIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER API INTEGRATION [IF EXISTS] <name> { SET <params> | UNSET <props> }`.
+///
+/// `SET` options are captured generically as key-value options; `UNSET` takes a
+/// comma-separated list of property names.
+fn parse_alter_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    if parser.parse_keyword(Keyword::UNSET) {
+        let unset_options = parser.parse_comma_separated(|p| p.parse_identifier())?;
+        return Ok(Statement::AlterApiIntegration {
+            name,
+            if_exists,
+            set_options: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+            unset_options,
+        });
+    }
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterApiIntegration {
+        name,
+        if_exists,
+        set_options,
+        unset_options: vec![],
+    })
+}
+
+/// Parse `DROP API INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropApiIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] API INTEGRATION <name>`.
+fn parse_describe_api_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeApiIntegration { name })
+}
+
+/// Parse `SHOW API INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_api_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowApiIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] SECURITY INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`TYPE`, `ENABLED`, and the per-type property set) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// type-specific property set.
+fn parse_create_security_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateSecurityIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET <params>`.
+///
+/// Only the `SET` form is modeled; the `SET` options are captured generically
+/// as key-value options.
+fn parse_alter_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterSecurityIntegration {
+        name,
+        if_exists,
+        set_options,
+    })
+}
+
+/// Parse `DROP SECURITY INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSecurityIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] SECURITY INTEGRATION <name>`.
+fn parse_describe_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSecurityIntegration { name })
+}
+
+/// Parse `SHOW SECURITY INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_security_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowSecurityIntegrations { filter })
+}
+
+/// Parse `DESC[RIBE] INTEGRATION <name>` (family-agnostic).
+fn parse_describe_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeIntegration { name })
+}
+
+/// Parse `SHOW INTEGRATIONS [LIKE '<pattern>']` (family-agnostic).
+fn parse_show_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowIntegrations { filter })
+}

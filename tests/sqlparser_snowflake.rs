@@ -1,0 +1,9740 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#![warn(clippy::all)]
+//! Test SQL syntax specific to Snowflake. The parser based on the
+//! generic dialect is also tested (on the inputs it can handle).
+
+use sqlparser::ast::helpers::key_value_options::{KeyValueOption, KeyValueOptionKind};
+use sqlparser::ast::helpers::stmt_data_loading::{StageLoadSelectItem, StageLoadSelectItemKind};
+use sqlparser::ast::*;
+use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
+use sqlparser::parser::{Parser, ParserError, ParserOptions};
+use sqlparser::tokenizer::*;
+use test_utils::*;
+
+#[macro_use]
+mod test_utils;
+
+#[cfg(test)]
+use pretty_assertions::assert_eq;
+
+#[test]
+fn test_snowflake_create_table() {
+    let sql = "CREATE TABLE _my_$table (am00unt number)";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable { name, .. }) => {
+            assert_eq!("_my_$table", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_create_secure_view_and_materialized_view() {
+    for sql in [
+        "CREATE SECURE VIEW v AS SELECT 1",
+        "CREATE SECURE MATERIALIZED VIEW v AS SELECT 1",
+        "CREATE OR REPLACE SECURE VIEW v AS SELECT 1",
+        "CREATE OR REPLACE SECURE MATERIALIZED VIEW v AS SELECT 1",
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateView(CreateView {
+                secure,
+                materialized,
+                ..
+            }) => {
+                assert!(secure);
+                if sql.contains("MATERIALIZED") {
+                    assert!(materialized);
+                } else {
+                    assert!(!materialized);
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+}
+
+#[test]
+fn parse_sf_create_stream_on_table_and_view() {
+    for (sql, expected_kind) in [
+        ("CREATE STREAM s ON TABLE t", StreamSourceKind::Table),
+        ("CREATE STREAM s ON VIEW v", StreamSourceKind::View),
+        (
+            "CREATE OR REPLACE STREAM s ON TABLE t",
+            StreamSourceKind::Table,
+        ),
+        (
+            "CREATE OR REPLACE STREAM s ON VIEW v",
+            StreamSourceKind::View,
+        ),
+        (
+            "CREATE STREAM IF NOT EXISTS s ON TABLE t",
+            StreamSourceKind::Table,
+        ),
+        (
+            "CREATE STREAM IF NOT EXISTS s ON VIEW v",
+            StreamSourceKind::View,
+        ),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateStream { source_kind, .. } => {
+                assert_eq!(source_kind, expected_kind);
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+}
+
+#[test]
+fn parse_sf_create_stream_at_before_stream() {
+    // The `{ AT | BEFORE } ( STREAM => '…' )` seed clause parses, is carried on
+    // the AST node, and round-trips through Display for both spellings and for
+    // the `ON VIEW` source.
+    for sql in [
+        "CREATE STREAM s ON TABLE t AT(STREAM => 'S_BASE')",
+        "CREATE STREAM s ON TABLE t BEFORE(STREAM => 'S_BASE')",
+        "CREATE OR REPLACE STREAM s ON TABLE t AT(STREAM => 'S_BASE')",
+        "CREATE STREAM IF NOT EXISTS s ON VIEW v BEFORE(STREAM => 'S_BASE')",
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateStream { at_before, .. } => {
+                assert!(at_before.is_some(), "expected AT/BEFORE clause for {sql}");
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+
+    // The clause-less form is unchanged: no `at_before`, byte-identical Display.
+    match snowflake().verified_stmt("CREATE STREAM s ON TABLE t") {
+        Statement::CreateStream { at_before, .. } => assert!(at_before.is_none()),
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_create_stream_append_only() {
+    // `APPEND_ONLY = { TRUE | FALSE }` parses, is carried on the AST node, and
+    // round-trips through Display — including combined with `{ AT | BEFORE }`
+    // and on an `ON VIEW` source.
+    for (sql, expected) in [
+        ("CREATE STREAM s ON TABLE t APPEND_ONLY = TRUE", Some(true)),
+        (
+            "CREATE STREAM s ON TABLE t APPEND_ONLY = FALSE",
+            Some(false),
+        ),
+        ("CREATE STREAM s ON VIEW v APPEND_ONLY = TRUE", Some(true)),
+        (
+            "CREATE STREAM s ON TABLE t AT(STREAM => 'S_BASE') APPEND_ONLY = TRUE",
+            Some(true),
+        ),
+        ("CREATE STREAM s ON TABLE t", None),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateStream { append_only, .. } => {
+                assert_eq!(append_only, expected, "for {sql}");
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    }
+
+    // The option must follow the `{ AT | BEFORE }` clause; the reversed order is
+    // a syntax error.
+    assert!(snowflake()
+        .parse_sql_statements("CREATE STREAM s ON TABLE t APPEND_ONLY = TRUE AT(STREAM => 'S')")
+        .is_err());
+}
+
+#[test]
+fn parse_sf_informational_constraint_properties() {
+    let canonical = "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) NOT ENFORCED DISABLE NOVALIDATE RELY)";
+    match snowflake().verified_stmt(canonical) {
+        Statement::CreateTable(CreateTable { constraints, .. }) => match &constraints[0] {
+            TableConstraint::PrimaryKey(pk) => assert_eq!(
+                pk.characteristics,
+                Some(ConstraintCharacteristics {
+                    deferrable: None,
+                    initially: None,
+                    enforced: Some(false),
+                    enabled: Some(false),
+                    validated: Some(false),
+                    rely: Some(true),
+                })
+            ),
+            other => panic!("unexpected constraint: {other}"),
+        },
+        other => panic!("unexpected statement: {other}"),
+    }
+
+    // The properties are interchangeable in order.
+    snowflake().one_statement_parses_to(
+        "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) RELY DISABLE NOVALIDATE NOT ENFORCED)",
+        canonical,
+    );
+
+    snowflake().verified_stmt("CREATE TABLE t (id INT PRIMARY KEY NOT ENFORCED RELY)");
+    snowflake().verified_stmt("CREATE TABLE t (id INT UNIQUE ENABLE VALIDATE NORELY)");
+    snowflake()
+        .verified_stmt("CREATE TABLE t (id INT, CONSTRAINT u UNIQUE (id) NOT ENFORCED NORELY)");
+    snowflake().verified_stmt(
+        "CREATE TABLE t (id INT, CONSTRAINT fk FOREIGN KEY (id) REFERENCES p(id) NOT ENFORCED RELY)",
+    );
+    snowflake().verified_stmt("ALTER TABLE t ADD CONSTRAINT u UNIQUE (id) NOT ENFORCED RELY");
+}
+
+#[test]
+fn parse_sf_clear_constraint_characteristics() {
+    let sql = "CREATE TABLE t (id INT UNIQUE ENABLE VALIDATE RELY, CONSTRAINT u UNIQUE (id) NOT ENFORCED RELY)";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            mut columns,
+            mut constraints,
+            ..
+        }) => {
+            constraints[0].clear_characteristics();
+            assert_eq!(constraints[0].to_string(), "CONSTRAINT u UNIQUE (id)");
+            columns[0].clear_constraint_characteristics();
+            assert_eq!(columns[0].to_string(), "id INT UNIQUE");
+        }
+        other => panic!("unexpected statement: {other}"),
+    }
+}
+
+#[test]
+fn parse_informational_constraint_properties_are_dialect_gated() {
+    let sql = "CREATE TABLE t (id INT, CONSTRAINT pk PRIMARY KEY (id) RELY)";
+    let err = Parser::parse_sql(&GenericDialect {}, sql).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "sql parser error: Expected: \',\' or \')\' after column definition, found: RELY at Line: 1, Column: 56"
+    );
+}
+
+#[test]
+fn test_snowflake_create_or_replace_table() {
+    let sql = "CREATE OR REPLACE TABLE my_table (a number)";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name, or_replace, ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert!(or_replace);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_or_replace_table_copy_grants() {
+    let sql = "CREATE OR REPLACE TABLE my_table (a number) COPY GRANTS";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            or_replace,
+            copy_grants,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert!(or_replace);
+            assert!(copy_grants);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_or_replace_table_copy_grants_at_end() {
+    let sql = "CREATE OR REPLACE TABLE my_table COPY GRANTS (a number) ";
+    let parsed = "CREATE OR REPLACE TABLE my_table (a number) COPY GRANTS";
+    match snowflake().one_statement_parses_to(sql, parsed) {
+        Statement::CreateTable(CreateTable {
+            name,
+            or_replace,
+            copy_grants,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert!(or_replace);
+            assert!(copy_grants);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_or_replace_table_copy_grants_cta() {
+    let sql = "CREATE OR REPLACE TABLE my_table COPY GRANTS AS SELECT 1 AS a";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            or_replace,
+            copy_grants,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert!(or_replace);
+            assert!(copy_grants);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_enable_schema_evolution() {
+    let sql = "CREATE TABLE my_table (a number) ENABLE_SCHEMA_EVOLUTION=TRUE";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            enable_schema_evolution,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some(true), enable_schema_evolution);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_change_tracking() {
+    let sql = "CREATE TABLE my_table (a number) CHANGE_TRACKING=TRUE";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            change_tracking,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some(true), change_tracking);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_data_retention_time_in_days() {
+    let sql = "CREATE TABLE my_table (a number) DATA_RETENTION_TIME_IN_DAYS=5";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            data_retention_time_in_days,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some(5), data_retention_time_in_days);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_max_data_extension_time_in_days() {
+    let sql = "CREATE TABLE my_table (a number) MAX_DATA_EXTENSION_TIME_IN_DAYS=5";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            max_data_extension_time_in_days,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some(5), max_data_extension_time_in_days);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_aggregation_policy() {
+    match snowflake()
+        .verified_stmt("CREATE TABLE my_table (a number) WITH AGGREGATION POLICY policy_name")
+    {
+        Statement::CreateTable(CreateTable {
+            name,
+            with_aggregation_policy,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some("policy_name".to_string()),
+                with_aggregation_policy.map(|name| name.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake()
+        .parse_sql_statements("CREATE TABLE my_table (a number)  AGGREGATION POLICY policy_name")
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CreateTable(CreateTable {
+            name,
+            with_aggregation_policy,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some("policy_name".to_string()),
+                with_aggregation_policy.map(|name| name.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_row_access_policy() {
+    match snowflake().verified_stmt(
+        "CREATE TABLE my_table (a number, b number) WITH ROW ACCESS POLICY policy_name ON (a)",
+    ) {
+        Statement::CreateTable(CreateTable {
+            name,
+            with_row_access_policy,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some("WITH ROW ACCESS POLICY policy_name ON (a)".to_string()),
+                with_row_access_policy.map(|policy| policy.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake()
+        .parse_sql_statements(
+            "CREATE TABLE my_table (a number, b number) ROW ACCESS POLICY policy_name ON (a)",
+        )
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CreateTable(CreateTable {
+            name,
+            with_row_access_policy,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some("WITH ROW ACCESS POLICY policy_name ON (a)".to_string()),
+                with_row_access_policy.map(|policy| policy.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_storage_lifecycle_policy() {
+    // WITH keyword
+    match snowflake().verified_stmt(
+        "CREATE TABLE IF NOT EXISTS my_table (a NUMBER(38, 0), b VARIANT) WITH STORAGE LIFECYCLE POLICY dba.global_settings.my_policy ON (a)",
+    ) {
+        Statement::CreateTable(CreateTable {
+            name,
+            with_storage_lifecycle_policy,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            let policy = with_storage_lifecycle_policy.unwrap();
+            assert_eq!("dba.global_settings.my_policy", policy.policy.to_string());
+            assert_eq!(vec![Ident::new("a")], policy.on);
+        }
+        _ => unreachable!(),
+    }
+
+    // Without WITH keyword — canonicalizes to WITH form
+    snowflake().one_statement_parses_to(
+        "CREATE TABLE my_table (a NUMBER(38, 0)) STORAGE LIFECYCLE POLICY my_policy ON (a, b)",
+        "CREATE TABLE my_table (a NUMBER(38, 0)) WITH STORAGE LIFECYCLE POLICY my_policy ON (a, b)",
+    );
+}
+
+#[test]
+fn test_snowflake_create_table_with_tag() {
+    match snowflake()
+        .verified_stmt("CREATE TABLE my_table (a number) WITH TAG (A='TAG A', B='TAG B')")
+    {
+        Statement::CreateTable(CreateTable {
+            name, with_tags, ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some(vec![
+                    Tag::new(ObjectName::from(vec![Ident::new("A")]), "TAG A".to_string()),
+                    Tag::new(ObjectName::from(vec![Ident::new("B")]), "TAG B".to_string())
+                ]),
+                with_tags
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake()
+        .parse_sql_statements("CREATE TABLE my_table (a number) TAG (A='TAG A', B='TAG B')")
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CreateTable(CreateTable {
+            name, with_tags, ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some(vec![
+                    Tag::new(ObjectName::from(vec![Ident::new("A")]), "TAG A".to_string()),
+                    Tag::new(ObjectName::from(vec![Ident::new("B")]), "TAG B".to_string())
+                ]),
+                with_tags
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_default_ddl_collation() {
+    let sql = "CREATE TABLE my_table (a number) DEFAULT_DDL_COLLATION='de'";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name,
+            default_ddl_collation,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some("de".to_string()), default_ddl_collation);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_transient_table() {
+    let sql = "CREATE TRANSIENT TABLE CUSTOMER (id INT, name VARCHAR(255))";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable {
+            name, transient, ..
+        }) => {
+            assert_eq!("CUSTOMER", name.to_string());
+            assert!(transient)
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_transient_schema() {
+    let sql = "CREATE TRANSIENT SCHEMA my_schema WITH MANAGED ACCESS COMMENT = 'foo bar'";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            transient,
+            with_managed_access,
+            comment,
+            ..
+        } => {
+            assert_eq!("my_schema", schema_name.to_string());
+            assert!(transient);
+            assert!(with_managed_access);
+            assert_eq!(comment, Some(CommentDef::WithEq("foo bar".to_string())));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_schema_with_tag() {
+    // `WITH TAG` roundtrips and populates `with_tags`; the bare `TAG (...)`
+    // form (optional `WITH`) normalises to the `WITH TAG` rendering.
+    let sql = "CREATE SCHEMA my_schema WITH TAG (cost_center='sales', env='prod')";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::CreateSchema {
+            schema_name,
+            with_tags,
+            ..
+        } => {
+            assert_eq!("my_schema", schema_name.to_string());
+            let tags = with_tags.expect("with_tags populated");
+            assert_eq!(tags.len(), 2);
+            assert_eq!(tags[0].to_string(), "cost_center='sales'");
+            assert_eq!(tags[1].to_string(), "env='prod'");
+        }
+        _ => unreachable!(),
+    }
+
+    snowflake_and_generic().one_statement_parses_to(
+        "CREATE SCHEMA my_schema TAG (env = 'prod')",
+        "CREATE SCHEMA my_schema WITH TAG (env='prod')",
+    );
+
+    // `WITH MANAGED ACCESS` and the Trino `WITH (k='v')` option list still parse.
+    snowflake_and_generic().verified_stmt("CREATE SCHEMA my_schema WITH MANAGED ACCESS");
+}
+
+#[test]
+fn test_snowflake_create_table_column_comment() {
+    let sql = "CREATE TABLE my_table (a STRING COMMENT 'some comment')";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable { name, columns, .. }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                vec![ColumnDef {
+                    name: "a".into(),
+                    data_type: DataType::String(None),
+                    options: vec![ColumnOptionDef {
+                        name: None,
+                        option: ColumnOption::Comment("some comment".to_string())
+                    }],
+                }],
+                columns
+            )
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_on_commit() {
+    snowflake().verified_stmt(
+        r#"CREATE LOCAL TEMPORARY TABLE "AAA"."foo" ("bar" INTEGER) ON COMMIT PRESERVE ROWS"#,
+    );
+    snowflake().verified_stmt(r#"CREATE TABLE "AAA"."foo" ("bar" INTEGER) ON COMMIT DELETE ROWS"#);
+    snowflake().verified_stmt(r#"CREATE TABLE "AAA"."foo" ("bar" INTEGER) ON COMMIT DROP"#);
+}
+
+#[test]
+fn test_snowflake_create_local_table() {
+    match snowflake().verified_stmt("CREATE TABLE my_table (a INT)") {
+        Statement::CreateTable(CreateTable { name, global, .. }) => {
+            assert_eq!("my_table", name.to_string());
+            assert!(global.is_none())
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().verified_stmt("CREATE LOCAL TABLE my_table (a INT)") {
+        Statement::CreateTable(CreateTable { name, global, .. }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some(false), global)
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_global_table() {
+    match snowflake().verified_stmt("CREATE GLOBAL TABLE my_table (a INT)") {
+        Statement::CreateTable(CreateTable { name, global, .. }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(Some(true), global)
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_invalid_local_global_table() {
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE LOCAL GLOBAL TABLE my_table (a INT)"),
+        Err(ParserError::ParserError(
+            "Expected: an SQL statement, found: LOCAL".to_string()
+        ))
+    );
+
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE GLOBAL LOCAL TABLE my_table (a INT)"),
+        Err(ParserError::ParserError(
+            "Expected: an SQL statement, found: GLOBAL".to_string()
+        ))
+    );
+}
+
+#[test]
+fn test_snowflake_create_invalid_temporal_table() {
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE TEMP TEMPORARY TABLE my_table (a INT)"),
+        Err(ParserError::ParserError(
+            "Expected: an object type after CREATE, found: TEMPORARY".to_string()
+        ))
+    );
+
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE TEMP VOLATILE TABLE my_table (a INT)"),
+        Err(ParserError::ParserError(
+            "Expected: an object type after CREATE, found: VOLATILE".to_string()
+        ))
+    );
+
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE TEMP TRANSIENT TABLE my_table (a INT)"),
+        Err(ParserError::ParserError(
+            "Expected: an object type after CREATE, found: TRANSIENT".to_string()
+        ))
+    );
+}
+
+#[test]
+fn test_snowflake_create_table_if_not_exists() {
+    match snowflake().verified_stmt("CREATE TABLE IF NOT EXISTS my_table (a INT)") {
+        Statement::CreateTable(CreateTable {
+            name,
+            if_not_exists,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert!(if_not_exists)
+        }
+        _ => unreachable!(),
+    }
+
+    for (sql, parse_to) in [
+        (
+            r#"CREATE TABLE IF NOT EXISTS "A"."B"."C" (v VARIANT)"#,
+            r#"CREATE TABLE IF NOT EXISTS "A"."B"."C" (v VARIANT)"#,
+        ),
+        (
+            r#"CREATE TABLE "A"."B"."C" IF NOT EXISTS (v VARIANT)"#,
+            r#"CREATE TABLE IF NOT EXISTS "A"."B"."C" (v VARIANT)"#,
+        ),
+        (
+            r#"CREATE TRANSIENT TABLE IF NOT EXISTS "A"."B"."C" (v VARIANT)"#,
+            r#"CREATE TRANSIENT TABLE IF NOT EXISTS "A"."B"."C" (v VARIANT)"#,
+        ),
+        (
+            r#"CREATE TRANSIENT TABLE "A"."B"."C" IF NOT EXISTS (v VARIANT)"#,
+            r#"CREATE TRANSIENT TABLE IF NOT EXISTS "A"."B"."C" (v VARIANT)"#,
+        ),
+    ] {
+        snowflake().one_statement_parses_to(sql, parse_to);
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_cluster_by() {
+    match snowflake().verified_stmt("CREATE TABLE my_table (a INT) CLUSTER BY (a, b, my_func(c))") {
+        Statement::CreateTable(CreateTable {
+            name, cluster_by, ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some(WrappedCollection::Parentheses(vec![
+                    Expr::Identifier(Ident::new("a")),
+                    Expr::Identifier(Ident::new("b")),
+                    Expr::Function(Function {
+                        name: ObjectName::from(vec![Ident::new("my_func")]),
+                        uses_odbc_syntax: false,
+                        parameters: FunctionArguments::None,
+                        args: FunctionArguments::List(FunctionArgumentList {
+                            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                Expr::Identifier(Ident::new("c"))
+                            ))],
+                            duplicate_treatment: None,
+                            clauses: vec![],
+                        }),
+                        filter: None,
+                        null_treatment: None,
+                        over: None,
+                        within_group: vec![],
+                    }),
+                ])),
+                cluster_by
+            )
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_comment() {
+    match snowflake().verified_stmt("CREATE TABLE my_table (a INT) COMMENT = 'some comment'") {
+        Statement::CreateTable(CreateTable {
+            name,
+            table_options,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            let plain_options = match table_options {
+                CreateTableOptions::Plain(options) => options,
+                _ => unreachable!(),
+            };
+            let comment = match plain_options.first().unwrap() {
+                SqlOption::Comment(CommentDef::WithEq(c))
+                | SqlOption::Comment(CommentDef::WithoutEq(c)) => c,
+                _ => unreachable!(),
+            };
+            assert_eq!("some comment", comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_single_line_tokenize() {
+    let sql = "CREATE TABLE# this is a comment \ntable_1";
+    let dialect = SnowflakeDialect {};
+    let tokens = Tokenizer::new(&dialect, sql).tokenize().unwrap();
+
+    let expected = vec![
+        Token::make_keyword("CREATE"),
+        Token::Whitespace(Whitespace::Space),
+        Token::make_keyword("TABLE"),
+        Token::Whitespace(Whitespace::SingleLineComment {
+            prefix: "#".to_string(),
+            comment: " this is a comment \n".to_string(),
+        }),
+        Token::make_word("table_1", None),
+    ];
+
+    assert_eq!(expected, tokens);
+
+    let sql = "CREATE TABLE // this is a comment \ntable_1";
+    let tokens = Tokenizer::new(&dialect, sql).tokenize().unwrap();
+
+    let expected = vec![
+        Token::make_keyword("CREATE"),
+        Token::Whitespace(Whitespace::Space),
+        Token::make_keyword("TABLE"),
+        Token::Whitespace(Whitespace::Space),
+        Token::Whitespace(Whitespace::SingleLineComment {
+            prefix: "//".to_string(),
+            comment: " this is a comment \n".to_string(),
+        }),
+        Token::make_word("table_1", None),
+    ];
+
+    assert_eq!(expected, tokens);
+}
+
+#[test]
+fn test_snowflake_create_table_with_autoincrement_columns() {
+    let sql = concat!(
+        "CREATE TABLE my_table (",
+        "a INT AUTOINCREMENT ORDER, ",
+        "b INT AUTOINCREMENT(100, 1) NOORDER, ",
+        "c INT IDENTITY, ",
+        "d INT IDENTITY START 100 INCREMENT 1 ORDER",
+        ")"
+    );
+    // it is a snowflake specific options (AUTOINCREMENT/IDENTITY)
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable { columns, .. }) => {
+            assert_eq!(
+                columns,
+                vec![
+                    ColumnDef {
+                        name: "a".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Identity(IdentityPropertyKind::Autoincrement(
+                                IdentityProperty {
+                                    parameters: None,
+                                    order: Some(IdentityPropertyOrder::Order),
+                                }
+                            ))
+                        }]
+                    },
+                    ColumnDef {
+                        name: "b".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Identity(IdentityPropertyKind::Autoincrement(
+                                IdentityProperty {
+                                    parameters: Some(IdentityPropertyFormatKind::FunctionCall(
+                                        IdentityParameters {
+                                            seed: Expr::value(number("100")),
+                                            increment: Expr::value(number("1")),
+                                        }
+                                    )),
+                                    order: Some(IdentityPropertyOrder::NoOrder),
+                                }
+                            ))
+                        }]
+                    },
+                    ColumnDef {
+                        name: "c".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Identity(IdentityPropertyKind::Identity(
+                                IdentityProperty {
+                                    parameters: None,
+                                    order: None,
+                                }
+                            ))
+                        }]
+                    },
+                    ColumnDef {
+                        name: "d".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Identity(IdentityPropertyKind::Identity(
+                                IdentityProperty {
+                                    parameters: Some(
+                                        IdentityPropertyFormatKind::StartAndIncrement(
+                                            IdentityParameters {
+                                                seed: Expr::Value(
+                                                    (number("100")).with_empty_span()
+                                                ),
+                                                increment: Expr::Value(
+                                                    (number("1")).with_empty_span()
+                                                ),
+                                            }
+                                        )
+                                    ),
+                                    order: Some(IdentityPropertyOrder::Order),
+                                }
+                            ))
+                        }]
+                    },
+                ]
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_collated_column() {
+    match snowflake_and_generic().verified_stmt("CREATE TABLE my_table (a TEXT COLLATE 'de_DE')") {
+        Statement::CreateTable(CreateTable { columns, .. }) => {
+            assert_eq!(
+                columns,
+                vec![ColumnDef {
+                    name: "a".into(),
+                    data_type: DataType::Text,
+                    options: vec![ColumnOptionDef {
+                        name: None,
+                        option: ColumnOption::Collation(ObjectName::from(vec![Ident::with_quote(
+                            '\'', "de_DE"
+                        )])),
+                    }]
+                },]
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_columns_masking_policy() {
+    for (sql, with, using_columns) in [
+        (
+            "CREATE TABLE my_table (a INT WITH MASKING POLICY p)",
+            true,
+            None,
+        ),
+        (
+            "CREATE TABLE my_table (a INT MASKING POLICY p)",
+            false,
+            None,
+        ),
+        (
+            "CREATE TABLE my_table (a INT WITH MASKING POLICY p USING (a, b))",
+            true,
+            Some(vec!["a".into(), "b".into()]),
+        ),
+        (
+            "CREATE TABLE my_table (a INT MASKING POLICY p USING (a, b))",
+            false,
+            Some(vec!["a".into(), "b".into()]),
+        ),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateTable(CreateTable { columns, .. }) => {
+                assert_eq!(
+                    columns,
+                    vec![ColumnDef {
+                        name: "a".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Policy(ColumnPolicy::MaskingPolicy(
+                                ColumnPolicyProperty {
+                                    with,
+                                    policy_name: ObjectName::from(vec![Ident::new("p")]),
+                                    using_columns,
+                                }
+                            ))
+                        }],
+                    },]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_columns_projection_policy() {
+    for (sql, with) in [
+        (
+            "CREATE TABLE my_table (a INT WITH PROJECTION POLICY p)",
+            true,
+        ),
+        ("CREATE TABLE my_table (a INT PROJECTION POLICY p)", false),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateTable(CreateTable { columns, .. }) => {
+                assert_eq!(
+                    columns,
+                    vec![ColumnDef {
+                        name: "a".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Policy(ColumnPolicy::ProjectionPolicy(
+                                ColumnPolicyProperty {
+                                    with,
+                                    policy_name: ObjectName::from(vec![Ident::new("p")]),
+                                    using_columns: None,
+                                }
+                            ))
+                        }],
+                    },]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_columns_tags() {
+    for (sql, with) in [
+        (
+            "CREATE TABLE my_table (a INT WITH TAG (A='TAG A', B='TAG B'))",
+            true,
+        ),
+        (
+            "CREATE TABLE my_table (a INT TAG (A='TAG A', B='TAG B'))",
+            false,
+        ),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::CreateTable(CreateTable { columns, .. }) => {
+                assert_eq!(
+                    columns,
+                    vec![ColumnDef {
+                        name: "a".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![ColumnOptionDef {
+                            name: None,
+                            option: ColumnOption::Tags(TagsColumnOption {
+                                with,
+                                tags: vec![
+                                    Tag::new(
+                                        ObjectName::from(vec![Ident::new("A")]),
+                                        "TAG A".into()
+                                    ),
+                                    Tag::new(
+                                        ObjectName::from(vec![Ident::new("B")]),
+                                        "TAG B".into()
+                                    ),
+                                ]
+                            }),
+                        }],
+                    },]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_with_several_column_options() {
+    let sql = concat!(
+        "CREATE TABLE my_table (",
+        "a INT IDENTITY WITH MASKING POLICY p1 USING (a, b) WITH TAG (A='TAG A', B='TAG B'), ",
+        "b TEXT COLLATE 'de_DE' PROJECTION POLICY p2 TAG (C='TAG C', D='TAG D')",
+        ")"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(CreateTable { columns, .. }) => {
+            assert_eq!(
+                columns,
+                vec![
+                    ColumnDef {
+                        name: "a".into(),
+                        data_type: DataType::Int(None),
+                        options: vec![
+                            ColumnOptionDef {
+                                name: None,
+                                option: ColumnOption::Identity(IdentityPropertyKind::Identity(
+                                    IdentityProperty {
+                                        parameters: None,
+                                        order: None
+                                    }
+                                )),
+                            },
+                            ColumnOptionDef {
+                                name: None,
+                                option: ColumnOption::Policy(ColumnPolicy::MaskingPolicy(
+                                    ColumnPolicyProperty {
+                                        with: true,
+                                        policy_name: ObjectName::from(vec![Ident::new("p1")]),
+                                        using_columns: Some(vec!["a".into(), "b".into()]),
+                                    }
+                                )),
+                            },
+                            ColumnOptionDef {
+                                name: None,
+                                option: ColumnOption::Tags(TagsColumnOption {
+                                    with: true,
+                                    tags: vec![
+                                        Tag::new(
+                                            ObjectName::from(vec![Ident::new("A")]),
+                                            "TAG A".into()
+                                        ),
+                                        Tag::new(
+                                            ObjectName::from(vec![Ident::new("B")]),
+                                            "TAG B".into()
+                                        ),
+                                    ]
+                                }),
+                            }
+                        ],
+                    },
+                    ColumnDef {
+                        name: "b".into(),
+                        data_type: DataType::Text,
+                        options: vec![
+                            ColumnOptionDef {
+                                name: None,
+                                option: ColumnOption::Collation(ObjectName::from(vec![
+                                    Ident::with_quote('\'', "de_DE")
+                                ])),
+                            },
+                            ColumnOptionDef {
+                                name: None,
+                                option: ColumnOption::Policy(ColumnPolicy::ProjectionPolicy(
+                                    ColumnPolicyProperty {
+                                        with: false,
+                                        policy_name: ObjectName::from(vec![Ident::new("p2")]),
+                                        using_columns: None,
+                                    }
+                                )),
+                            },
+                            ColumnOptionDef {
+                                name: None,
+                                option: ColumnOption::Tags(TagsColumnOption {
+                                    with: false,
+                                    tags: vec![
+                                        Tag::new(
+                                            ObjectName::from(vec![Ident::new("C")]),
+                                            "TAG C".into()
+                                        ),
+                                        Tag::new(
+                                            ObjectName::from(vec![Ident::new("D")]),
+                                            "TAG D".into()
+                                        ),
+                                    ]
+                                }),
+                            }
+                        ],
+                    },
+                ]
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_all_options() {
+    match snowflake().verified_stmt("CREATE ICEBERG TABLE my_table (a INT, b INT) \
+    CLUSTER BY (a, b) EXTERNAL_VOLUME='volume' CATALOG='SNOWFLAKE' BASE_LOCATION='relative/path' CATALOG_SYNC='OPEN_CATALOG' \
+    STORAGE_SERIALIZATION_POLICY=COMPATIBLE COPY GRANTS CHANGE_TRACKING=TRUE DATA_RETENTION_TIME_IN_DAYS=5 MAX_DATA_EXTENSION_TIME_IN_DAYS=10 \
+    WITH AGGREGATION POLICY policy_name WITH ROW ACCESS POLICY policy_name ON (a) WITH TAG (A='TAG A', B='TAG B')") {
+        Statement::CreateTable(CreateTable {
+            name, cluster_by, base_location,
+            external_volume, catalog, catalog_sync,
+            storage_serialization_policy, change_tracking,
+            copy_grants, data_retention_time_in_days,
+            max_data_extension_time_in_days, with_aggregation_policy,
+            with_row_access_policy, with_tags, ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!(
+                Some(WrappedCollection::Parentheses(vec![
+                    Expr::Identifier(Ident::new("a")),
+                    Expr::Identifier(Ident::new("b")),
+                ])),
+                cluster_by
+            );
+            assert_eq!("relative/path", base_location.unwrap());
+            assert_eq!("volume", external_volume.unwrap());
+            assert_eq!("SNOWFLAKE", catalog.unwrap());
+            assert_eq!("OPEN_CATALOG", catalog_sync.unwrap());
+            assert_eq!(StorageSerializationPolicy::Compatible, storage_serialization_policy.unwrap());
+            assert!(change_tracking.unwrap());
+            assert!(copy_grants);
+            assert_eq!(Some(5), data_retention_time_in_days);
+            assert_eq!(Some(10), max_data_extension_time_in_days);
+            assert_eq!(
+                Some("WITH ROW ACCESS POLICY policy_name ON (a)".to_string()),
+                with_row_access_policy.map(|policy| policy.to_string())
+            );
+            assert_eq!(
+                Some("policy_name".to_string()),
+                with_aggregation_policy.map(|name| name.to_string())
+            );
+            assert_eq!(Some(vec![
+                                        Tag::new(ObjectName::from(vec![Ident::new("A")]), "TAG A".into()),
+                                        Tag::new(ObjectName::from(vec![Ident::new("B")]), "TAG B".into()),
+                                    ]), with_tags);
+
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table() {
+    match snowflake()
+        .verified_stmt("CREATE ICEBERG TABLE my_table (a INT) BASE_LOCATION='relative_path'")
+    {
+        Statement::CreateTable(CreateTable {
+            name,
+            base_location,
+            ..
+        }) => {
+            assert_eq!("my_table", name.to_string());
+            assert_eq!("relative_path", base_location.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_without_location() {
+    let res = snowflake().parse_sql_statements("CREATE ICEBERG TABLE my_table (a INT)");
+    assert_eq!(
+        ParserError::ParserError("BASE_LOCATION is required for ICEBERG tables".to_string()),
+        res.unwrap_err()
+    );
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_comma_separated_options() {
+    let canonical = "CREATE ICEBERG TABLE my_table (a INT) \
+        EXTERNAL_VOLUME='volume' CATALOG='SNOWFLAKE' BASE_LOCATION='relative/path'";
+    let with_commas = "CREATE ICEBERG TABLE my_table (a INT) \
+        CATALOG='SNOWFLAKE', EXTERNAL_VOLUME='volume', BASE_LOCATION='relative/path'";
+    match snowflake().one_statement_parses_to(with_commas, canonical) {
+        Statement::CreateTable(CreateTable {
+            iceberg,
+            columns,
+            external_volume,
+            catalog,
+            base_location,
+            ..
+        }) => {
+            assert!(iceberg);
+            assert_eq!(1, columns.len());
+            assert_eq!("volume", external_volume.unwrap());
+            assert_eq!("SNOWFLAKE", catalog.unwrap());
+            assert_eq!("relative/path", base_location.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_externally_managed() {
+    match snowflake().verified_stmt(
+        "CREATE OR REPLACE ICEBERG TABLE my_table \
+         CATALOG='my_catalog_integration' CATALOG_TABLE_NAME='db.tbl' AUTO_REFRESH=TRUE",
+    ) {
+        Statement::CreateTable(CreateTable {
+            or_replace,
+            iceberg,
+            columns,
+            catalog,
+            catalog_table_name,
+            auto_refresh,
+            base_location,
+            query,
+            ..
+        }) => {
+            assert!(or_replace);
+            assert!(iceberg);
+            assert!(columns.is_empty());
+            assert_eq!("my_catalog_integration", catalog.unwrap());
+            assert_eq!("db.tbl", catalog_table_name.unwrap());
+            assert_eq!(Some(true), auto_refresh);
+            assert!(base_location.is_none());
+            assert!(query.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_external_catalog_no_base_location() {
+    match snowflake()
+        .verified_stmt("CREATE ICEBERG TABLE my_table (c1 TEXT) CATALOG='my_catalog_integration'")
+    {
+        Statement::CreateTable(CreateTable {
+            iceberg,
+            catalog,
+            catalog_table_name,
+            base_location,
+            ..
+        }) => {
+            assert!(iceberg);
+            assert_eq!("my_catalog_integration", catalog.unwrap());
+            assert!(catalog_table_name.is_none());
+            assert!(base_location.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_iceberg_table_ctas() {
+    match snowflake().verified_stmt(
+        "CREATE ICEBERG TABLE my_table EXTERNAL_VOLUME='volume' CATALOG='SNOWFLAKE' \
+         BASE_LOCATION='relative/path' AS SELECT 1",
+    ) {
+        Statement::CreateTable(CreateTable {
+            iceberg,
+            columns,
+            query,
+            base_location,
+            ..
+        }) => {
+            assert!(iceberg);
+            assert!(columns.is_empty());
+            assert!(query.is_some());
+            assert_eq!("relative/path", base_location.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_drop_iceberg_table() {
+    match snowflake().one_statement_parses_to(
+        "DROP ICEBERG TABLE IF EXISTS my_table PURGE",
+        "DROP TABLE IF EXISTS my_table PURGE",
+    ) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            purge,
+            ..
+        } => {
+            assert_eq!(ObjectType::Table, object_type);
+            assert!(if_exists);
+            assert!(purge);
+            assert_eq!("my_table", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().one_statement_parses_to("DROP ICEBERG TABLE my_table", "DROP TABLE my_table")
+    {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            purge,
+            ..
+        } => {
+            assert_eq!(ObjectType::Table, object_type);
+            assert!(!if_exists);
+            assert!(!purge);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_create_table_trailing_options() {
+    // Serialization to SQL assume that in `CREATE TABLE AS` the options come before the `AS (<query>)`
+    // but Snowflake supports also the other way around
+    snowflake()
+        .verified_stmt("CREATE TEMPORARY TABLE dst ON COMMIT PRESERVE ROWS AS (SELECT * FROM src)");
+    snowflake()
+        .parse_sql_statements(
+            "CREATE TEMPORARY TABLE dst AS (SELECT * FROM src) ON COMMIT PRESERVE ROWS",
+        )
+        .unwrap();
+
+    // Same for `CREATE TABLE LIKE|CLONE`:
+    snowflake().verified_stmt("CREATE TEMPORARY TABLE dst LIKE src ON COMMIT PRESERVE ROWS");
+    snowflake()
+        .parse_sql_statements("CREATE TEMPORARY TABLE dst ON COMMIT PRESERVE ROWS LIKE src")
+        .unwrap();
+
+    snowflake().verified_stmt("CREATE TEMPORARY TABLE dst CLONE src ON COMMIT PRESERVE ROWS");
+    snowflake()
+        .parse_sql_statements("CREATE TEMPORARY TABLE dst ON COMMIT PRESERVE ROWS CLONE src")
+        .unwrap();
+}
+
+#[test]
+fn parse_sf_create_or_replace_view_with_comment_missing_equal() {
+    assert!(snowflake_and_generic()
+        .parse_sql_statements("CREATE OR REPLACE VIEW v COMMENT = 'hello, world' AS SELECT 1")
+        .is_ok());
+
+    assert!(snowflake_and_generic()
+        .parse_sql_statements("CREATE OR REPLACE VIEW v COMMENT 'hello, world' AS SELECT 1")
+        .is_err());
+}
+
+#[test]
+fn parse_sf_create_or_replace_with_comment_for_snowflake() {
+    let sql = "CREATE OR REPLACE VIEW v COMMENT = 'hello, world' AS SELECT 1";
+    let dialect =
+        test_utils::TestedDialects::new(vec![Box::new(SnowflakeDialect {}) as Box<dyn Dialect>]);
+
+    match dialect.verified_stmt(sql) {
+        Statement::CreateView(CreateView {
+            name,
+            columns,
+            or_replace,
+            options,
+            query,
+            materialized,
+            cluster_by,
+            comment,
+            with_no_schema_binding: late_binding,
+            if_not_exists,
+            temporary,
+            ..
+        }) => {
+            assert_eq!("v", name.to_string());
+            assert_eq!(columns, vec![]);
+            assert_eq!(options, CreateTableOptions::None);
+            assert_eq!("SELECT 1", query.to_string());
+            assert!(!materialized);
+            assert!(or_replace);
+            assert_eq!(cluster_by, vec![]);
+            assert!(comment.is_some());
+            assert_eq!(comment.expect("expected comment"), "hello, world");
+            assert!(!late_binding);
+            assert!(!if_not_exists);
+            assert!(!temporary);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_create_table_or_view_with_dollar_quoted_comment() {
+    // Snowflake transforms dollar quoted comments into a common comment in DDL representation of creation
+    snowflake()
+        .one_statement_parses_to(
+            r#"CREATE OR REPLACE TEMPORARY VIEW foo.bar.baz ("COL_1" COMMENT $$comment 1$$) COMMENT = $$view comment$$ AS (SELECT 1)"#,
+            r#"CREATE OR REPLACE TEMPORARY VIEW foo.bar.baz ("COL_1" COMMENT 'comment 1') COMMENT = 'view comment' AS (SELECT 1)"#
+        );
+
+    snowflake().one_statement_parses_to(
+        r#"CREATE TABLE my_table (a STRING COMMENT $$comment 1$$) COMMENT = $$table comment$$"#,
+        r#"CREATE TABLE my_table (a STRING COMMENT 'comment 1') COMMENT = 'table comment'"#,
+    );
+}
+
+#[test]
+fn parse_sf_dollar_quoted_literal_string() {
+    // Dollar-quoted text is accepted wherever a literal string is expected.
+    snowflake().one_statement_parses_to(
+        "COMMENT ON TABLE my_table IS $$table comment$$",
+        "COMMENT ON TABLE my_table IS 'table comment'",
+    );
+    snowflake().one_statement_parses_to(
+        "COMMENT ON COLUMN my_table.col IS $$$$",
+        "COMMENT ON COLUMN my_table.col IS ''",
+    );
+
+    // Other dialects keep rejecting dollar-quoted text in a literal-string
+    // position.
+    assert!(TestedDialects::new(vec![Box::new(GenericDialect {})])
+        .parse_sql_statements("COMMENT ON TABLE my_table IS $$table comment$$")
+        .is_err());
+}
+
+#[test]
+fn parse_create_dynamic_table() {
+    snowflake().verified_stmt(r#"CREATE OR REPLACE DYNAMIC TABLE my_dynamic_table TARGET_LAG='20 minutes' WAREHOUSE=mywh AS SELECT product_id, product_name FROM staging_table"#);
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC ICEBERG TABLE my_dynamic_table (date TIMESTAMP_NTZ, id NUMBER, content STRING)",
+        " EXTERNAL_VOLUME='my_external_volume'",
+        " CATALOG='SNOWFLAKE'",
+        " BASE_LOCATION='my_iceberg_table'",
+        " TARGET_LAG='20 minutes'",
+        " WAREHOUSE=mywh",
+        " AS SELECT product_id, product_name FROM staging_table"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_dynamic_table (date TIMESTAMP_NTZ, id NUMBER, content VARIANT)",
+        " CLUSTER BY (date, id)",
+        " TARGET_LAG='20 minutes'",
+        " WAREHOUSE=mywh",
+        " AS SELECT product_id, product_name FROM staging_table"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_cloned_dynamic_table",
+        " CLONE my_dynamic_table",
+        " AT(TIMESTAMP => TO_TIMESTAMP_TZ('04/05/2013 01:02:03', 'mm/dd/yyyy hh24:mi:ss'))"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_cloned_dynamic_table",
+        " CLONE my_dynamic_table",
+        " BEFORE(OFFSET => TO_TIMESTAMP_TZ('04/05/2013 01:02:03', 'mm/dd/yyyy hh24:mi:ss'))"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_dynamic_table",
+        " TARGET_LAG='DOWNSTREAM'",
+        " WAREHOUSE=mywh",
+        " INITIALIZE=ON_SCHEDULE",
+        " REQUIRE USER",
+        " AS SELECT product_id, product_name FROM staging_table"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_dynamic_table",
+        " TARGET_LAG='DOWNSTREAM'",
+        " WAREHOUSE=mywh",
+        " REFRESH_MODE=AUTO",
+        " INITIALIZE=ON_SCHEDULE",
+        " REQUIRE USER",
+        " AS SELECT product_id, product_name FROM staging_table"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_dynamic_table",
+        " TARGET_LAG='DOWNSTREAM'",
+        " WAREHOUSE=mywh",
+        " REFRESH_MODE=FULL",
+        " INITIALIZE=ON_SCHEDULE",
+        " REQUIRE USER",
+        " AS SELECT product_id, product_name FROM staging_table"
+    ));
+
+    snowflake().verified_stmt(concat!(
+        "CREATE DYNAMIC TABLE my_dynamic_table",
+        " TARGET_LAG='DOWNSTREAM'",
+        " WAREHOUSE=mywh",
+        " REFRESH_MODE=INCREMENTAL",
+        " INITIALIZE=ON_SCHEDULE",
+        " REQUIRE USER",
+        " AS SELECT product_id, product_name FROM staging_table"
+    ));
+}
+
+#[test]
+fn parse_create_dynamic_table_snowflake_clauses() {
+    // Leading TRANSIENT, bare TARGET_LAG = DOWNSTREAM, INITIALIZATION_WAREHOUSE,
+    // SCHEDULER (quoted + bare), and IMMUTABLE WHERE all carry their values in
+    // the AST.
+    let sql = concat!(
+        "CREATE OR REPLACE TRANSIENT DYNAMIC TABLE t",
+        " TARGET_LAG='1 minute'",
+        " WAREHOUSE=my_wh",
+        " INITIALIZATION_WAREHOUSE=init_wh",
+        " SCHEDULER='DISABLE'",
+        " IMMUTABLE WHERE (id > 5)",
+        " AS SELECT id FROM staging_table"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTable(ct) => {
+            assert!(ct.transient);
+            assert!(ct.dynamic);
+            assert!(ct.or_replace);
+            assert_eq!(Some("1 minute".to_string()), ct.target_lag);
+            assert_eq!(Some("my_wh".to_string()), ct.warehouse);
+            assert_eq!(Some("init_wh".to_string()), ct.initialization_warehouse);
+            assert_eq!(Some("DISABLE".to_string()), ct.scheduler);
+            assert_eq!(Some("id > 5".to_string()), ct.immutable_where);
+        }
+        other => panic!("expected CreateTable, got {other:?}"),
+    }
+
+    // Bare TARGET_LAG = DOWNSTREAM and bare SCHEDULER value.
+    match snowflake().one_statement_parses_to(
+        "CREATE DYNAMIC TABLE t TARGET_LAG=DOWNSTREAM WAREHOUSE=wh SCHEDULER=disable AS SELECT id FROM s",
+        "CREATE DYNAMIC TABLE t TARGET_LAG='DOWNSTREAM' WAREHOUSE=wh SCHEDULER='disable' AS SELECT id FROM s",
+    ) {
+        Statement::CreateTable(ct) => {
+            assert_eq!(Some("DOWNSTREAM".to_string()), ct.target_lag);
+            assert_eq!(Some("disable".to_string()), ct.scheduler);
+        }
+        other => panic!("expected CreateTable, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_sf_derived_table_in_parenthesis() {
+    // Nesting a subquery in an extra set of parentheses is non-standard,
+    // but supported in Snowflake SQL
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM ((SELECT 1) AS t)",
+        "SELECT * FROM (SELECT 1) AS t",
+    );
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (((SELECT 1) AS t))",
+        "SELECT * FROM (SELECT 1) AS t",
+    );
+}
+
+#[test]
+fn test_single_table_in_parenthesis() {
+    // Parenthesized table names are non-standard, but supported in Snowflake SQL
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN (b))",
+        "SELECT * FROM (a NATURAL JOIN b)",
+    );
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN ((b)))",
+        "SELECT * FROM (a NATURAL JOIN b)",
+    );
+}
+
+#[test]
+fn test_single_table_in_parenthesis_with_alias() {
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN (b) c )",
+        "SELECT * FROM (a NATURAL JOIN b c)",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN ((b)) c )",
+        "SELECT * FROM (a NATURAL JOIN b c)",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN ( (b) c ) )",
+        "SELECT * FROM (a NATURAL JOIN b c)",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN ( (b) as c ) )",
+        "SELECT * FROM (a NATURAL JOIN b AS c)",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a as alias1 NATURAL JOIN ( (b) c ) )",
+        "SELECT * FROM (a AS alias1 NATURAL JOIN b c)",
+    );
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a alias1 NATURAL JOIN ( (b) c ) )",
+        "SELECT * FROM (a alias1 NATURAL JOIN b c)",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a as alias1 NATURAL JOIN ( (b) as c ) )",
+        "SELECT * FROM (a AS alias1 NATURAL JOIN b AS c)",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT * FROM (a NATURAL JOIN b) AS c",
+        "SELECT * FROM (a NATURAL JOIN b) AS c",
+    );
+
+    let res = snowflake().parse_sql_statements("SELECT * FROM (a b) c");
+    assert_eq!(
+        ParserError::ParserError("duplicate alias b".to_string()),
+        res.unwrap_err()
+    );
+}
+
+#[test]
+fn parse_array() {
+    let sql = "SELECT CAST(a AS ARRAY) FROM customer";
+    let select = snowflake().verified_only_select(sql);
+    assert_eq!(
+        &Expr::Cast {
+            kind: CastKind::Cast,
+            expr: Box::new(Expr::Identifier(Ident::new("a"))),
+            data_type: DataType::Array(ArrayElemTypeDef::None),
+            array: false,
+            format: None,
+        },
+        expr_from_projection(only(&select.projection))
+    );
+}
+
+#[test]
+fn parse_lateral_flatten() {
+    snowflake().verified_only_select(r#"SELECT * FROM TABLE(FLATTEN(input => parse_json('{"a":1, "b":[77,88]}'), outer => true)) AS f"#);
+    snowflake().verified_only_select(r#"SELECT emp.employee_ID, emp.last_name, index, value AS project_name FROM employees AS emp, LATERAL FLATTEN(INPUT => emp.project_names) AS proj_names"#);
+}
+
+// https://docs.snowflake.com/en/user-guide/querying-semistructured
+#[test]
+fn parse_semi_structured_data_traversal() {
+    // see `tests/sqlparser_common.rs` -> `parse_semi_structured_data_traversal` for more test
+    // cases. This test only has Snowflake-specific syntax like array access.
+
+    // expressions are allowed in bracket notation
+    let sql = r#"SELECT a[2 + 2] FROM t"#;
+    let select = snowflake().verified_only_select(sql);
+    assert_eq!(
+        SelectItem::UnnamedExpr(Expr::JsonAccess {
+            value: Box::new(Expr::Identifier(Ident::new("a"))),
+            path: JsonPath {
+                path: vec![JsonPathElem::Bracket {
+                    key: Expr::BinaryOp {
+                        left: Box::new(Expr::value(number("2"))),
+                        op: BinaryOperator::Plus,
+                        right: Box::new(Expr::value(number("2")))
+                    },
+                }]
+            },
+        }),
+        select.projection[0]
+    );
+
+    // dot and bracket notation can be mixed (starting with bracket case)
+    // https://docs.snowflake.com/en/user-guide/querying-semistructured#dot-notation
+    let sql = r#"SELECT a[0].foo.bar"#;
+    let select = snowflake().verified_only_select(sql);
+    assert_eq!(
+        vec![SelectItem::UnnamedExpr(Expr::JsonAccess {
+            value: Box::new(Expr::Identifier(Ident::new("a"))),
+            path: JsonPath {
+                path: vec![
+                    JsonPathElem::Bracket {
+                        key: Expr::value(number("0")),
+                    },
+                    JsonPathElem::Dot {
+                        key: "foo".to_owned(),
+                        quoted: false,
+                    },
+                    JsonPathElem::Dot {
+                        key: "bar".to_owned(),
+                        quoted: false,
+                    }
+                ]
+            },
+        })],
+        select.projection
+    );
+
+    // a json access used as a key to another json access
+    assert_eq!(
+        snowflake().verified_expr("a[b:c]"),
+        Expr::JsonAccess {
+            value: Box::new(Expr::Identifier(Ident::new("a"))),
+            path: JsonPath {
+                path: vec![JsonPathElem::Bracket {
+                    key: Expr::JsonAccess {
+                        value: Box::new(Expr::Identifier(Ident::new("b"))),
+                        path: JsonPath {
+                            path: vec![JsonPathElem::Dot {
+                                key: "c".to_owned(),
+                                quoted: false
+                            }]
+                        }
+                    }
+                }]
+            }
+        }
+    );
+
+    // unquoted object keys cannot start with a digit
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT a:42")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: variant object key name, found: 42"
+    );
+
+    // casting a json access and accessing an array element
+    assert_eq!(
+        snowflake().verified_expr("a:b::ARRAY[1]"),
+        Expr::JsonAccess {
+            value: Box::new(Expr::Cast {
+                kind: CastKind::DoubleColon,
+                expr: Box::new(Expr::JsonAccess {
+                    value: Box::new(Expr::Identifier(Ident::new("a"))),
+                    path: JsonPath {
+                        path: vec![JsonPathElem::Dot {
+                            key: "b".to_string(),
+                            quoted: false
+                        }]
+                    }
+                }),
+                data_type: DataType::Array(ArrayElemTypeDef::None),
+                array: false,
+                format: None,
+            }),
+            path: JsonPath {
+                path: vec![JsonPathElem::Bracket {
+                    key: Expr::value(number("1"))
+                }]
+            }
+        }
+    );
+}
+
+#[test]
+fn parse_delimited_identifiers() {
+    // check that quoted identifiers in any position remain quoted after serialization
+    let select = snowflake().verified_only_select(
+        r#"SELECT "alias"."bar baz", "myfun"(), "simple id" AS "column alias" FROM "a table" AS "alias""#,
+    );
+    // check FROM
+    match only(select.from).relation {
+        TableFactor::Table {
+            name,
+            alias,
+            args,
+            with_hints,
+            version,
+            ..
+        } => {
+            assert_eq!(
+                ObjectName::from(vec![Ident::with_quote('"', "a table")]),
+                name
+            );
+            assert_eq!(Ident::with_quote('"', "alias"), alias.unwrap().name);
+            assert!(args.is_none());
+            assert!(with_hints.is_empty());
+            assert!(version.is_none());
+        }
+        _ => panic!("Expecting TableFactor::Table"),
+    }
+    // check SELECT
+    assert_eq!(3, select.projection.len());
+    assert_eq!(
+        &Expr::CompoundIdentifier(vec![
+            Ident::with_quote('"', "alias"),
+            Ident::with_quote('"', "bar baz"),
+        ]),
+        expr_from_projection(&select.projection[0]),
+    );
+    assert_eq!(
+        &Expr::Function(Function {
+            name: ObjectName::from(vec![Ident::with_quote('"', "myfun")]),
+            uses_odbc_syntax: false,
+            parameters: FunctionArguments::None,
+            args: FunctionArguments::List(FunctionArgumentList {
+                duplicate_treatment: None,
+                args: vec![],
+                clauses: vec![],
+            }),
+            filter: None,
+            null_treatment: None,
+            over: None,
+            within_group: vec![],
+        }),
+        expr_from_projection(&select.projection[1]),
+    );
+    match &select.projection[2] {
+        SelectItem::ExprWithAlias { expr, alias } => {
+            assert_eq!(&Expr::Identifier(Ident::with_quote('"', "simple id")), expr);
+            assert_eq!(&Ident::with_quote('"', "column alias"), alias);
+        }
+        _ => panic!("Expected: ExprWithAlias"),
+    }
+
+    snowflake().verified_stmt(r#"CREATE TABLE "foo" ("bar" "int")"#);
+    snowflake().verified_stmt(r#"ALTER TABLE foo ADD CONSTRAINT "bar" PRIMARY KEY (baz)"#);
+    //TODO verified_stmt(r#"UPDATE foo SET "bar" = 5"#);
+}
+
+#[test]
+fn test_array_agg_func() {
+    for sql in [
+        "SELECT ARRAY_AGG(x) WITHIN GROUP (ORDER BY x) AS a FROM T",
+        "SELECT ARRAY_AGG(DISTINCT x) WITHIN GROUP (ORDER BY x ASC) FROM tbl",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+fn snowflake() -> TestedDialects {
+    TestedDialects::new(vec![Box::new(SnowflakeDialect {})])
+}
+
+#[test]
+fn parse_create_sequence_snowflake_options() {
+    // Snowflake accepts the `=` assignment form, options in any order, and a
+    // trailing ORDER/NOORDER guarantee.
+    for sql in [
+        "CREATE SEQUENCE seq0 START = 1 INCREMENT = 1 ORDER",
+        "CREATE SEQUENCE seq0 INCREMENT = 2 START = 5 NOORDER",
+        "CREATE SEQUENCE seq0 START WITH 1 INCREMENT 1",
+        "CREATE SEQUENCE seq0 WITH START = 1, INCREMENT = 1",
+        "CREATE SEQUENCE seq0 WITH START = 1, INCREMENT = 1, ORDER",
+        "CREATE SEQUENCE seq0 WITH NOORDER",
+        "ALTER SEQUENCE seq0 SET ORDER",
+        "ALTER SEQUENCE seq0 SET NOORDER",
+        "ALTER SEQUENCE IF EXISTS seq0 SET NOORDER",
+    ] {
+        snowflake()
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+    }
+}
+
+fn snowflake_with_recursion_limit(recursion_limit: usize) -> TestedDialects {
+    TestedDialects::new(vec![Box::new(SnowflakeDialect {})]).with_recursion_limit(recursion_limit)
+}
+
+fn snowflake_without_unescape() -> TestedDialects {
+    TestedDialects::new_with_options(
+        vec![Box::new(SnowflakeDialect {})],
+        ParserOptions::new().with_unescape(false),
+    )
+}
+
+fn snowflake_and_generic() -> TestedDialects {
+    TestedDialects::new(vec![
+        Box::new(SnowflakeDialect {}),
+        Box::new(GenericDialect {}),
+    ])
+}
+
+#[test]
+fn test_select_wildcard_with_exclude() {
+    let select = snowflake_and_generic().verified_only_select("SELECT * EXCLUDE (col_a) FROM data");
+    let expected = SelectItem::Wildcard(WildcardAdditionalOptions {
+        opt_exclude: Some(ExcludeSelectItem::Multiple(vec![ObjectName::from(
+            Ident::new("col_a"),
+        )])),
+        ..Default::default()
+    });
+    assert_eq!(expected, select.projection[0]);
+
+    let select = snowflake_and_generic()
+        .verified_only_select("SELECT name.* EXCLUDE department_id FROM employee_table");
+    let expected = SelectItem::QualifiedWildcard(
+        SelectItemQualifiedWildcardKind::ObjectName(ObjectName::from(vec![Ident::new("name")])),
+        WildcardAdditionalOptions {
+            opt_exclude: Some(ExcludeSelectItem::Single(ObjectName::from(Ident::new(
+                "department_id",
+            )))),
+            ..Default::default()
+        },
+    );
+    assert_eq!(expected, select.projection[0]);
+
+    let select = snowflake_and_generic()
+        .verified_only_select("SELECT * EXCLUDE (department_id, employee_id) FROM employee_table");
+    let expected = SelectItem::Wildcard(WildcardAdditionalOptions {
+        opt_exclude: Some(ExcludeSelectItem::Multiple(vec![
+            ObjectName::from(Ident::new("department_id")),
+            ObjectName::from(Ident::new("employee_id")),
+        ])),
+        ..Default::default()
+    });
+    assert_eq!(expected, select.projection[0]);
+}
+
+#[test]
+fn test_select_wildcard_with_rename() {
+    let select =
+        snowflake_and_generic().verified_only_select("SELECT * RENAME col_a AS col_b FROM data");
+    let expected = SelectItem::Wildcard(WildcardAdditionalOptions {
+        opt_rename: Some(RenameSelectItem::Single(IdentWithAlias {
+            ident: Ident::new("col_a"),
+            alias: Ident::new("col_b"),
+        })),
+        ..Default::default()
+    });
+    assert_eq!(expected, select.projection[0]);
+
+    let select = snowflake_and_generic().verified_only_select(
+        "SELECT name.* RENAME (department_id AS new_dep, employee_id AS new_emp) FROM employee_table",
+    );
+    let expected = SelectItem::QualifiedWildcard(
+        SelectItemQualifiedWildcardKind::ObjectName(ObjectName::from(vec![Ident::new("name")])),
+        WildcardAdditionalOptions {
+            opt_rename: Some(RenameSelectItem::Multiple(vec![
+                IdentWithAlias {
+                    ident: Ident::new("department_id"),
+                    alias: Ident::new("new_dep"),
+                },
+                IdentWithAlias {
+                    ident: Ident::new("employee_id"),
+                    alias: Ident::new("new_emp"),
+                },
+            ])),
+            ..Default::default()
+        },
+    );
+    assert_eq!(expected, select.projection[0]);
+}
+
+#[test]
+fn test_select_wildcard_with_replace_and_rename() {
+    let select = snowflake_and_generic().verified_only_select(
+        "SELECT * REPLACE (col_z || col_z AS col_z) RENAME (col_z AS col_zz) FROM data",
+    );
+    let expected = SelectItem::Wildcard(WildcardAdditionalOptions {
+        opt_replace: Some(ReplaceSelectItem {
+            items: vec![Box::new(ReplaceSelectElement {
+                expr: Expr::BinaryOp {
+                    left: Box::new(Expr::Identifier(Ident::new("col_z"))),
+                    op: BinaryOperator::StringConcat,
+                    right: Box::new(Expr::Identifier(Ident::new("col_z"))),
+                },
+                column_name: Ident::new("col_z"),
+                as_keyword: true,
+            })],
+        }),
+        opt_rename: Some(RenameSelectItem::Multiple(vec![IdentWithAlias {
+            ident: Ident::new("col_z"),
+            alias: Ident::new("col_zz"),
+        }])),
+        ..Default::default()
+    });
+    assert_eq!(expected, select.projection[0]);
+
+    // rename cannot precede replace
+    // https://docs.snowflake.com/en/sql-reference/sql/select#parameters
+    assert_eq!(
+        snowflake_and_generic()
+            .parse_sql_statements(
+                "SELECT * RENAME (col_z AS col_zz) REPLACE (col_z || col_z AS col_z) FROM data"
+            )
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: end of statement, found: REPLACE"
+    );
+}
+
+#[test]
+fn test_select_wildcard_with_exclude_and_rename() {
+    let select = snowflake_and_generic()
+        .verified_only_select("SELECT * EXCLUDE col_z RENAME col_a AS col_b FROM data");
+    let expected = SelectItem::Wildcard(WildcardAdditionalOptions {
+        opt_exclude: Some(ExcludeSelectItem::Single(ObjectName::from(Ident::new(
+            "col_z",
+        )))),
+        opt_rename: Some(RenameSelectItem::Single(IdentWithAlias {
+            ident: Ident::new("col_a"),
+            alias: Ident::new("col_b"),
+        })),
+        ..Default::default()
+    });
+    assert_eq!(expected, select.projection[0]);
+
+    // rename cannot precede exclude
+    // https://docs.snowflake.com/en/sql-reference/sql/select#parameters
+    assert_eq!(
+        snowflake_and_generic()
+            .parse_sql_statements("SELECT * RENAME col_a AS col_b EXCLUDE col_z FROM data")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: end of statement, found: EXCLUDE"
+    );
+}
+
+#[test]
+fn test_alter_table_swap_with() {
+    let sql = "ALTER TABLE tab1 SWAP WITH tab2";
+    match alter_table_op_with_name(snowflake_and_generic().verified_stmt(sql), "tab1") {
+        AlterTableOperation::SwapWith { table_name } => {
+            assert_eq!("tab2", table_name.to_string());
+        }
+        _ => unreachable!(),
+    };
+}
+
+#[test]
+fn test_alter_table_clustering() {
+    let sql = r#"ALTER TABLE tab CLUSTER BY (c1, "c2", TO_DATE(c3))"#;
+    match alter_table_op(snowflake_and_generic().verified_stmt(sql)) {
+        AlterTableOperation::ClusterBy { exprs } => {
+            assert_eq!(
+                exprs,
+                [
+                    Expr::Identifier(Ident::new("c1")),
+                    Expr::Identifier(Ident::with_quote('"', "c2")),
+                    Expr::Function(Function {
+                        name: ObjectName::from(vec![Ident::new("TO_DATE")]),
+                        uses_odbc_syntax: false,
+                        parameters: FunctionArguments::None,
+                        args: FunctionArguments::List(FunctionArgumentList {
+                            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                Expr::Identifier(Ident::new("c3"))
+                            ))],
+                            duplicate_treatment: None,
+                            clauses: vec![],
+                        }),
+                        filter: None,
+                        null_treatment: None,
+                        over: None,
+                        within_group: vec![]
+                    })
+                ],
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    snowflake_and_generic().verified_stmt("ALTER TABLE tbl DROP CLUSTERING KEY");
+    snowflake_and_generic().verified_stmt("ALTER TABLE tbl SUSPEND RECLUSTER");
+    snowflake_and_generic().verified_stmt("ALTER TABLE tbl RESUME RECLUSTER");
+}
+
+#[test]
+fn test_alter_table_rename_column_if_exists() {
+    // Without IF EXISTS — round-trips via Display.
+    let sql = "ALTER TABLE tab RENAME COLUMN c1 TO c2";
+    match alter_table_op(snowflake_and_generic().verified_stmt(sql)) {
+        AlterTableOperation::RenameColumn {
+            if_exists,
+            old_column_name,
+            new_column_name,
+        } => {
+            assert!(!if_exists);
+            assert_eq!(old_column_name.to_string(), "c1");
+            assert_eq!(new_column_name.to_string(), "c2");
+        }
+        _ => unreachable!(),
+    }
+
+    // With inner IF EXISTS, plus outer IF EXISTS on ALTER TABLE — round-trips
+    // via Display.
+    let sql = "ALTER TABLE IF EXISTS tab RENAME COLUMN IF EXISTS c1 TO c2";
+    match snowflake_and_generic().verified_stmt(sql) {
+        Statement::AlterTable(alter_table) => {
+            assert!(alter_table.if_exists);
+            assert_eq!(alter_table.name.to_string(), "tab");
+            match alter_table.operations.as_slice() {
+                [AlterTableOperation::RenameColumn {
+                    if_exists,
+                    old_column_name,
+                    new_column_name,
+                }] => {
+                    assert!(*if_exists);
+                    assert_eq!(old_column_name.to_string(), "c1");
+                    assert_eq!(new_column_name.to_string(), "c2");
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_table_add_column_if_not_exists() {
+    // Post-COLUMN `IF NOT EXISTS` form — round-trips via Display.
+    let sql = "ALTER TABLE tab ADD COLUMN IF NOT EXISTS c TEXT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumn {
+            column_keyword,
+            if_not_exists,
+            column_def,
+            ..
+        } => {
+            assert!(column_keyword);
+            assert!(if_not_exists);
+            assert_eq!(column_def.name.to_string(), "c");
+        }
+        _ => unreachable!(),
+    }
+
+    // Pre-COLUMN `IF NOT EXISTS` form — Display canonicalises to the
+    // post-COLUMN form, so use `one_statement_parses_to`.
+    let sql = "ALTER TABLE tab ADD IF NOT EXISTS COLUMN c TEXT";
+    let canonical = "ALTER TABLE tab ADD COLUMN IF NOT EXISTS c TEXT";
+    match alter_table_op(snowflake().one_statement_parses_to(sql, canonical)) {
+        AlterTableOperation::AddColumn {
+            column_keyword,
+            if_not_exists,
+            column_def,
+            ..
+        } => {
+            assert!(column_keyword);
+            assert!(if_not_exists);
+            assert_eq!(column_def.name.to_string(), "c");
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_table_add_multiple_columns() {
+    let sql = "ALTER TABLE tab ADD COLUMN a INT, b TEXT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumns {
+            column_keyword,
+            if_not_exists,
+            column_defs,
+        } => {
+            assert!(column_keyword);
+            assert!(!if_not_exists);
+            assert_eq!(column_defs.len(), 2);
+            assert_eq!(column_defs[0].name.to_string(), "a");
+            assert_eq!(column_defs[1].name.to_string(), "b");
+        }
+        _ => unreachable!(),
+    }
+
+    let sql = "ALTER TABLE tab ADD COLUMN IF NOT EXISTS a INT, b TEXT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumns {
+            column_keyword,
+            if_not_exists,
+            column_defs,
+        } => {
+            assert!(column_keyword);
+            assert!(if_not_exists);
+            assert_eq!(column_defs.len(), 2);
+        }
+        _ => unreachable!(),
+    }
+
+    // A single-column list still parses to the AddColumn variant.
+    let sql = "ALTER TABLE tab ADD COLUMN a INT";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AddColumn { column_def, .. } => {
+            assert_eq!(column_def.name.to_string(), "a");
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_table_alter_column_comment() {
+    let sql = "ALTER TABLE tab ALTER COLUMN c COMMENT 'hello'";
+    match alter_table_op(snowflake().verified_stmt(sql)) {
+        AlterTableOperation::AlterColumn {
+            column_name,
+            op: AlterColumnOperation::Comment { comment },
+        } => {
+            assert_eq!(column_name.to_string(), "c");
+            assert_eq!(comment, "hello");
+        }
+        _ => unreachable!(),
+    }
+
+    // Dollar-quoted comment values are accepted as plain string literals and
+    // canonicalise to single-quoted form on Display.
+    let sql = "ALTER TABLE tab ALTER COLUMN c COMMENT $$hi$$";
+    let canonical = "ALTER TABLE tab ALTER COLUMN c COMMENT 'hi'";
+    match alter_table_op(snowflake().one_statement_parses_to(sql, canonical)) {
+        AlterTableOperation::AlterColumn {
+            op: AlterColumnOperation::Comment { comment },
+            ..
+        } => assert_eq!(comment, "hi"),
+        _ => unreachable!(),
+    }
+
+    // Multi-column form: later items carry `COLUMN` without `ALTER`; Display
+    // canonicalises each item to the full `ALTER COLUMN` spelling.
+    let sql = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', COLUMN c2 COMMENT 's2'";
+    let canonical = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', ALTER COLUMN c2 COMMENT 's2'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(operations.len(), 2);
+            match (&operations[0], &operations[1]) {
+                (
+                    AlterTableOperation::AlterColumn {
+                        column_name: n1,
+                        op: AlterColumnOperation::Comment { comment: c1 },
+                    },
+                    AlterTableOperation::AlterColumn {
+                        column_name: n2,
+                        op: AlterColumnOperation::Comment { comment: c2 },
+                    },
+                ) => {
+                    assert_eq!(n1.to_string(), "c1");
+                    assert_eq!(c1, "s1");
+                    assert_eq!(n2.to_string(), "c2");
+                    assert_eq!(c2, "s2");
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    // Bare multi-column form: `COLUMN` omitted on every clause (the shape dbt
+    // `persist_docs` emits). Canonicalises to the full `ALTER COLUMN` spelling.
+    let sql = "ALTER TABLE tab ALTER \"ID\" COMMENT 's1', \"NAME\" COMMENT $$$$";
+    let canonical =
+        "ALTER TABLE tab ALTER COLUMN \"ID\" COMMENT 's1', ALTER COLUMN \"NAME\" COMMENT ''";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(operations.len(), 2);
+            match (&operations[0], &operations[1]) {
+                (
+                    AlterTableOperation::AlterColumn {
+                        column_name: n1,
+                        op: AlterColumnOperation::Comment { comment: c1 },
+                    },
+                    AlterTableOperation::AlterColumn {
+                        column_name: n2,
+                        op: AlterColumnOperation::Comment { comment: c2 },
+                    },
+                ) => {
+                    assert_eq!(n1.to_string(), "\"ID\"");
+                    assert_eq!(c1, "s1");
+                    assert_eq!(n2.to_string(), "\"NAME\"");
+                    assert_eq!(c2, "");
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    // Mixed form: `COLUMN` on the first clause, omitted on the second.
+    let sql = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', c2 COMMENT 's2'";
+    let canonical = "ALTER TABLE tab ALTER COLUMN c1 COMMENT 's1', ALTER COLUMN c2 COMMENT 's2'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(operations.len(), 2);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_iceberg_table() {
+    snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl DROP CLUSTERING KEY");
+    snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl SUSPEND RECLUSTER");
+    snowflake_and_generic().verified_stmt("ALTER ICEBERG TABLE tbl RESUME RECLUSTER");
+}
+
+#[test]
+fn test_drop_stage() {
+    match snowflake_and_generic().verified_stmt("DROP STAGE s1") {
+        Statement::Drop {
+            names, if_exists, ..
+        } => {
+            assert!(!if_exists);
+            assert_eq!("s1", names[0].to_string());
+        }
+        _ => unreachable!(),
+    };
+    match snowflake_and_generic().verified_stmt("DROP STAGE IF EXISTS s1") {
+        Statement::Drop {
+            names, if_exists, ..
+        } => {
+            assert!(if_exists);
+            assert_eq!("s1", names[0].to_string());
+        }
+        _ => unreachable!(),
+    };
+
+    snowflake_and_generic().one_statement_parses_to("DROP STAGE s1", "DROP STAGE s1");
+
+    snowflake_and_generic()
+        .one_statement_parses_to("DROP STAGE IF EXISTS s1", "DROP STAGE IF EXISTS s1");
+}
+
+#[test]
+fn parse_snowflake_declare_cursor() {
+    for (sql, expected_name, expected_assigned_expr, expected_query_projections) in [
+        (
+            "DECLARE c1 CURSOR FOR SELECT id, price FROM invoices",
+            "c1",
+            None,
+            Some(vec!["id", "price"]),
+        ),
+        (
+            "DECLARE c1 CURSOR FOR res",
+            "c1",
+            Some(DeclareAssignment::For(
+                Expr::Identifier(Ident::new("res")).into(),
+            )),
+            None,
+        ),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare {
+                    names,
+                    data_type,
+                    declare_type,
+                    assignment: assigned_expr,
+                    for_query,
+                    ..
+                } = stmts.swap_remove(0);
+                assert_eq!(vec![Ident::new(expected_name)], names);
+                assert!(data_type.is_none());
+                assert_eq!(Some(DeclareType::Cursor), declare_type);
+                assert_eq!(expected_assigned_expr, assigned_expr);
+                assert_eq!(
+                    expected_query_projections,
+                    for_query.as_ref().map(|q| {
+                        match q.body.as_ref() {
+                            SetExpr::Select(q) => q
+                                .projection
+                                .iter()
+                                .map(|item| match item {
+                                    SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
+                                        ident.value.as_str()
+                                    }
+                                    _ => unreachable!(),
+                                })
+                                .collect::<Vec<_>>(),
+                            _ => unreachable!(),
+                        }
+                    })
+                )
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    let error_sql = "DECLARE c1 CURSOR SELECT id FROM invoices";
+    assert_eq!(
+        ParserError::ParserError("Expected: FOR, found: SELECT".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+
+    let error_sql = "DECLARE c1 CURSOR res";
+    assert_eq!(
+        ParserError::ParserError("Expected: FOR, found: res".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+}
+
+#[test]
+fn parse_snowflake_declare_result_set() {
+    for (sql, expected_name, expected_assigned_expr) in [
+        (
+            "DECLARE res RESULTSET DEFAULT 42",
+            "res",
+            Some(DeclareAssignment::Default(Expr::value(number("42")).into())),
+        ),
+        (
+            "DECLARE res RESULTSET := 42",
+            "res",
+            Some(DeclareAssignment::DuckAssignment(
+                Expr::value(number("42")).into(),
+            )),
+        ),
+        ("DECLARE res RESULTSET", "res", None),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare {
+                    names,
+                    data_type,
+                    declare_type,
+                    assignment: assigned_expr,
+                    for_query,
+                    ..
+                } = stmts.swap_remove(0);
+                assert_eq!(vec![Ident::new(expected_name)], names);
+                assert!(data_type.is_none());
+                assert!(for_query.is_none());
+                assert_eq!(Some(DeclareType::ResultSet), declare_type);
+                assert_eq!(expected_assigned_expr, assigned_expr);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    let sql = "DECLARE res RESULTSET DEFAULT (SELECT price FROM invoices)";
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    let error_sql = "DECLARE res RESULTSET DEFAULT";
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: EOF".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+
+    let error_sql = "DECLARE res RESULTSET :=";
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: EOF".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+}
+
+#[test]
+fn parse_snowflake_declare_show_payload() {
+    fn payload_show(stmt: Statement) -> Statement {
+        match stmt {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare {
+                    assignment,
+                    for_query,
+                    ..
+                } = stmts.swap_remove(0);
+                let query = match (assignment, for_query) {
+                    (Some(DeclareAssignment::Default(expr)), None)
+                    | (Some(DeclareAssignment::DuckAssignment(expr)), None)
+                    | (Some(DeclareAssignment::For(expr)), None) => match *expr {
+                        Expr::Subquery(query) => query,
+                        other => panic!("expected subquery payload, got {other:?}"),
+                    },
+                    other => panic!("unexpected declaration payload: {other:?}"),
+                };
+                match *query.body {
+                    SetExpr::Show(show) => show,
+                    other => panic!("expected SHOW body, got {other:?}"),
+                }
+            }
+            other => panic!("expected DECLARE, got {other:?}"),
+        }
+    }
+
+    for sql in [
+        "DECLARE res RESULTSET DEFAULT (SHOW TASKS)",
+        "DECLARE res RESULTSET := (SHOW TASKS LIKE 'foo%')",
+        "DECLARE cur CURSOR FOR (SHOW TASKS)",
+    ] {
+        let stmt = snowflake().verified_stmt(sql);
+        // The parsed SHOW must be recoverable from the declaration AST.
+        assert!(matches!(payload_show(stmt), Statement::ShowTasks { .. }));
+    }
+
+    // The pre-existing parenthesized-SELECT payload is unaffected.
+    snowflake().verified_stmt("DECLARE res RESULTSET DEFAULT (SELECT price FROM invoices)");
+    snowflake().verified_stmt("DECLARE cur CURSOR FOR (SELECT id FROM invoices)");
+
+    // Under a non-Snowflake dialect the SHOW payload still errors.
+    let generic = TestedDialects::new(vec![Box::new(GenericDialect {})]);
+    for sql in [
+        "DECLARE res RESULTSET DEFAULT (SHOW TASKS)",
+        "DECLARE cur CURSOR FOR (SHOW TASKS)",
+    ] {
+        assert!(generic.parse_sql_statements(sql).is_err());
+    }
+}
+
+#[test]
+fn parse_snowflake_declare_exception() {
+    for (sql, expected_name, expected_assigned_expr) in [
+        (
+            "DECLARE ex EXCEPTION (42, 'ERROR')",
+            "ex",
+            Some(DeclareAssignment::Expr(
+                Expr::Tuple(vec![
+                    Expr::value(number("42")),
+                    Expr::Value((Value::SingleQuotedString("ERROR".to_string())).with_empty_span()),
+                ])
+                .into(),
+            )),
+        ),
+        ("DECLARE ex EXCEPTION", "ex", None),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare {
+                    names,
+                    data_type,
+                    declare_type,
+                    assignment: assigned_expr,
+                    for_query,
+                    ..
+                } = stmts.swap_remove(0);
+                assert_eq!(vec![Ident::new(expected_name)], names);
+                assert!(data_type.is_none());
+                assert!(for_query.is_none());
+                assert_eq!(Some(DeclareType::Exception), declare_type);
+                assert_eq!(expected_assigned_expr, assigned_expr);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn parse_snowflake_declare_variable() {
+    for (sql, expected_name, expected_data_type, expected_assigned_expr) in [
+        (
+            "DECLARE profit TEXT DEFAULT 42",
+            "profit",
+            Some(DataType::Text),
+            Some(DeclareAssignment::Default(Expr::value(number("42")).into())),
+        ),
+        (
+            "DECLARE profit DEFAULT 42",
+            "profit",
+            None,
+            Some(DeclareAssignment::Default(Expr::value(number("42")).into())),
+        ),
+        ("DECLARE profit TEXT", "profit", Some(DataType::Text), None),
+        ("DECLARE profit", "profit", None, None),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare {
+                    names,
+                    data_type,
+                    declare_type,
+                    assignment: assigned_expr,
+                    for_query,
+                    ..
+                } = stmts.swap_remove(0);
+                assert_eq!(vec![Ident::new(expected_name)], names);
+                assert!(for_query.is_none());
+                assert_eq!(expected_data_type, data_type);
+                assert_eq!(None, declare_type);
+                assert_eq!(expected_assigned_expr, assigned_expr);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    snowflake().one_statement_parses_to("DECLARE profit;", "DECLARE profit");
+
+    let error_sql = "DECLARE profit INT 2";
+    assert_eq!(
+        ParserError::ParserError("Expected: end of statement, found: 2".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+
+    let error_sql = "DECLARE profit INT DEFAULT";
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: EOF".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+
+    let error_sql = "DECLARE profit DEFAULT";
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: EOF".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+}
+
+#[test]
+fn parse_snowflake_declare_multi_statements() {
+    let sql = concat!(
+        "DECLARE profit DEFAULT 42; ",
+        "res RESULTSET DEFAULT (SELECT price FROM invoices); ",
+        "c1 CURSOR FOR res; ",
+        "ex EXCEPTION (-20003, 'ERROR: Could not create table.')"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::Declare { stmts } => {
+            let actual = stmts
+                .iter()
+                .map(|stmt| (stmt.names[0].value.as_str(), stmt.declare_type.clone()))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                vec![
+                    ("profit", None),
+                    ("res", Some(DeclareType::ResultSet)),
+                    ("c1", Some(DeclareType::Cursor)),
+                    ("ex", Some(DeclareType::Exception)),
+                ],
+                actual
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    let error_sql = "DECLARE profit DEFAULT 42 c1 CURSOR FOR res;";
+    assert_eq!(
+        ParserError::ParserError("Expected: end of statement, found: c1".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+}
+
+#[test]
+fn test_create_stage() {
+    let sql = "CREATE STAGE s1.s2";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateStage {
+            or_replace,
+            temporary,
+            if_not_exists,
+            name,
+            comment,
+            ..
+        } => {
+            assert!(!or_replace);
+            assert!(!temporary);
+            assert!(!if_not_exists);
+            assert_eq!("s1.s2", name.to_string());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    let extended_sql = concat!(
+        "CREATE OR REPLACE TEMPORARY STAGE IF NOT EXISTS s1.s2 ",
+        "COMMENT='some-comment'"
+    );
+    match snowflake().verified_stmt(extended_sql) {
+        Statement::CreateStage {
+            or_replace,
+            temporary,
+            if_not_exists,
+            name,
+            stage_params,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(temporary);
+            assert!(if_not_exists);
+            assert!(stage_params.url.is_none());
+            assert!(stage_params.endpoint.is_none());
+            assert_eq!("s1.s2", name.to_string());
+            assert_eq!("some-comment", comment.unwrap());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        snowflake().verified_stmt(extended_sql).to_string(),
+        extended_sql
+    );
+}
+
+#[test]
+fn test_create_stage_with_stage_params() {
+    let sql = concat!(
+        "CREATE OR REPLACE STAGE my_ext_stage ",
+        "URL='s3://load/files/' ",
+        "STORAGE_INTEGRATION=myint ",
+        "ENDPOINT='<s3_api_compatible_endpoint>' ",
+        "CREDENTIALS=(AWS_KEY_ID='1a2b3c' AWS_SECRET_KEY='4x5y6z') ",
+        "ENCRYPTION=(MASTER_KEY='key' TYPE='AWS_SSE_KMS')"
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateStage { stage_params, .. } => {
+            assert_eq!("s3://load/files/", stage_params.url.unwrap());
+            assert_eq!("myint", stage_params.storage_integration.unwrap());
+            assert_eq!(
+                "<s3_api_compatible_endpoint>",
+                stage_params.endpoint.unwrap()
+            );
+            assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                option_name: "AWS_KEY_ID".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("1a2b3c".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                option_name: "AWS_SECRET_KEY".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("4x5y6z".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                option_name: "MASTER_KEY".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("key".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                option_name: "TYPE".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("AWS_SSE_KMS".to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    };
+
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_create_stage_with_directory_table_params() {
+    let sql = concat!(
+        "CREATE OR REPLACE STAGE my_ext_stage ",
+        "URL='s3://load/files/' ",
+        "DIRECTORY=(ENABLE=true REFRESH_ON_CREATE=false NOTIFICATION_INTEGRATION='some-string')"
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateStage {
+            directory_table_params,
+            ..
+        } => {
+            assert!(directory_table_params.options.contains(&KeyValueOption {
+                option_name: "ENABLE".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(true).with_empty_span()),
+            }));
+            assert!(directory_table_params.options.contains(&KeyValueOption {
+                option_name: "REFRESH_ON_CREATE".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(false).with_empty_span()),
+            }));
+            assert!(directory_table_params.options.contains(&KeyValueOption {
+                option_name: "NOTIFICATION_INTEGRATION".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("some-string".to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_create_stage_with_file_format() {
+    let sql = concat!(
+        "CREATE OR REPLACE STAGE my_ext_stage ",
+        "URL='s3://load/files/' ",
+        r#"FILE_FORMAT=(COMPRESSION=AUTO BINARY_FORMAT=HEX ESCAPE='\\')"#
+    );
+
+    match snowflake_without_unescape().verified_stmt(sql) {
+        Statement::CreateStage { file_format, .. } => {
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "COMPRESSION".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("AUTO".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "BINARY_FORMAT".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("HEX".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "ESCAPE".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString(r#"\\"#.to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        snowflake_without_unescape().verified_stmt(sql).to_string(),
+        sql
+    );
+}
+
+#[test]
+fn test_create_stage_with_copy_options() {
+    let sql = concat!(
+        "CREATE OR REPLACE STAGE my_ext_stage ",
+        "URL='s3://load/files/' ",
+        "COPY_OPTIONS=(ON_ERROR=CONTINUE FORCE=true)"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateStage { copy_options, .. } => {
+            assert!(copy_options.options.contains(&KeyValueOption {
+                option_name: "ON_ERROR".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("CONTINUE".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(copy_options.options.contains(&KeyValueOption {
+                option_name: "FORCE".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(true).with_empty_span()),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_copy_into() {
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic ",
+        "FROM 'gcs://mybucket/./../a.csv'"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            kind,
+            into,
+            from_obj,
+            files,
+            pattern,
+            validation_mode,
+            ..
+        } => {
+            assert_eq!(kind, CopyIntoSnowflakeKind::Table);
+            assert_eq!(
+                into,
+                ObjectName::from(vec![Ident::new("my_company"), Ident::new("emp_basic")])
+            );
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![Ident::with_quote(
+                    '\'',
+                    "gcs://mybucket/./../a.csv"
+                )]))
+            );
+            assert!(files.is_none());
+            assert!(pattern.is_none());
+            assert!(validation_mode.is_none());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    let sql = concat!("COPY INTO 's3://a/b/c/data.parquet' ", "FROM db.sc.tbl ", "PARTITION BY ('date=' || to_varchar(dt, 'YYYY-MM-DD') || '/hour=' || to_varchar(date_part(hour, ts)))");
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            kind,
+            into,
+            from_obj,
+            from_query,
+            partition,
+            ..
+        } => {
+            assert_eq!(kind, CopyIntoSnowflakeKind::Location);
+            assert_eq!(
+                into,
+                ObjectName::from(vec![Ident::with_quote('\'', "s3://a/b/c/data.parquet")])
+            );
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![
+                    Ident::new("db"),
+                    Ident::new("sc"),
+                    Ident::new("tbl")
+                ]))
+            );
+            assert!(from_query.is_none());
+            assert!(partition.is_some());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    let sql = concat!(
+        "COPY INTO 's3://a/b/c/data.parquet' ",
+        "FROM (SELECT * FROM tbl)"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            kind,
+            into,
+            from_obj,
+            from_query,
+            ..
+        } => {
+            assert_eq!(kind, CopyIntoSnowflakeKind::Location);
+            assert_eq!(
+                into,
+                ObjectName::from(vec![Ident::with_quote('\'', "s3://a/b/c/data.parquet")])
+            );
+            assert!(from_query.is_some());
+            assert!(from_obj.is_none());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_copy_into_with_stage_params() {
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic ",
+        "FROM 's3://load/files/' ",
+        "STORAGE_INTEGRATION=myint ",
+        "ENDPOINT='<s3_api_compatible_endpoint>' ",
+        "CREDENTIALS=(AWS_KEY_ID='1a2b3c' AWS_SECRET_KEY='4x5y6z') ",
+        "ENCRYPTION=(MASTER_KEY='key' TYPE='AWS_SSE_KMS')"
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            from_obj,
+            stage_params,
+            ..
+        } => {
+            //assert_eq!("s3://load/files/", stage_params.url.unwrap());
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![Ident::with_quote(
+                    '\'',
+                    "s3://load/files/"
+                )]))
+            );
+            assert_eq!("myint", stage_params.storage_integration.unwrap());
+            assert_eq!(
+                "<s3_api_compatible_endpoint>",
+                stage_params.endpoint.unwrap()
+            );
+            assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                option_name: "AWS_KEY_ID".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("1a2b3c".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                option_name: "AWS_SECRET_KEY".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("4x5y6z".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                option_name: "MASTER_KEY".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("key".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                option_name: "TYPE".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("AWS_SSE_KMS".to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    };
+
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    // stage params within copy into with transformations
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic FROM ",
+        "(SELECT t1.$1 FROM 's3://load/files/' STORAGE_INTEGRATION=myint)",
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            from_obj,
+            stage_params,
+            ..
+        } => {
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![Ident::with_quote(
+                    '\'',
+                    "s3://load/files/"
+                )]))
+            );
+            assert_eq!("myint", stage_params.storage_integration.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_copy_into_with_files_and_pattern_and_verification() {
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic ",
+        "FROM 'gcs://mybucket/./../a.csv' AS some_alias ",
+        "FILES = ('file1.json', 'file2.json') ",
+        "PATTERN = '.*employees0[1-5].csv.gz' ",
+        "VALIDATION_MODE = RETURN_7_ROWS"
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            files,
+            pattern,
+            validation_mode,
+            from_obj_alias,
+            ..
+        } => {
+            assert_eq!(
+                files
+                    .unwrap()
+                    .into_iter()
+                    .map(|v| v.value)
+                    .collect::<Vec<_>>(),
+                vec![
+                    Value::SingleQuotedString("file1.json".to_string()),
+                    Value::SingleQuotedString("file2.json".to_string()),
+                ]
+            );
+            assert_eq!(
+                pattern.unwrap().value,
+                Value::SingleQuotedString(".*employees0[1-5].csv.gz".to_string())
+            );
+            assert_eq!(validation_mode.unwrap(), "RETURN_7_ROWS");
+            assert_eq!(from_obj_alias.unwrap(), Ident::new("some_alias"));
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_copy_into_with_transformations() {
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic FROM ",
+        "(SELECT t1.$1:st AS st, $1:index, t2.$1, 4, '5' AS const_str FROM @schema.general_finished AS T) ",
+        "FILES = ('file1.json', 'file2.json') ",
+        "PATTERN = '.*employees0[1-5].csv.gz' ",
+        "VALIDATION_MODE = RETURN_7_ROWS"
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            from_obj,
+            from_transformations,
+            ..
+        } => {
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![
+                    Ident::new("@schema"),
+                    Ident::new("general_finished")
+                ]))
+            );
+            assert_eq!(
+                from_transformations.as_ref().unwrap()[0],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: Some(Ident::new("t1")),
+                    file_col_num: 1,
+                    element: Some(Ident::new("st")),
+                    item_as: Some(Ident::new("st"))
+                })
+            );
+            assert_eq!(
+                from_transformations.as_ref().unwrap()[1],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 1,
+                    element: Some(Ident::new("index")),
+                    item_as: None
+                })
+            );
+            assert_eq!(
+                from_transformations.as_ref().unwrap()[2],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: Some(Ident::new("t2")),
+                    file_col_num: 1,
+                    element: None,
+                    item_as: None
+                })
+            );
+            assert_eq!(
+                from_transformations.as_ref().unwrap()[3],
+                StageLoadSelectItemKind::SelectItem(SelectItem::UnnamedExpr(Expr::Value(
+                    Value::Number("4".parse().unwrap(), false).into()
+                )))
+            );
+            assert_eq!(
+                from_transformations.as_ref().unwrap()[4],
+                StageLoadSelectItemKind::SelectItem(SelectItem::ExprWithAlias {
+                    expr: Expr::Value(Value::SingleQuotedString("5".parse().unwrap()).into()),
+                    alias: Ident::new("const_str".to_string())
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    // Test optional AS keyword to denote an alias for the stage
+    let sql1 = concat!(
+        "COPY INTO my_company.emp_basic FROM ",
+        "(SELECT t1.$1:st AS st, $1:index, t2.$1, 4, '5' AS const_str FROM @schema.general_finished T) "
+    );
+    snowflake().parse_sql_statements(sql1).unwrap();
+}
+
+#[test]
+fn test_copy_into_data_load_dotted_subpaths_and_casts() {
+    // Extended data-load projection shapes that the dedicated item parser does not
+    // cover — dotted sub-paths (`$N:a.b`), `::TYPE` casts (with or without a colon
+    // element, and bare `$N::TYPE`), and their combinations — must fall back to the
+    // general select-item parser instead of failing at the stray `.`/`::`.
+    fn transformations(sql: &str) -> Vec<StageLoadSelectItemKind> {
+        match snowflake().verified_stmt(sql) {
+            Statement::CopyIntoSnowflake {
+                from_transformations,
+                ..
+            } => from_transformations.unwrap(),
+            _ => unreachable!(),
+        }
+    }
+
+    // Dotted sub-path with a cast and alias, mixed with a single-word colon element and
+    // a bare `$N`. The extended item parses as a general SelectItem; the plain ones stay
+    // StageLoadSelectItem.
+    let items = transformations(
+        "COPY INTO t FROM (SELECT $1:country.name::TEXT AS country_name, $1:id, $2 FROM @stage)",
+    );
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+    assert_eq!(
+        items[1],
+        StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+            alias: None,
+            file_col_num: 1,
+            element: Some(Ident::new("id")),
+            item_as: None,
+        })
+    );
+    assert_eq!(
+        items[2],
+        StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+            alias: None,
+            file_col_num: 2,
+            element: None,
+            item_as: None,
+        })
+    );
+
+    // Bare `$N::TYPE` cast, mixed with a plain `$N`.
+    let items = transformations("COPY INTO t FROM (SELECT $1::INT, $2 FROM @stage)");
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+    assert_eq!(
+        items[1],
+        StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+            alias: None,
+            file_col_num: 2,
+            element: None,
+            item_as: None,
+        })
+    );
+
+    // Colon element with a cast, no dotted sub-path.
+    let items = transformations("COPY INTO t FROM (SELECT $1:id::INT AS id FROM @stage)");
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+
+    // Dotted sub-path without a cast.
+    let items = transformations("COPY INTO t FROM (SELECT $1:a.b FROM @stage)");
+    assert!(matches!(items[0], StageLoadSelectItemKind::SelectItem(_)));
+}
+
+#[test]
+fn test_copy_into_data_load_accepted_shapes_preserved() {
+    // The currently-accepted data-load item shapes must keep parsing as dedicated
+    // StageLoadSelectItems and keep round-tripping.
+    let sql = concat!(
+        "COPY INTO t FROM ",
+        "(SELECT $1, alias.$2, $3:element, $4:element AS a FROM @stage AS alias)"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            from_transformations,
+            ..
+        } => {
+            let items = from_transformations.unwrap();
+            assert_eq!(
+                items[0],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 1,
+                    element: None,
+                    item_as: None,
+                })
+            );
+            assert_eq!(
+                items[1],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: Some(Ident::new("alias")),
+                    file_col_num: 2,
+                    element: None,
+                    item_as: None,
+                })
+            );
+            assert_eq!(
+                items[2],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 3,
+                    element: Some(Ident::new("element")),
+                    item_as: None,
+                })
+            );
+            assert_eq!(
+                items[3],
+                StageLoadSelectItemKind::StageLoadSelectItem(StageLoadSelectItem {
+                    alias: None,
+                    file_col_num: 4,
+                    element: Some(Ident::new("element")),
+                    item_as: Some(Ident::new("a")),
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // SELECT * remains handled by the general fallback.
+    snowflake().verified_stmt("COPY INTO t FROM (SELECT * FROM @stage)");
+}
+
+#[test]
+fn test_copy_into_file_format() {
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic ",
+        "FROM 'gcs://mybucket/./../a.csv' ",
+        "FILES = ('file1.json', 'file2.json') ",
+        "PATTERN = '.*employees0[1-5].csv.gz' ",
+        r#"FILE_FORMAT=(COMPRESSION=AUTO BINARY_FORMAT=HEX ESCAPE='\\')"#
+    );
+
+    match snowflake_without_unescape().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake { file_format, .. } => {
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "COMPRESSION".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("AUTO".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "BINARY_FORMAT".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("HEX".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "ESCAPE".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString(r#"\\"#.to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(
+        snowflake_without_unescape().verified_stmt(sql).to_string(),
+        sql
+    );
+
+    // Test commas in file format
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic ",
+        "FROM 'gcs://mybucket/./../a.csv' ",
+        "FILES = ('file1.json', 'file2.json') ",
+        "PATTERN = '.*employees0[1-5].csv.gz' ",
+        r#"FILE_FORMAT=(COMPRESSION=AUTO, BINARY_FORMAT=HEX, ESCAPE='\\')"#
+    );
+
+    match snowflake_without_unescape()
+        .parse_sql_statements(sql)
+        .unwrap()
+        .first()
+        .unwrap()
+    {
+        Statement::CopyIntoSnowflake { file_format, .. } => {
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "COMPRESSION".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("AUTO".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "BINARY_FORMAT".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("HEX".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(file_format.options.contains(&KeyValueOption {
+                option_name: "ESCAPE".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString(r#"\\"#.to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_copy_into_file_format_name_shorthand() {
+    // Bare `FILE_FORMAT = <name>` is sugar for
+    // `FILE_FORMAT = (FORMAT_NAME = <name>)`, for both the location-unload and
+    // table-load forms. An unquoted identifier parses to a `Placeholder`.
+    for sql in [
+        "COPY INTO @my_stage/out.csv FROM (SELECT * FROM t) FILE_FORMAT = my_format",
+        "COPY INTO my_table FROM @my_stage FILE_FORMAT = my_format",
+    ] {
+        match snowflake()
+            .parse_sql_statements(sql)
+            .unwrap()
+            .pop()
+            .unwrap()
+        {
+            Statement::CopyIntoSnowflake { file_format, .. } => {
+                assert_eq!(
+                    file_format.options,
+                    vec![KeyValueOption {
+                        option_name: "FORMAT_NAME".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("my_format".to_string()).with_empty_span()
+                        ),
+                    }]
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // A quoted name parses to a `SingleQuotedString`.
+    match snowflake()
+        .parse_sql_statements(
+            "COPY INTO @my_stage/out.csv FROM (SELECT * FROM t) FILE_FORMAT = 'my_format'",
+        )
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CopyIntoSnowflake { file_format, .. } => {
+            assert_eq!(
+                file_format.options,
+                vec![KeyValueOption {
+                    option_name: "FORMAT_NAME".to_string(),
+                    option_value: KeyValueOptionKind::Single(
+                        Value::SingleQuotedString("my_format".to_string()).with_empty_span()
+                    ),
+                }]
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // The parenthesized form is unaffected.
+    match snowflake()
+        .parse_sql_statements(
+            "COPY INTO @my_stage/out.csv FROM (SELECT * FROM t) FILE_FORMAT = (TYPE = 'CSV')",
+        )
+        .unwrap()
+        .pop()
+        .unwrap()
+    {
+        Statement::CopyIntoSnowflake { file_format, .. } => {
+            assert_eq!(
+                file_format.options,
+                vec![KeyValueOption {
+                    option_name: "TYPE".to_string(),
+                    option_value: KeyValueOptionKind::Single(
+                        Value::SingleQuotedString("CSV".to_string()).with_empty_span()
+                    ),
+                }]
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_copy_into_copy_options() {
+    let sql = concat!(
+        "COPY INTO my_company.emp_basic ",
+        "FROM 'gcs://mybucket/./../a.csv' ",
+        "FILES = ('file1.json', 'file2.json') ",
+        "PATTERN = '.*employees0[1-5].csv.gz' ",
+        "COPY_OPTIONS=(ON_ERROR=CONTINUE FORCE=true)"
+    );
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake { copy_options, .. } => {
+            assert!(copy_options.options.contains(&KeyValueOption {
+                option_name: "ON_ERROR".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("CONTINUE".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(copy_options.options.contains(&KeyValueOption {
+                option_name: "FORCE".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(true).with_empty_span()),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_snowflake_stage_object_names_into_location() {
+    let mut allowed_object_names = [
+        ObjectName::from(vec![Ident::new("@namespace"), Ident::new("%table_name")]),
+        ObjectName::from(vec![
+            Ident::new("@namespace"),
+            Ident::new("%table_name/path"),
+        ]),
+        ObjectName::from(vec![
+            Ident::new("@namespace"),
+            Ident::new("stage_name/path"),
+        ]),
+        ObjectName::from(vec![Ident::new("@~/path")]),
+    ];
+
+    let allowed_names_into_location = [
+        "@namespace.%table_name",
+        "@namespace.%table_name/path",
+        "@namespace.stage_name/path",
+        "@~/path",
+    ];
+    for it in allowed_names_into_location
+        .iter()
+        .zip(allowed_object_names.iter_mut())
+    {
+        let (formatted_name, object_name) = it;
+        let sql = format!("COPY INTO {formatted_name} FROM 'gcs://mybucket/./../a.csv'");
+        match snowflake().verified_stmt(&sql) {
+            Statement::CopyIntoSnowflake { into, .. } => {
+                assert_eq!(into.0, object_name.0)
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_snowflake_stage_object_names_into_table() {
+    let mut allowed_object_names = [
+        ObjectName::from(vec![Ident::new("my_company"), Ident::new("emp_basic")]),
+        ObjectName::from(vec![Ident::new("emp_basic")]),
+    ];
+
+    let allowed_names_into_table = ["my_company.emp_basic", "emp_basic"];
+    for it in allowed_names_into_table
+        .iter()
+        .zip(allowed_object_names.iter_mut())
+    {
+        let (formatted_name, object_name) = it;
+        let sql = format!("COPY INTO {formatted_name} FROM 'gcs://mybucket/./../a.csv'");
+        match snowflake().verified_stmt(&sql) {
+            Statement::CopyIntoSnowflake { into, .. } => {
+                assert_eq!(into.0, object_name.0)
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_snowflake_copy_into() {
+    let sql = "COPY INTO a.b FROM @namespace.stage_name";
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake { into, from_obj, .. } => {
+            assert_eq!(
+                into,
+                ObjectName::from(vec![Ident::new("a"), Ident::new("b")])
+            );
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![
+                    Ident::new("@namespace"),
+                    Ident::new("stage_name")
+                ]))
+            )
+        }
+        _ => unreachable!(),
+    }
+
+    // Test for non-ident characters in stage names
+    let sql = "COPY INTO a.b FROM @namespace.stage_name/x@x~x%x+/20250723_data-x";
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake { into, from_obj, .. } => {
+            assert_eq!(
+                into,
+                ObjectName::from(vec![Ident::new("a"), Ident::new("b")])
+            );
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![
+                    Ident::new("@namespace"),
+                    Ident::new("stage_name/x@x~x%x+/20250723_data-x")
+                ]))
+            )
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_copy_into_stage_name_ends_with_parens() {
+    let sql = "COPY INTO SCHEMA.SOME_MONITORING_SYSTEM FROM (SELECT t.$1:st AS st FROM @schema.general_finished)";
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake { into, from_obj, .. } => {
+            assert_eq!(
+                into,
+                ObjectName::from(vec![
+                    Ident::new("SCHEMA"),
+                    Ident::new("SOME_MONITORING_SYSTEM")
+                ])
+            );
+            assert_eq!(
+                from_obj,
+                Some(ObjectName::from(vec![
+                    Ident::new("@schema"),
+                    Ident::new("general_finished")
+                ]))
+            )
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_snowflake_stage_name_with_special_chars() {
+    // Stage path with '=' (Hive-style partitioning)
+    snowflake().verified_stmt("SELECT * FROM @stage/day=18/23.parquet");
+
+    // Stage path with ':' (time-based partitioning)
+    snowflake().verified_stmt("SELECT * FROM @stage/0:18:23/23.parquet");
+
+    // COPY INTO with '=' in stage path
+    snowflake().verified_stmt("COPY INTO my_table FROM @stage/day=18/file.parquet");
+
+    // COPY INTO with ':' in stage path
+    snowflake().verified_stmt("COPY INTO my_table FROM @stage/0:18:23/file.parquet");
+}
+
+#[test]
+fn test_snowflake_trim() {
+    let real_sql = r#"SELECT customer_id, TRIM(sub_items.value:item_price_id, '"', "a") AS item_price_id FROM models_staging.subscriptions"#;
+    assert_eq!(snowflake().verified_stmt(real_sql).to_string(), real_sql);
+
+    let sql_only_select = "SELECT TRIM('xyz', 'a')";
+    let select = snowflake().verified_only_select(sql_only_select);
+    assert_eq!(
+        &Expr::Trim {
+            expr: Box::new(Expr::Value(
+                (Value::SingleQuotedString("xyz".to_owned())).with_empty_span()
+            )),
+            trim_where: None,
+            trim_what: None,
+            trim_characters: Some(vec![Expr::Value(
+                (Value::SingleQuotedString("a".to_owned())).with_empty_span()
+            )]),
+        },
+        expr_from_projection(only(&select.projection))
+    );
+
+    // missing comma separation
+    let error_sql = "SELECT TRIM('xyz' 'a')";
+    assert_eq!(
+        ParserError::ParserError("Expected: ), found: 'a'".to_owned()),
+        snowflake().parse_sql_statements(error_sql).unwrap_err()
+    );
+}
+
+#[test]
+fn test_number_placeholder() {
+    let sql_only_select = "SELECT :1";
+    let select = snowflake().verified_only_select(sql_only_select);
+    assert_eq!(
+        &Expr::Value((Value::Placeholder(":1".into())).with_empty_span()),
+        expr_from_projection(only(&select.projection))
+    );
+
+    snowflake()
+        .parse_sql_statements("alter role 1 with name = 'foo'")
+        .expect_err("should have failed");
+}
+
+#[test]
+fn parse_position_not_function_columns() {
+    snowflake_and_generic()
+        .verified_stmt("SELECT position FROM tbl1 WHERE position NOT IN ('first', 'last')");
+}
+
+#[test]
+fn parse_subquery_function_argument() {
+    // Snowflake allows passing an unparenthesized subquery as the single
+    // argument to a function.
+    snowflake().verified_stmt("SELECT parse_json(SELECT '{}')");
+
+    // Subqueries that begin with WITH work too.
+    snowflake()
+        .verified_stmt("SELECT parse_json(WITH q AS (SELECT '{}' AS foo) SELECT foo FROM q)");
+
+    // Commas are parsed as part of the subquery, not additional arguments to
+    // the function.
+    snowflake().verified_stmt("SELECT func(SELECT 1, 2)");
+}
+
+#[test]
+fn parse_division_correctly() {
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT field/1000 FROM tbl1",
+        "SELECT field / 1000 FROM tbl1",
+    );
+
+    snowflake_and_generic().one_statement_parses_to(
+        "SELECT tbl1.field/tbl2.field FROM tbl1 JOIN tbl2 ON tbl1.id = tbl2.entity_id",
+        "SELECT tbl1.field / tbl2.field FROM tbl1 JOIN tbl2 ON tbl1.id = tbl2.entity_id",
+    );
+}
+
+#[test]
+fn parse_pivot_of_table_factor_derived() {
+    snowflake().verified_stmt(
+        "SELECT * FROM (SELECT place_id, weekday, open FROM times AS p) PIVOT(max(open) FOR weekday IN (0, 1, 2, 3, 4, 5, 6)) AS p (place_id, open_sun, open_mon, open_tue, open_wed, open_thu, open_fri, open_sat)"
+    );
+}
+
+#[test]
+fn parse_top() {
+    snowflake().one_statement_parses_to(
+        "SELECT TOP 4 c1 FROM testtable",
+        "SELECT TOP 4 c1 FROM testtable",
+    );
+}
+
+#[test]
+fn parse_extract_custom_part() {
+    let sql = "SELECT EXTRACT(eod FROM d)";
+    let select = snowflake_and_generic().verified_only_select(sql);
+    assert_eq!(
+        &Expr::Extract {
+            field: DateTimeField::Custom(Ident::new("eod")),
+            syntax: ExtractSyntax::From,
+            expr: Box::new(Expr::Identifier(Ident::new("d"))),
+        },
+        expr_from_projection(only(&select.projection)),
+    );
+}
+
+#[test]
+fn parse_extract_comma() {
+    let sql = "SELECT EXTRACT(HOUR, d)";
+    let select = snowflake_and_generic().verified_only_select(sql);
+    assert_eq!(
+        &Expr::Extract {
+            field: DateTimeField::Hour,
+            syntax: ExtractSyntax::Comma,
+            expr: Box::new(Expr::Identifier(Ident::new("d"))),
+        },
+        expr_from_projection(only(&select.projection)),
+    );
+}
+
+#[test]
+fn parse_extract_comma_quoted() {
+    let sql = "SELECT EXTRACT('hour', d)";
+    let select = snowflake_and_generic().verified_only_select(sql);
+    assert_eq!(
+        &Expr::Extract {
+            field: DateTimeField::Custom(Ident::with_quote('\'', "hour")),
+            syntax: ExtractSyntax::Comma,
+            expr: Box::new(Expr::Identifier(Ident::new("d"))),
+        },
+        expr_from_projection(only(&select.projection)),
+    );
+}
+
+#[test]
+fn parse_comma_outer_join() {
+    // compound identifiers
+    let case1 =
+        snowflake().verified_only_select("SELECT t1.c1, t2.c2 FROM t1, t2 WHERE t1.c1 = t2.c2 (+)");
+    assert_eq!(
+        case1.selection,
+        Some(Expr::BinaryOp {
+            left: Box::new(Expr::CompoundIdentifier(vec![
+                Ident::new("t1"),
+                Ident::new("c1")
+            ])),
+            op: BinaryOperator::Eq,
+            right: Box::new(Expr::OuterJoin(Box::new(Expr::CompoundIdentifier(vec![
+                Ident::new("t2"),
+                Ident::new("c2")
+            ]))))
+        })
+    );
+
+    // regular identifiers
+    let case2 =
+        snowflake().verified_only_select("SELECT t1.c1, t2.c2 FROM t1, t2 WHERE c1 = c2 (+)");
+    assert_eq!(
+        case2.selection,
+        Some(Expr::BinaryOp {
+            left: Box::new(Expr::Identifier(Ident::new("c1"))),
+            op: BinaryOperator::Eq,
+            right: Box::new(Expr::OuterJoin(Box::new(Expr::Identifier(Ident::new(
+                "c2"
+            )))))
+        })
+    );
+
+    // ensure we can still parse function calls with a unary plus arg
+    let case3 =
+        snowflake().verified_only_select("SELECT t1.c1, t2.c2 FROM t1, t2 WHERE c1 = myudf(+42)");
+    assert_eq!(
+        case3.selection,
+        Some(Expr::BinaryOp {
+            left: Box::new(Expr::Identifier(Ident::new("c1"))),
+            op: BinaryOperator::Eq,
+            right: Box::new(call(
+                "myudf",
+                [Expr::UnaryOp {
+                    op: UnaryOperator::Plus,
+                    expr: Box::new(Expr::value(number("42")))
+                }]
+            )),
+        })
+    );
+
+    // permissive with whitespace
+    snowflake().verified_only_select_with_canonical(
+        "SELECT t1.c1, t2.c2 FROM t1, t2 WHERE t1.c1 = t2.c2(   +     )",
+        "SELECT t1.c1, t2.c2 FROM t1, t2 WHERE t1.c1 = t2.c2 (+)",
+    );
+}
+
+#[test]
+fn test_sf_trailing_commas() {
+    snowflake().verified_only_select_with_canonical("SELECT 1, 2, FROM t", "SELECT 1, 2 FROM t");
+}
+
+#[test]
+fn test_select_wildcard_with_ilike() {
+    let select = snowflake_and_generic().verified_only_select(r#"SELECT * ILIKE '%id%' FROM tbl"#);
+    let expected = SelectItem::Wildcard(WildcardAdditionalOptions {
+        opt_ilike: Some(IlikeSelectItem {
+            pattern: "%id%".to_owned(),
+        }),
+        ..Default::default()
+    });
+    assert_eq!(expected, select.projection[0]);
+}
+
+#[test]
+fn test_select_wildcard_with_ilike_double_quote() {
+    let res = snowflake().parse_sql_statements(r#"SELECT * ILIKE "%id" FROM tbl"#);
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "sql parser error: Expected: ilike pattern, found: \"%id\""
+    );
+}
+
+#[test]
+fn test_select_wildcard_with_ilike_number() {
+    let res = snowflake().parse_sql_statements(r#"SELECT * ILIKE 42 FROM tbl"#);
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "sql parser error: Expected: ilike pattern, found: 42"
+    );
+}
+
+#[test]
+fn test_select_wildcard_with_ilike_replace() {
+    let res = snowflake().parse_sql_statements(r#"SELECT * ILIKE '%id%' EXCLUDE col FROM tbl"#);
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "sql parser error: Expected: end of statement, found: EXCLUDE"
+    );
+}
+
+#[test]
+fn first_value_ignore_nulls() {
+    snowflake().verified_only_select(concat!(
+        "SELECT FIRST_VALUE(column2 IGNORE NULLS) ",
+        "OVER (PARTITION BY column1 ORDER BY column2) ",
+        "FROM some_table"
+    ));
+}
+
+#[test]
+fn test_pivot() {
+    // pivot on static list of values with default
+    #[rustfmt::skip]
+    snowflake().verified_only_select(concat!(
+        "SELECT * ",
+        "FROM quarterly_sales ",
+          "PIVOT(SUM(amount) ",
+            "FOR quarter IN (",
+              "'2023_Q1', ",
+              "'2023_Q2', ",
+              "'2023_Q3', ",
+              "'2023_Q4', ",
+              "'2024_Q1') ",
+            "DEFAULT ON NULL (0)",
+          ") ",
+        "ORDER BY empid",
+    ));
+
+    // dynamic pivot from subquery
+    #[rustfmt::skip]
+    snowflake().verified_only_select(concat!(
+        "SELECT * ",
+        "FROM quarterly_sales ",
+          "PIVOT(SUM(amount) FOR quarter IN (",
+            "SELECT DISTINCT quarter ",
+              "FROM ad_campaign_types_by_quarter ",
+              "WHERE television = true ",
+              "ORDER BY quarter)",
+          ") ",
+        "ORDER BY empid",
+    ));
+
+    // dynamic pivot on any value (with order by)
+    #[rustfmt::skip]
+    snowflake().verified_only_select(concat!(
+        "SELECT * ",
+        "FROM quarterly_sales ",
+          "PIVOT(SUM(amount) FOR quarter IN (ANY ORDER BY quarter)) ",
+        "ORDER BY empid",
+    ));
+
+    // dynamic pivot on any value (without order by)
+    #[rustfmt::skip]
+    snowflake().verified_only_select(concat!(
+        "SELECT * ",
+        "FROM sales_data ",
+          "PIVOT(SUM(total_sales) FOR fis_quarter IN (ANY)) ",
+        "WHERE fis_year IN (2023) ",
+        "ORDER BY region",
+    ));
+}
+
+#[test]
+fn asof_joins() {
+    #[rustfmt::skip]
+    let query = snowflake_and_generic().verified_only_select(concat!(
+        "SELECT * ",
+          "FROM trades_unixtime AS tu ",
+            "ASOF JOIN quotes_unixtime AS qu ",
+            "MATCH_CONDITION (tu.trade_time >= qu.quote_time)",
+    ));
+
+    assert_eq!(
+        query.from[0],
+        TableWithJoins {
+            relation: table_with_alias("trades_unixtime", true, "tu"),
+            joins: vec![Join {
+                relation: table_with_alias("quotes_unixtime", true, "qu"),
+                global: false,
+                join_operator: JoinOperator::AsOf {
+                    match_condition: Expr::BinaryOp {
+                        left: Box::new(Expr::CompoundIdentifier(vec![
+                            Ident::new("tu"),
+                            Ident::new("trade_time"),
+                        ])),
+                        op: BinaryOperator::GtEq,
+                        right: Box::new(Expr::CompoundIdentifier(vec![
+                            Ident::new("qu"),
+                            Ident::new("quote_time"),
+                        ])),
+                    },
+                    constraint: JoinConstraint::None,
+                },
+            }],
+        }
+    );
+
+    #[rustfmt::skip]
+    snowflake_and_generic().verified_query(concat!(
+        "SELECT t.stock_symbol, t.trade_time, t.quantity, q.quote_time, q.price ",
+        "FROM trades AS t ASOF JOIN quotes AS q ",
+          "MATCH_CONDITION (t.trade_time >= quote_time) ",
+          "ON t.stock_symbol = q.stock_symbol ",
+        "ORDER BY t.stock_symbol",
+    ));
+
+    #[rustfmt::skip]
+    snowflake_and_generic().verified_query(concat!(
+        "SELECT t.stock_symbol, c.company_name, t.trade_time, t.quantity, q.quote_time, q.price ",
+          "FROM trades AS t ASOF JOIN quotes AS q ",
+            "MATCH_CONDITION (t.trade_time <= quote_time) ",
+            "USING(stock_symbol) ",
+            "JOIN companies AS c ON c.stock_symbol = t.stock_symbol ",
+          "ORDER BY t.stock_symbol",
+    ));
+
+    #[rustfmt::skip]
+    snowflake_and_generic().verified_query(concat!(
+        "SELECT * ",
+          "FROM snowtime AS s ",
+            "ASOF JOIN raintime AS r ",
+              "MATCH_CONDITION (s.observed >= r.observed) ",
+              "ON s.state = r.state ",
+            "ASOF JOIN preciptime AS p ",
+              "MATCH_CONDITION (s.observed >= p.observed) ",
+              "ON s.state = p.state ",
+          "ORDER BY s.observed",
+    ));
+
+    // Test without explicit aliases
+    #[rustfmt::skip]
+    snowflake_and_generic().verified_query(concat!(
+        "SELECT * ",
+          "FROM snowtime ",
+            "ASOF JOIN raintime ",
+              "MATCH_CONDITION (snowtime.observed >= raintime.observed) ",
+              "ON snowtime.state = raintime.state ",
+            "ASOF JOIN preciptime ",
+              "MATCH_CONDITION (showtime.observed >= preciptime.observed) ",
+              "ON showtime.state = preciptime.state ",
+          "ORDER BY showtime.observed",
+    ));
+}
+
+#[test]
+fn test_parse_position() {
+    snowflake().verified_query("SELECT position('an', 'banana', 1)");
+    snowflake().verified_query("SELECT n, h, POSITION(n IN h) FROM pos");
+}
+
+#[test]
+fn explain_describe() {
+    snowflake().verified_stmt("DESCRIBE test.table");
+    snowflake().verified_stmt("DESCRIBE TABLE test.table");
+}
+
+#[test]
+fn explain_desc() {
+    snowflake().verified_stmt("DESC test.table");
+    snowflake().verified_stmt("DESC TABLE test.table");
+}
+
+#[test]
+fn parse_explain_table() {
+    match snowflake().verified_stmt("EXPLAIN TABLE test_identifier") {
+        Statement::ExplainTable {
+            describe_alias,
+            hive_format,
+            has_table_keyword,
+            table_name,
+        } => {
+            assert_eq!(describe_alias, DescribeAlias::Explain);
+            assert_eq!(hive_format, None);
+            assert_eq!(has_table_keyword, true);
+            assert_eq!("test_identifier", table_name.to_string());
+        }
+        _ => panic!("Unexpected Statement, must be ExplainTable"),
+    }
+}
+
+#[test]
+fn parse_use() {
+    let valid_object_names = ["mydb", "CATALOG", "DEFAULT"];
+    let quote_styles = ['\'', '"', '`'];
+    for object_name in &valid_object_names {
+        // Test single identifier without quotes
+        assert_eq!(
+            snowflake().verified_stmt(&format!("USE {object_name}")),
+            Statement::Use(Use::Object(ObjectName::from(vec![Ident::new(
+                object_name.to_string()
+            )])))
+        );
+        for &quote in &quote_styles {
+            // Test single identifier with different type of quotes
+            assert_eq!(
+                snowflake().verified_stmt(&format!("USE {quote}{object_name}{quote}")),
+                Statement::Use(Use::Object(ObjectName::from(vec![Ident::with_quote(
+                    quote,
+                    object_name.to_string(),
+                )])))
+            );
+        }
+    }
+
+    for &quote in &quote_styles {
+        // Test double identifier with different type of quotes
+        assert_eq!(
+            snowflake().verified_stmt(&format!(
+                "USE {quote}CATALOG{quote}.{quote}my_schema{quote}"
+            )),
+            Statement::Use(Use::Object(ObjectName::from(vec![
+                Ident::with_quote(quote, "CATALOG"),
+                Ident::with_quote(quote, "my_schema")
+            ])))
+        );
+    }
+    // Test double identifier without quotes
+    assert_eq!(
+        snowflake().verified_stmt("USE mydb.my_schema"),
+        Statement::Use(Use::Object(ObjectName::from(vec![
+            Ident::new("mydb"),
+            Ident::new("my_schema")
+        ])))
+    );
+
+    for &quote in &quote_styles {
+        // Test single and double identifier with keyword and different type of quotes
+        assert_eq!(
+            snowflake().verified_stmt(&format!("USE DATABASE {quote}my_database{quote}")),
+            Statement::Use(Use::Database(ObjectName::from(vec![Ident::with_quote(
+                quote,
+                "my_database".to_string(),
+            )])))
+        );
+        assert_eq!(
+            snowflake().verified_stmt(&format!("USE SCHEMA {quote}my_schema{quote}")),
+            Statement::Use(Use::Schema(ObjectName::from(vec![Ident::with_quote(
+                quote,
+                "my_schema".to_string(),
+            )])))
+        );
+        assert_eq!(
+            snowflake().verified_stmt(&format!(
+                "USE SCHEMA {quote}CATALOG{quote}.{quote}my_schema{quote}"
+            )),
+            Statement::Use(Use::Schema(ObjectName::from(vec![
+                Ident::with_quote(quote, "CATALOG"),
+                Ident::with_quote(quote, "my_schema")
+            ])))
+        );
+        assert_eq!(
+            snowflake().verified_stmt(&format!("USE ROLE {quote}my_role{quote}")),
+            Statement::Use(Use::Role(ObjectName::from(vec![Ident::with_quote(
+                quote,
+                "my_role".to_string(),
+            )])))
+        );
+        assert_eq!(
+            snowflake().verified_stmt(&format!("USE WAREHOUSE {quote}my_wh{quote}")),
+            Statement::Use(Use::Warehouse(ObjectName::from(vec![Ident::with_quote(
+                quote,
+                "my_wh".to_string(),
+            )])))
+        );
+    }
+
+    // Test invalid syntax - missing identifier
+    let invalid_cases = ["USE SCHEMA", "USE DATABASE", "USE WAREHOUSE"];
+    for sql in &invalid_cases {
+        assert_eq!(
+            snowflake().parse_sql_statements(sql).unwrap_err(),
+            ParserError::ParserError("Expected: identifier, found: EOF".to_string()),
+        );
+    }
+
+    snowflake().verified_stmt("USE SECONDARY ROLES ALL");
+    snowflake().verified_stmt("USE SECONDARY ROLES NONE");
+    snowflake().verified_stmt("USE SECONDARY ROLES r1, r2, r3");
+
+    // The following is not documented by Snowflake but still works:
+    snowflake().one_statement_parses_to("USE SECONDARY ROLE ALL", "USE SECONDARY ROLES ALL");
+    snowflake().one_statement_parses_to("USE SECONDARY ROLE NONE", "USE SECONDARY ROLES NONE");
+    snowflake().one_statement_parses_to(
+        "USE SECONDARY ROLE r1, r2, r3",
+        "USE SECONDARY ROLES r1, r2, r3",
+    );
+}
+
+#[test]
+fn view_comment_option_should_be_after_column_list() {
+    for sql in [
+        "CREATE OR REPLACE VIEW v (a) COMMENT = 'Comment' AS SELECT a FROM t",
+        "CREATE OR REPLACE VIEW v (a COMMENT 'a comment', b, c COMMENT 'c comment') COMMENT = 'Comment' AS SELECT a FROM t",
+        "CREATE OR REPLACE VIEW v (a COMMENT 'a comment', b, c COMMENT 'c comment') WITH (foo = bar) COMMENT = 'Comment' AS SELECT a FROM t",
+    ] {
+        snowflake()
+            .verified_stmt(sql);
+    }
+}
+
+#[test]
+fn parse_view_column_descriptions() {
+    let sql = "CREATE OR REPLACE VIEW v (a COMMENT 'Comment', b) AS SELECT a, b FROM table1";
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateView(CreateView { name, columns, .. }) => {
+            assert_eq!(name.to_string(), "v");
+            assert_eq!(
+                columns,
+                vec![
+                    ViewColumnDef {
+                        name: Ident::new("a"),
+                        data_type: None,
+                        options: Some(ColumnOptions::SpaceSeparated(vec![ColumnOption::Comment(
+                            "Comment".to_string()
+                        )])),
+                    },
+                    ViewColumnDef {
+                        name: Ident::new("b"),
+                        data_type: None,
+                        options: None,
+                    }
+                ]
+            );
+        }
+        _ => unreachable!(),
+    };
+}
+
+#[test]
+fn test_parentheses_overflow() {
+    // Use a modest nesting level to avoid actual stack overflow on
+    // CI runners with small thread stacks (debug builds use large frames
+    // and each nesting level adds extra depth via maybe_parse).
+    let max_nesting_level: usize = 20;
+
+    // Verify the recursion check is not too wasteful (num of parentheses within budget)
+    let slack = 3;
+    let l_parens = "(".repeat(max_nesting_level - slack);
+    let r_parens = ")".repeat(max_nesting_level - slack);
+    let sql = format!("SELECT * FROM {l_parens}a.b.c{r_parens}");
+    let parsed =
+        snowflake_with_recursion_limit(max_nesting_level).parse_sql_statements(sql.as_str());
+    assert_eq!(parsed.err(), None);
+
+    // Verify the recursion check triggers (one more paren exceeds the budget)
+    let slack = 2;
+    let l_parens = "(".repeat(max_nesting_level - slack);
+    let r_parens = ")".repeat(max_nesting_level - slack);
+    let sql = format!("SELECT * FROM {l_parens}a.b.c{r_parens}");
+    let parsed =
+        snowflake_with_recursion_limit(max_nesting_level).parse_sql_statements(sql.as_str());
+    assert_eq!(parsed.err(), Some(ParserError::RecursionLimitExceeded));
+}
+
+#[test]
+fn test_show_databases() {
+    snowflake().verified_stmt("SHOW DATABASES");
+    snowflake().verified_stmt("SHOW TERSE DATABASES");
+    snowflake().verified_stmt("SHOW DATABASES HISTORY");
+    snowflake().verified_stmt("SHOW DATABASES LIKE '%abc%'");
+    snowflake().verified_stmt("SHOW DATABASES STARTS WITH 'demo_db'");
+    snowflake().verified_stmt("SHOW DATABASES LIMIT 12");
+    snowflake()
+        .verified_stmt("SHOW DATABASES HISTORY LIKE '%aa' STARTS WITH 'demo' LIMIT 20 FROM 'abc'");
+    snowflake().verified_stmt("SHOW DATABASES IN ACCOUNT abc");
+}
+
+#[test]
+fn test_parse_show_schemas() {
+    snowflake().verified_stmt("SHOW SCHEMAS");
+    snowflake().verified_stmt("SHOW TERSE SCHEMAS");
+    snowflake().verified_stmt("SHOW SCHEMAS IN ACCOUNT");
+    snowflake().verified_stmt("SHOW SCHEMAS IN ACCOUNT abc");
+    snowflake().verified_stmt("SHOW SCHEMAS IN DATABASE");
+    snowflake().verified_stmt("SHOW SCHEMAS IN DATABASE xyz");
+    snowflake().verified_stmt("SHOW SCHEMAS HISTORY LIKE '%xa%'");
+    snowflake().verified_stmt("SHOW SCHEMAS STARTS WITH 'abc' LIMIT 20");
+    snowflake().verified_stmt("SHOW SCHEMAS IN DATABASE STARTS WITH 'abc' LIMIT 20 FROM 'xyz'");
+}
+
+#[test]
+fn test_parse_show_objects() {
+    snowflake().verified_stmt("SHOW OBJECTS");
+    snowflake().verified_stmt("SHOW OBJECTS IN abc");
+    snowflake().verified_stmt("SHOW OBJECTS LIKE '%test%' IN abc");
+    snowflake().verified_stmt("SHOW OBJECTS IN ACCOUNT");
+    snowflake().verified_stmt("SHOW OBJECTS IN DATABASE");
+    snowflake().verified_stmt("SHOW OBJECTS IN DATABASE abc");
+    snowflake().verified_stmt("SHOW OBJECTS IN SCHEMA");
+    snowflake().verified_stmt("SHOW OBJECTS IN SCHEMA abc");
+    snowflake().verified_stmt("SHOW TERSE OBJECTS");
+    snowflake().verified_stmt("SHOW TERSE OBJECTS IN abc");
+    snowflake().verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc");
+    snowflake().verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc STARTS WITH 'b'");
+    snowflake().verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc STARTS WITH 'b' LIMIT 10");
+    snowflake()
+        .verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc STARTS WITH 'b' LIMIT 10 FROM 'x'");
+    match snowflake().verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc") {
+        Statement::ShowObjects(ShowObjects {
+            terse,
+            show_options,
+            ..
+        }) => {
+            assert!(terse);
+            let name = match show_options.show_in {
+                Some(ShowStatementIn {
+                    parent_name: Some(val),
+                    ..
+                }) => val.to_string(),
+                _ => unreachable!(),
+            };
+            assert_eq!("abc", name);
+            let like = match show_options.filter_position {
+                Some(ShowStatementFilterPosition::Infix(ShowStatementFilter::Like(val))) => val,
+                _ => unreachable!(),
+            };
+            assert_eq!("%test%", like);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_parse_show_tables() {
+    snowflake().verified_stmt("SHOW TABLES");
+    snowflake().verified_stmt("SHOW TERSE TABLES");
+    snowflake().verified_stmt("SHOW TABLES IN ACCOUNT");
+    snowflake().verified_stmt("SHOW TABLES IN DATABASE");
+    snowflake().verified_stmt("SHOW TABLES IN DATABASE xyz");
+    snowflake().verified_stmt("SHOW TABLES IN SCHEMA");
+    snowflake().verified_stmt("SHOW TABLES IN SCHEMA xyz");
+    snowflake().verified_stmt("SHOW TABLES HISTORY LIKE '%xa%'");
+    snowflake().verified_stmt("SHOW TABLES STARTS WITH 'abc' LIMIT 20");
+    snowflake().verified_stmt("SHOW TABLES IN SCHEMA STARTS WITH 'abc' LIMIT 20 FROM 'xyz'");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES IN ACCOUNT");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES IN DATABASE");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES IN DATABASE xyz");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES IN SCHEMA");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES IN SCHEMA xyz");
+    snowflake().verified_stmt("SHOW EXTERNAL TABLES STARTS WITH 'abc' LIMIT 20");
+    snowflake()
+        .verified_stmt("SHOW EXTERNAL TABLES IN SCHEMA STARTS WITH 'abc' LIMIT 20 FROM 'xyz'");
+}
+
+#[test]
+fn test_show_views() {
+    snowflake().verified_stmt("SHOW VIEWS");
+    snowflake().verified_stmt("SHOW TERSE VIEWS");
+    snowflake().verified_stmt("SHOW VIEWS IN ACCOUNT");
+    snowflake().verified_stmt("SHOW VIEWS IN DATABASE");
+    snowflake().verified_stmt("SHOW VIEWS IN DATABASE xyz");
+    snowflake().verified_stmt("SHOW VIEWS IN SCHEMA");
+    snowflake().verified_stmt("SHOW VIEWS IN SCHEMA xyz");
+    snowflake().verified_stmt("SHOW VIEWS STARTS WITH 'abc' LIMIT 20");
+    snowflake().verified_stmt("SHOW VIEWS IN SCHEMA STARTS WITH 'abc' LIMIT 20 FROM 'xyz'");
+}
+
+#[test]
+fn test_parse_show_columns_sql() {
+    snowflake().verified_stmt("SHOW COLUMNS IN TABLE");
+    snowflake().verified_stmt("SHOW COLUMNS IN TABLE abc");
+    snowflake().verified_stmt("SHOW COLUMNS LIKE '%xyz%' IN TABLE abc");
+}
+
+#[test]
+fn test_projection_with_nested_trailing_commas() {
+    let sql = "SELECT a, FROM b, LATERAL FLATTEN(input => events)";
+    let _ = snowflake().parse_sql_statements(sql).unwrap();
+
+    //Single nesting
+    let sql = "SELECT (SELECT a, FROM b, LATERAL FLATTEN(input => events))";
+    let _ = snowflake().parse_sql_statements(sql).unwrap();
+
+    //Double nesting
+    let sql = "SELECT (SELECT (SELECT a, FROM b, LATERAL FLATTEN(input => events)))";
+    let _ = snowflake().parse_sql_statements(sql).unwrap();
+
+    let sql = "SELECT a, b, FROM c, (SELECT d, e, FROM f, LATERAL FLATTEN(input => events))";
+    let _ = snowflake().parse_sql_statements(sql).unwrap();
+}
+
+#[test]
+fn test_sf_double_dot_notation() {
+    snowflake().verified_stmt("SELECT * FROM db_name..table_name");
+    snowflake().verified_stmt("SELECT * FROM x, y..z JOIN a..b AS b ON x.id = b.id");
+
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT * FROM X.Y..")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: identifier, found: ."
+    );
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT * FROM X..Y..Z")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: identifier, found: ."
+    );
+    assert_eq!(
+        // Ensure we don't parse leading token
+        snowflake()
+            .parse_sql_statements("SELECT * FROM .X.Y")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: identifier, found: ."
+    );
+}
+
+#[test]
+fn test_parse_double_dot_notation_wrong_position() {}
+
+#[test]
+fn parse_insert_overwrite() {
+    let insert_overwrite_into = r#"INSERT OVERWRITE INTO schema.table SELECT a FROM b"#;
+    snowflake().verified_stmt(insert_overwrite_into);
+}
+
+#[test]
+fn test_table_sample() {
+    snowflake_and_generic().verified_stmt("SELECT * FROM testtable SAMPLE (10)");
+    snowflake_and_generic().verified_stmt("SELECT * FROM testtable TABLESAMPLE (10)");
+    snowflake_and_generic()
+        .verified_stmt("SELECT * FROM testtable AS t TABLESAMPLE BERNOULLI (10)");
+    snowflake_and_generic().verified_stmt("SELECT * FROM testtable AS t TABLESAMPLE ROW (10)");
+    snowflake_and_generic().verified_stmt("SELECT * FROM testtable AS t TABLESAMPLE ROW (10 ROWS)");
+    snowflake_and_generic()
+        .verified_stmt("SELECT * FROM testtable TABLESAMPLE BLOCK (3) SEED (82)");
+    snowflake_and_generic()
+        .verified_stmt("SELECT * FROM testtable TABLESAMPLE SYSTEM (3) REPEATABLE (82)");
+    snowflake_and_generic().verified_stmt("SELECT id FROM mytable TABLESAMPLE (10) REPEATABLE (1)");
+    snowflake_and_generic().verified_stmt("SELECT id FROM mytable TABLESAMPLE (10) SEED (1)");
+}
+
+#[test]
+fn test_subquery_sample() {
+    // Test SAMPLE clause on subqueries (derived tables)
+    snowflake_and_generic().verified_stmt("SELECT * FROM (SELECT * FROM mytable) SAMPLE (10)");
+    snowflake_and_generic()
+        .verified_stmt("SELECT * FROM (SELECT * FROM mytable) SAMPLE (10000 ROWS)");
+    snowflake_and_generic()
+        .verified_stmt("SELECT * FROM (SELECT * FROM mytable) AS t SAMPLE (50 PERCENT)");
+    // Nested subquery with SAMPLE
+    snowflake_and_generic().verified_stmt(
+        "SELECT * FROM (SELECT * FROM (SELECT report_from FROM mytable) SAMPLE (10000 ROWS)) AS anon_1",
+    );
+    // SAMPLE with SEED on subquery
+    snowflake_and_generic()
+        .verified_stmt("SELECT * FROM (SELECT * FROM mytable) SAMPLE (10) SEED (42)");
+}
+
+#[test]
+fn test_multi_table_insert_unconditional() {
+    // Basic unconditional multi-table insert
+    // See: https://docs.snowflake.com/en/sql-reference/sql/insert-multi-table
+    snowflake().verified_stmt("INSERT ALL INTO t1 SELECT n1, n2, n3 FROM src");
+
+    // Multiple INTO clauses
+    snowflake().verified_stmt("INSERT ALL INTO t1 INTO t2 SELECT n1, n2, n3 FROM src");
+
+    // With column list
+    snowflake().verified_stmt("INSERT ALL INTO t1 (c1, c2, c3) SELECT n1, n2, n3 FROM src");
+
+    // With VALUES clause
+    snowflake().verified_stmt(
+        "INSERT ALL INTO t1 (c1, c2, c3) VALUES (n2, n1, DEFAULT) SELECT n1, n2, n3 FROM src",
+    );
+
+    // Complex example from Snowflake docs
+    snowflake().verified_stmt(
+        "INSERT ALL INTO t1 INTO t1 (c1, c2, c3) VALUES (n2, n1, DEFAULT) INTO t2 (c1, c2, c3) INTO t2 VALUES (n3, n2, n1) SELECT n1, n2, n3 FROM src"
+    );
+
+    // With OVERWRITE
+    snowflake().verified_stmt("INSERT OVERWRITE ALL INTO t1 INTO t2 SELECT n1, n2, n3 FROM src");
+}
+
+#[test]
+fn test_multi_table_insert_conditional() {
+    // Basic conditional multi-table insert with WHEN clause
+    // See: https://docs.snowflake.com/en/sql-reference/sql/insert-multi-table
+    snowflake().verified_stmt("INSERT ALL WHEN n1 > 100 THEN INTO t1 SELECT n1 FROM src");
+
+    // Multiple WHEN clauses
+    snowflake().verified_stmt(
+        "INSERT ALL WHEN n1 > 100 THEN INTO t1 WHEN n1 > 10 THEN INTO t2 SELECT n1 FROM src",
+    );
+
+    // WHEN with multiple INTO clauses
+    snowflake().verified_stmt("INSERT ALL WHEN n1 > 10 THEN INTO t1 INTO t2 SELECT n1 FROM src");
+
+    // With ELSE clause
+    snowflake()
+        .verified_stmt("INSERT ALL WHEN n1 > 100 THEN INTO t1 ELSE INTO t2 SELECT n1 FROM src");
+
+    // Complex conditional insert from Snowflake docs
+    snowflake().verified_stmt(
+        "INSERT ALL WHEN n1 > 100 THEN INTO t1 WHEN n1 > 10 THEN INTO t1 INTO t2 ELSE INTO t2 SELECT n1 FROM src"
+    );
+
+    // INSERT FIRST - only first matching WHEN clause executes
+    snowflake().verified_stmt(
+        "INSERT FIRST WHEN n1 > 100 THEN INTO t1 WHEN n1 > 10 THEN INTO t1 INTO t2 ELSE INTO t2 SELECT n1 FROM src"
+    );
+
+    // With OVERWRITE
+    snowflake().verified_stmt(
+        "INSERT OVERWRITE ALL WHEN n1 > 100 THEN INTO t1 ELSE INTO t2 SELECT n1 FROM src",
+    );
+
+    // WHEN with always-true condition
+    snowflake().verified_stmt("INSERT ALL WHEN 1 = 1 THEN INTO t1 SELECT n1 FROM src");
+}
+
+#[test]
+fn test_multi_table_insert_with_values() {
+    // INTO clause with VALUES using column references
+    snowflake().verified_stmt("INSERT ALL INTO t1 VALUES (n1, n2) SELECT n1, n2 FROM src");
+
+    // INTO clause with VALUES using DEFAULT
+    snowflake().verified_stmt(
+        "INSERT ALL INTO t1 (c1, c2, c3) VALUES (n1, n2, DEFAULT) SELECT n1, n2 FROM src",
+    );
+
+    // INTO clause with VALUES using NULL
+    snowflake().verified_stmt(
+        "INSERT ALL INTO t1 (c1, c2, c3) VALUES (n1, NULL, n2) SELECT n1, n2 FROM src",
+    );
+
+    // Positional alias in VALUES
+    snowflake().verified_stmt("INSERT ALL INTO t1 VALUES ($1, $2) SELECT 1, 50 AS an_alias");
+}
+
+/// Unit tests for multi-table INSERT AST structure validation
+#[test]
+fn test_multi_table_insert_ast_unconditional() {
+    // Test basic unconditional multi-table insert AST
+    let sql = "INSERT ALL INTO t1 INTO t2 (c1, c2) SELECT n1, n2 FROM src";
+    let stmt = snowflake().verified_stmt(sql);
+
+    match stmt {
+        Statement::Insert(Insert {
+            multi_table_insert_type,
+            overwrite,
+            multi_table_into_clauses,
+            multi_table_when_clauses,
+            multi_table_else_clause,
+            source,
+            ..
+        }) => {
+            // Should be INSERT ALL (not FIRST)
+            assert_eq!(multi_table_insert_type, Some(MultiTableInsertType::All));
+            assert!(!overwrite);
+
+            // Should have 2 INTO clauses
+            assert_eq!(multi_table_into_clauses.len(), 2);
+
+            // First INTO clause: INTO t1
+            assert_eq!(multi_table_into_clauses[0].table_name.to_string(), "t1");
+            assert!(multi_table_into_clauses[0].columns.is_empty());
+            assert!(multi_table_into_clauses[0].values.is_none());
+
+            // Second INTO clause: INTO t2 (c1, c2)
+            assert_eq!(multi_table_into_clauses[1].table_name.to_string(), "t2");
+            assert_eq!(multi_table_into_clauses[1].columns.len(), 2);
+            assert_eq!(multi_table_into_clauses[1].columns[0].to_string(), "c1");
+            assert_eq!(multi_table_into_clauses[1].columns[1].to_string(), "c2");
+            assert!(multi_table_into_clauses[1].values.is_none());
+
+            // No WHEN clauses for unconditional insert
+            assert!(multi_table_when_clauses.is_empty());
+            assert!(multi_table_else_clause.is_none());
+
+            // Should have source query
+            assert!(source.is_some());
+        }
+        _ => panic!("Expected INSERT statement"),
+    }
+}
+
+#[test]
+fn test_multi_table_insert_ast_with_values() {
+    // Test INTO clause with VALUES
+    let sql = "INSERT ALL INTO t1 (c1, c2, c3) VALUES (n1, n2, DEFAULT) SELECT n1, n2 FROM src";
+    let stmt = snowflake().verified_stmt(sql);
+
+    match stmt {
+        Statement::Insert(Insert {
+            multi_table_into_clauses,
+            ..
+        }) => {
+            assert_eq!(multi_table_into_clauses.len(), 1);
+
+            let into_clause = &multi_table_into_clauses[0];
+            assert_eq!(into_clause.table_name.to_string(), "t1");
+            assert_eq!(into_clause.columns.len(), 3);
+
+            // Check VALUES clause
+            let values = into_clause.values.as_ref().expect("Expected VALUES clause");
+            assert_eq!(values.values.len(), 3);
+
+            // First value: n1 (expression)
+            match &values.values[0] {
+                MultiTableInsertValue::Expr(expr) => {
+                    assert_eq!(expr.to_string(), "n1");
+                }
+                _ => panic!("Expected Expr"),
+            }
+
+            // Second value: n2 (expression)
+            match &values.values[1] {
+                MultiTableInsertValue::Expr(expr) => {
+                    assert_eq!(expr.to_string(), "n2");
+                }
+                _ => panic!("Expected Expr"),
+            }
+
+            // Third value: DEFAULT
+            match &values.values[2] {
+                MultiTableInsertValue::Default => {}
+                _ => panic!("Expected DEFAULT"),
+            }
+        }
+        _ => panic!("Expected INSERT statement"),
+    }
+}
+
+#[test]
+fn test_multi_table_insert_ast_conditional() {
+    // Test conditional multi-table insert with WHEN clauses
+    let sql = "INSERT ALL WHEN n1 > 100 THEN INTO t1 WHEN n1 > 10 THEN INTO t2 INTO t3 ELSE INTO t4 SELECT n1 FROM src";
+    let stmt = snowflake().verified_stmt(sql);
+
+    match stmt {
+        Statement::Insert(Insert {
+            multi_table_insert_type,
+            multi_table_into_clauses,
+            multi_table_when_clauses,
+            multi_table_else_clause,
+            ..
+        }) => {
+            // Should be INSERT ALL (not FIRST)
+            assert_eq!(multi_table_insert_type, Some(MultiTableInsertType::All));
+
+            // Unconditional INTO clauses should be empty for conditional insert
+            assert!(multi_table_into_clauses.is_empty());
+
+            // Should have 2 WHEN clauses
+            assert_eq!(multi_table_when_clauses.len(), 2);
+
+            // First WHEN clause: WHEN n1 > 100 THEN INTO t1
+            assert_eq!(
+                multi_table_when_clauses[0].condition.to_string(),
+                "n1 > 100"
+            );
+            assert_eq!(multi_table_when_clauses[0].into_clauses.len(), 1);
+            assert_eq!(
+                multi_table_when_clauses[0].into_clauses[0]
+                    .table_name
+                    .to_string(),
+                "t1"
+            );
+
+            // Second WHEN clause: WHEN n1 > 10 THEN INTO t2 INTO t3
+            assert_eq!(multi_table_when_clauses[1].condition.to_string(), "n1 > 10");
+            assert_eq!(multi_table_when_clauses[1].into_clauses.len(), 2);
+            assert_eq!(
+                multi_table_when_clauses[1].into_clauses[0]
+                    .table_name
+                    .to_string(),
+                "t2"
+            );
+            assert_eq!(
+                multi_table_when_clauses[1].into_clauses[1]
+                    .table_name
+                    .to_string(),
+                "t3"
+            );
+
+            // ELSE clause: ELSE INTO t4
+            let else_clause = multi_table_else_clause.expect("Expected ELSE clause");
+            assert_eq!(else_clause.len(), 1);
+            assert_eq!(else_clause[0].table_name.to_string(), "t4");
+        }
+        _ => panic!("Expected INSERT statement"),
+    }
+}
+
+#[test]
+fn test_multi_table_insert_ast_first() {
+    // Test INSERT FIRST vs INSERT ALL
+    let sql =
+        "INSERT FIRST WHEN n1 > 100 THEN INTO t1 WHEN n1 > 10 THEN INTO t2 SELECT n1 FROM src";
+    let stmt = snowflake().verified_stmt(sql);
+
+    match stmt {
+        Statement::Insert(Insert {
+            multi_table_insert_type,
+            multi_table_when_clauses,
+            ..
+        }) => {
+            // Should be INSERT FIRST
+            assert_eq!(multi_table_insert_type, Some(MultiTableInsertType::First));
+            assert_eq!(multi_table_when_clauses.len(), 2);
+        }
+        _ => panic!("Expected INSERT statement"),
+    }
+}
+
+#[test]
+fn test_multi_table_insert_ast_overwrite() {
+    // Test INSERT OVERWRITE ALL
+    let sql = "INSERT OVERWRITE ALL INTO t1 INTO t2 SELECT n1 FROM src";
+    let stmt = snowflake().verified_stmt(sql);
+
+    match stmt {
+        Statement::Insert(Insert {
+            overwrite,
+            multi_table_insert_type,
+            multi_table_into_clauses,
+            ..
+        }) => {
+            assert!(overwrite);
+            assert_eq!(multi_table_insert_type, Some(MultiTableInsertType::All));
+            assert_eq!(multi_table_into_clauses.len(), 2);
+        }
+        _ => panic!("Expected INSERT statement"),
+    }
+}
+
+#[test]
+fn test_multi_table_insert_ast_complex_values() {
+    // Test complex VALUES with expressions
+    let sql = "INSERT ALL INTO t1 VALUES (n1 + n2, n3 * 2, DEFAULT) SELECT n1, n2, n3 FROM src";
+    let stmt = snowflake().verified_stmt(sql);
+
+    match stmt {
+        Statement::Insert(Insert {
+            multi_table_into_clauses,
+            ..
+        }) => {
+            assert_eq!(multi_table_into_clauses.len(), 1);
+
+            let values = multi_table_into_clauses[0]
+                .values
+                .as_ref()
+                .expect("Expected VALUES");
+            assert_eq!(values.values.len(), 3);
+
+            // First value: n1 + n2 (binary expression)
+            match &values.values[0] {
+                MultiTableInsertValue::Expr(Expr::BinaryOp { op, .. }) => {
+                    assert_eq!(*op, BinaryOperator::Plus);
+                }
+                _ => panic!("Expected BinaryOp expression"),
+            }
+
+            // Second value: n3 * 2 (binary expression)
+            match &values.values[1] {
+                MultiTableInsertValue::Expr(Expr::BinaryOp { op, .. }) => {
+                    assert_eq!(*op, BinaryOperator::Multiply);
+                }
+                _ => panic!("Expected BinaryOp expression"),
+            }
+
+            // Third value: DEFAULT
+            assert!(matches!(&values.values[2], MultiTableInsertValue::Default));
+        }
+        _ => panic!("Expected INSERT statement"),
+    }
+}
+
+#[test]
+fn parse_ls_and_rm() {
+    snowflake().one_statement_parses_to("LS @~", "LIST @~");
+    snowflake().one_statement_parses_to("RM @~", "REMOVE @~");
+
+    let statement = snowflake()
+        .verified_stmt("LIST @SNOWFLAKE_KAFKA_CONNECTOR_externalDataLakeSnowflakeConnector_STAGE_call_tracker_stream/");
+    match statement {
+        Statement::List(command) => {
+            assert_eq!(command.stage, ObjectName::from(vec!["@SNOWFLAKE_KAFKA_CONNECTOR_externalDataLakeSnowflakeConnector_STAGE_call_tracker_stream/".into()]));
+            assert!(command.pattern.is_none());
+        }
+        _ => unreachable!(),
+    };
+
+    let statement =
+        snowflake().verified_stmt("REMOVE @my_csv_stage/analysis/ PATTERN='.*data_0.*'");
+    match statement {
+        Statement::Remove(command) => {
+            assert_eq!(
+                command.stage,
+                ObjectName::from(vec!["@my_csv_stage/analysis/".into()])
+            );
+            assert_eq!(command.pattern, Some(".*data_0.*".to_string()));
+        }
+        _ => unreachable!(),
+    };
+
+    snowflake().verified_stmt(r#"LIST @"STAGE_WITH_QUOTES""#);
+    // Semi-colon after stage name - should terminate the stage name
+    snowflake()
+        .parse_sql_statements("LIST @db1.schema1.stage1/dir1/;")
+        .unwrap();
+}
+
+#[test]
+fn test_sql_keywords_as_select_item_ident() {
+    // Some keywords that should be parsed as an alias
+    let unreserved_kws = vec!["CLUSTER", "FETCH", "RETURNING", "LIMIT", "EXCEPT", "SORT"];
+    for kw in unreserved_kws {
+        snowflake().verified_stmt(&format!("SELECT 1, {kw}"));
+    }
+
+    // Some keywords that should not be parsed as an alias
+    let reserved_kws = vec![
+        "FROM",
+        "GROUP",
+        "HAVING",
+        "INTERSECT",
+        "INTO",
+        "ORDER",
+        "SELECT",
+        "UNION",
+        "WHERE",
+        "WITH",
+    ];
+    for kw in reserved_kws {
+        assert!(snowflake()
+            .parse_sql_statements(&format!("SELECT 1, {kw}"))
+            .is_err());
+    }
+}
+
+#[test]
+fn test_sql_keywords_as_select_item_aliases() {
+    // Some keywords that should be parsed as an alias
+    let unreserved_kws = vec!["CLUSTER", "FETCH", "RETURNING", "LIMIT", "EXCEPT", "SORT"];
+    for kw in unreserved_kws {
+        snowflake()
+            .one_statement_parses_to(&format!("SELECT 1 {kw}"), &format!("SELECT 1 AS {kw}"));
+    }
+
+    // Some keywords that should not be parsed as an alias
+    let reserved_kws = vec![
+        "FROM",
+        "GROUP",
+        "HAVING",
+        "INTERSECT",
+        "INTO",
+        "ORDER",
+        "SELECT",
+        "UNION",
+        "WHERE",
+        "WITH",
+    ];
+    for kw in reserved_kws {
+        assert!(snowflake()
+            .parse_sql_statements(&format!("SELECT 1 {kw}"))
+            .is_err());
+    }
+
+    // LIMIT is alias
+    snowflake().one_statement_parses_to("SELECT 1 LIMIT", "SELECT 1 AS LIMIT");
+    // LIMIT is not an alias
+    snowflake().verified_stmt("SELECT 1 LIMIT 1");
+    snowflake().verified_stmt("SELECT 1 LIMIT $1");
+    snowflake().verified_stmt("SELECT 1 LIMIT ''");
+    snowflake().verified_stmt("SELECT 1 LIMIT NULL");
+    snowflake().verified_stmt("SELECT 1 LIMIT $$$$");
+}
+
+#[test]
+fn test_sql_keywords_as_table_aliases() {
+    // Some keywords that should be parsed as an alias implicitly
+    let unreserved_kws = vec![
+        "VIEW",
+        "EXPLAIN",
+        "ANALYZE",
+        "SORT",
+        "PIVOT",
+        "UNPIVOT",
+        "TOP",
+        "LIMIT",
+        "OFFSET",
+        "FETCH",
+        "EXCEPT",
+        "CLUSTER",
+        "DISTRIBUTE",
+        "GLOBAL",
+        "ANTI",
+        "SEMI",
+        "RETURNING",
+        "OUTER",
+        "WINDOW",
+        "END",
+        "PARTITION",
+        "PREWHERE",
+        "SETTINGS",
+        "FORMAT",
+        "MATCH_RECOGNIZE",
+        "OPEN",
+    ];
+
+    fn assert_implicit_alias(mut select: Select, canonical_with_explicit_alias: &str) {
+        if let TableFactor::Table { alias, .. } = &mut select
+            .from
+            .get_mut(0)
+            .as_mut()
+            .expect("missing FROM")
+            .relation
+        {
+            let alias = alias.as_mut().expect("missing ALIAS");
+            assert!(!alias.explicit);
+            alias.explicit = true;
+            assert_eq!(&format!("{select}"), canonical_with_explicit_alias);
+        } else {
+            panic!("unexpected FROM <table-factor>");
+        }
+    }
+
+    fn assert_no_alias(select: Select) {
+        if let TableFactor::Table { alias, .. } =
+            &select.from.first().expect("missing FROM").relation
+        {
+            assert_eq!(alias, &None);
+        } else {
+            panic!("unexpected FROM <table-factor>");
+        }
+    }
+
+    for kw in unreserved_kws {
+        snowflake().verified_stmt(&format!("SELECT * FROM tbl AS {kw}"));
+        assert_implicit_alias(
+            snowflake().verified_only_select(&format!("SELECT * FROM tbl {kw}")),
+            &format!("SELECT * FROM tbl AS {kw}"),
+        );
+    }
+
+    // Some keywords that should not be parsed as an alias implicitly
+    let reserved_kws = vec![
+        "FROM", "GROUP", "HAVING", "ORDER", "SELECT", "UNION", "WHERE", "WITH",
+    ];
+    for kw in reserved_kws {
+        assert!(snowflake()
+            .parse_sql_statements(&format!("SELECT * FROM tbl {kw}"))
+            .is_err());
+    }
+
+    // LIMIT is alias
+    assert_implicit_alias(
+        snowflake().verified_only_select("SELECT * FROM tbl LIMIT"),
+        "SELECT * FROM tbl AS LIMIT",
+    );
+
+    // LIMIT is not an alias
+    assert_no_alias(snowflake().verified_only_select("SELECT * FROM tbl LIMIT 1"));
+    assert_no_alias(snowflake().verified_only_select("SELECT * FROM tbl LIMIT $1"));
+    assert_no_alias(snowflake().verified_only_select("SELECT * FROM tbl LIMIT ''"));
+    assert_no_alias(snowflake().verified_only_select("SELECT * FROM tbl LIMIT NULL"));
+    assert_no_alias(snowflake().verified_only_select("SELECT * FROM tbl LIMIT $$$$"));
+}
+
+#[test]
+fn test_sql_keywords_as_table_factor() {
+    // LIMIT is a table factor, Snowflake does not reserve it
+    snowflake().verified_stmt("SELECT * FROM tbl, LIMIT");
+    // LIMIT is not a table factor
+    snowflake().one_statement_parses_to("SELECT * FROM tbl, LIMIT 1", "SELECT * FROM tbl LIMIT 1");
+
+    // Table functions are table factors
+    snowflake().verified_stmt("SELECT 1 FROM TABLE(GENERATOR(ROWCOUNT => 10)) AS a, TABLE(GENERATOR(ROWCOUNT => 10)) AS b");
+
+    // ORDER is reserved
+    assert!(snowflake()
+        .parse_sql_statements("SELECT * FROM tbl, order")
+        .is_err());
+}
+
+#[test]
+fn test_timetravel_at_before() {
+    snowflake().verified_only_select("SELECT * FROM tbl AT(TIMESTAMP => '2024-12-15 00:00:00')");
+    snowflake()
+        .verified_only_select("SELECT * FROM tbl BEFORE(TIMESTAMP => '2024-12-15 00:00:00')");
+}
+
+#[test]
+fn test_changes_clause() {
+    // CHANGES with AT and END
+    snowflake().verified_stmt(
+        r#"SELECT a FROM "PCH_ODS_FIDELIO"."SRC_VW_SYS_ACC_MASTER" CHANGES(INFORMATION => DEFAULT) AT(TIMESTAMP => TO_TIMESTAMP_TZ('2026-02-18 11:23:19.660000000')) END(TIMESTAMP => TO_TIMESTAMP_TZ('2026-02-18 11:38:30.211000000'))"#,
+    );
+
+    // CHANGES with AT only (no END)
+    snowflake().verified_stmt(
+        "SELECT a FROM t CHANGES(INFORMATION => DEFAULT) AT(TIMESTAMP => TO_TIMESTAMP_TZ('2026-02-18 11:23:19.660000000'))",
+    );
+
+    // CHANGES with APPEND_ONLY
+    snowflake().verified_stmt(
+        "SELECT a FROM t CHANGES(INFORMATION => APPEND_ONLY) AT(TIMESTAMP => TO_TIMESTAMP_TZ('2026-01-01 00:00:00'))",
+    );
+
+    // CHANGES with OFFSET
+    snowflake().verified_stmt("SELECT a FROM t CHANGES(INFORMATION => DEFAULT) AT(OFFSET => -60)");
+
+    // CHANGES with STATEMENT
+    snowflake().verified_stmt(
+        "SELECT a FROM t CHANGES(INFORMATION => DEFAULT) AT(STATEMENT => '8e5d0ca9-005e-44e6-b858-a8f5b37c5726')",
+    );
+}
+
+#[test]
+fn test_grant_account_global_privileges() {
+    let privileges = vec![
+        "ALL",
+        "ALL PRIVILEGES",
+        "ATTACH POLICY",
+        "AUDIT",
+        "BIND SERVICE ENDPOINT",
+        "IMPORT SHARE",
+        "OVERRIDE SHARE RESTRICTIONS",
+        "PURCHASE DATA EXCHANGE LISTING",
+        "RESOLVE ALL",
+        "READ SESSION",
+    ];
+    let with_grant_options = vec!["", " WITH GRANT OPTION"];
+
+    for p in &privileges {
+        for wgo in &with_grant_options {
+            let sql = format!("GRANT {p} ON ACCOUNT TO ROLE role1{wgo}");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+
+    let create_object_types = vec![
+        "ACCOUNT",
+        "APPLICATION",
+        "APPLICATION PACKAGE",
+        "COMPUTE POOL",
+        "DATA EXCHANGE LISTING",
+        "DATABASE",
+        "EXTERNAL VOLUME",
+        "FAILOVER GROUP",
+        "INTEGRATION",
+        "NETWORK POLICY",
+        "ORGANIZATION LISTING",
+        "REPLICATION GROUP",
+        "ROLE",
+        "SHARE",
+        "USER",
+        "WAREHOUSE",
+    ];
+    for t in &create_object_types {
+        for wgo in &with_grant_options {
+            let sql = format!("GRANT CREATE {t} ON ACCOUNT TO ROLE role1{wgo}");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+
+    let apply_types = vec![
+        "AGGREGATION POLICY",
+        "AUTHENTICATION POLICY",
+        "JOIN POLICY",
+        "MASKING POLICY",
+        "PACKAGES POLICY",
+        "PASSWORD POLICY",
+        "PROJECTION POLICY",
+        "ROW ACCESS POLICY",
+        "SESSION POLICY",
+        "TAG",
+    ];
+    for t in &apply_types {
+        for wgo in &with_grant_options {
+            let sql = format!("GRANT APPLY {t} ON ACCOUNT TO ROLE role1{wgo}");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+
+    let execute_types = vec![
+        "ALERT",
+        "DATA METRIC FUNCTION",
+        "MANAGED ALERT",
+        "MANAGED TASK",
+        "TASK",
+    ];
+    for t in &execute_types {
+        for wgo in &with_grant_options {
+            let sql = format!("GRANT EXECUTE {t} ON ACCOUNT TO ROLE role1{wgo}");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+
+    let manage_types = vec![
+        "ACCOUNT SUPPORT CASES",
+        "EVENT SHARING",
+        "GRANTS",
+        "LISTING AUTO FULFILLMENT",
+        "ORGANIZATION SUPPORT CASES",
+        "USER SUPPORT CASES",
+        "WAREHOUSES",
+    ];
+    for t in &manage_types {
+        for wgo in &with_grant_options {
+            let sql = format!("GRANT MANAGE {t} ON ACCOUNT TO ROLE role1{wgo}");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+
+    let monitor_types = vec!["EXECUTION", "SECURITY", "USAGE"];
+    for t in &monitor_types {
+        for wgo in &with_grant_options {
+            let sql = format!("GRANT MONITOR {t} ON ACCOUNT TO ROLE role1{wgo}");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+}
+
+#[test]
+fn test_grant_account_object_privileges() {
+    let privileges = vec![
+        "ALL",
+        "ALL PRIVILEGES",
+        "APPLYBUDGET",
+        "MODIFY",
+        "MONITOR",
+        "USAGE",
+        "OPERATE",
+    ];
+
+    let objects_types = vec![
+        "USER",
+        "RESOURCE MONITOR",
+        "WAREHOUSE",
+        "COMPUTE POOL",
+        "DATABASE",
+        "INTEGRATION",
+        "CONNECTION",
+        "FAILOVER GROUP",
+        "REPLICATION GROUP",
+        "EXTERNAL VOLUME",
+    ];
+
+    let with_grant_options = vec!["", " WITH GRANT OPTION"];
+
+    for t in &objects_types {
+        for p in &privileges {
+            for wgo in &with_grant_options {
+                let sql = format!("GRANT {p} ON {t} obj1 TO ROLE role1{wgo}");
+                snowflake_and_generic().verified_stmt(&sql);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_grant_role_to() {
+    snowflake_and_generic().verified_stmt("GRANT ROLE r1 TO ROLE r2");
+    snowflake_and_generic().verified_stmt("GRANT ROLE r1 TO USER u1");
+}
+
+#[test]
+fn test_grant_database_role_to() {
+    snowflake_and_generic().verified_stmt("GRANT DATABASE ROLE r1 TO ROLE r2");
+    snowflake_and_generic().verified_stmt("GRANT DATABASE ROLE db1.sc1.r1 TO ROLE db1.sc1.r2");
+}
+
+#[test]
+fn test_create_database_role() {
+    snowflake().verified_stmt("CREATE DATABASE ROLE r1");
+    snowflake().verified_stmt("CREATE OR REPLACE DATABASE ROLE r1");
+    snowflake().verified_stmt("CREATE DATABASE ROLE IF NOT EXISTS db1.r1");
+    snowflake().verified_stmt("CREATE DATABASE ROLE db1.\"role123\" COMMENT = 'hi'");
+    snowflake().verified_stmt("DROP DATABASE ROLE r1");
+    snowflake().verified_stmt("DROP DATABASE ROLE IF EXISTS db1.\"role123\"");
+}
+
+#[test]
+fn test_alter_session() {
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("ALTER SESSION SET")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: expected at least one option"
+    );
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("ALTER SESSION UNSET")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: expected at least one option"
+    );
+
+    snowflake().one_statement_parses_to(
+        "ALTER SESSION SET AUTOCOMMIT=TRUE",
+        "ALTER SESSION SET AUTOCOMMIT=true",
+    );
+    snowflake().verified_stmt("ALTER SESSION SET AUTOCOMMIT=false QUERY_TAG='tag'");
+    snowflake().verified_stmt("ALTER SESSION UNSET AUTOCOMMIT");
+    snowflake().verified_stmt("ALTER SESSION UNSET AUTOCOMMIT, QUERY_TAG");
+    snowflake().one_statement_parses_to(
+        "ALTER SESSION SET A=false, B='tag';",
+        "ALTER SESSION SET A=false B='tag'",
+    );
+    snowflake().one_statement_parses_to(
+        "ALTER SESSION SET A=true \nB='tag'",
+        "ALTER SESSION SET A=true B='tag'",
+    );
+    snowflake().one_statement_parses_to("ALTER SESSION UNSET a\nB", "ALTER SESSION UNSET a, B");
+}
+
+#[test]
+fn test_alter_session_followed_by_statement() {
+    let stmts = snowflake()
+        .parse_sql_statements("ALTER SESSION SET QUERY_TAG='hello'; SELECT 42")
+        .unwrap();
+    match stmts[..] {
+        [Statement::AlterSession { .. }, Statement::Query { .. }] => {}
+        _ => panic!("Unexpected statements: {stmts:?}"),
+    }
+}
+
+#[test]
+fn test_nested_join_without_parentheses() {
+    let query = "SELECT DISTINCT p.product_id FROM orders AS o INNER JOIN customers AS c INNER JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
+    assert_eq!(
+        only(
+            snowflake()
+                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o INNER JOIN (customers AS c INNER JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
+                .from
+        )
+        .joins,
+        vec![Join {
+            relation: TableFactor::NestedJoin {
+                table_with_joins: Box::new(TableWithJoins {
+                    relation: TableFactor::Table {
+                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
+                        alias: table_alias(true, "c"),
+                        args: None,
+                        with_hints: vec![],
+                        version: None,
+                        partitions: vec![],
+                        with_ordinality: false,
+                        json_path: None,
+                        sample: None,
+                        index_hints: vec![],
+                    },
+                    joins: vec![Join {
+                        relation: TableFactor::Table {
+                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
+                            alias: table_alias(true, "p"),
+                            args: None,
+                            with_hints: vec![],
+                            version: None,
+                            partitions: vec![],
+                            with_ordinality: false,
+                            json_path: None,
+                            sample: None,
+                            index_hints: vec![],
+                        },
+                        global: false,
+                        join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
+                            left: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("p".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                            op: BinaryOperator::Eq,
+                            right: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("c".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                        })),
+                    }]
+                }),
+                alias: None
+            },
+            global: false,
+            join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
+                left: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("c".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("o".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+            }))
+        }],
+    );
+
+    let query = "SELECT DISTINCT p.product_id FROM orders AS o JOIN customers AS c JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
+    assert_eq!(
+        only(
+            snowflake()
+                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o JOIN (customers AS c JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
+                .from
+        )
+        .joins,
+        vec![Join {
+            relation: TableFactor::NestedJoin {
+                table_with_joins: Box::new(TableWithJoins {
+                    relation: TableFactor::Table {
+                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
+                        alias: table_alias(true, "c"),
+                        args: None,
+                        with_hints: vec![],
+                        version: None,
+                        partitions: vec![],
+                        with_ordinality: false,
+                        json_path: None,
+                        sample: None,
+                        index_hints: vec![],
+                    },
+                    joins: vec![Join {
+                        relation: TableFactor::Table {
+                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
+                            alias: table_alias(true, "p"),
+                            args: None,
+                            with_hints: vec![],
+                            version: None,
+                            partitions: vec![],
+                            with_ordinality: false,
+                            json_path: None,
+                            sample: None,
+                            index_hints: vec![],
+                        },
+                        global: false,
+                        join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
+                            left: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("p".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                            op: BinaryOperator::Eq,
+                            right: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("c".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                        })),
+                    }]
+                }),
+                alias: None
+            },
+            global: false,
+            join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
+                left: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("c".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("o".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+            }))
+        }],
+    );
+
+    let query = "SELECT DISTINCT p.product_id FROM orders AS o LEFT JOIN customers AS c LEFT JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
+    assert_eq!(
+        only(
+            snowflake()
+                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o LEFT JOIN (customers AS c LEFT JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
+                .from
+        )
+        .joins,
+        vec![Join {
+            relation: TableFactor::NestedJoin {
+                table_with_joins: Box::new(TableWithJoins {
+                    relation: TableFactor::Table {
+                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
+                        alias: table_alias(true, "c"),
+                        args: None,
+                        with_hints: vec![],
+                        version: None,
+                        partitions: vec![],
+                        with_ordinality: false,
+                        json_path: None,
+                        sample: None,
+                        index_hints: vec![],
+                    },
+                    joins: vec![Join {
+                        relation: TableFactor::Table {
+                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
+                            alias: table_alias(true, "p"),
+                            args: None,
+                            with_hints: vec![],
+                            version: None,
+                            partitions: vec![],
+                            with_ordinality: false,
+                            json_path: None,
+                            sample: None,
+                            index_hints: vec![],
+                        },
+                        global: false,
+                        join_operator: JoinOperator::Left(JoinConstraint::On(Expr::BinaryOp {
+                            left: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("p".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                            op: BinaryOperator::Eq,
+                            right: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("c".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                        })),
+                    }]
+                }),
+                alias: None
+            },
+            global: false,
+            join_operator: JoinOperator::Left(JoinConstraint::On(Expr::BinaryOp {
+                left: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("c".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("o".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+            }))
+        }],
+    );
+
+    let query = "SELECT DISTINCT p.product_id FROM orders AS o RIGHT JOIN customers AS c RIGHT JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
+    assert_eq!(
+        only(
+            snowflake()
+                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o RIGHT JOIN (customers AS c RIGHT JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
+                .from
+        )
+        .joins,
+        vec![Join {
+            relation: TableFactor::NestedJoin {
+                table_with_joins: Box::new(TableWithJoins {
+                    relation: TableFactor::Table {
+                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
+                        alias: table_alias(true, "c"),
+                        args: None,
+                        with_hints: vec![],
+                        version: None,
+                        partitions: vec![],
+                        with_ordinality: false,
+                        json_path: None,
+                        sample: None,
+                        index_hints: vec![],
+                    },
+                    joins: vec![Join {
+                        relation: TableFactor::Table {
+                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
+                            alias: table_alias(true, "p"),
+                            args: None,
+                            with_hints: vec![],
+                            version: None,
+                            partitions: vec![],
+                            with_ordinality: false,
+                            json_path: None,
+                            sample: None,
+                            index_hints: vec![],
+                        },
+                        global: false,
+                        join_operator: JoinOperator::Right(JoinConstraint::On(Expr::BinaryOp {
+                            left: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("p".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                            op: BinaryOperator::Eq,
+                            right: Box::new(Expr::CompoundIdentifier(vec![
+                                Ident::new("c".to_string()),
+                                Ident::new("customer_id".to_string())
+                            ])),
+                        })),
+                    }]
+                }),
+                alias: None
+            },
+            global: false,
+            join_operator: JoinOperator::Right(JoinConstraint::On(Expr::BinaryOp {
+                left: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("c".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("o".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+            }))
+        }],
+    );
+
+    let query = "SELECT DISTINCT p.product_id FROM orders AS o FULL JOIN customers AS c FULL JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
+    assert_eq!(
+        only(
+            snowflake()
+                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o FULL JOIN (customers AS c FULL JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
+                .from
+        )
+        .joins,
+        vec![Join {
+            relation: TableFactor::NestedJoin {
+                table_with_joins: Box::new(TableWithJoins {
+                    relation: TableFactor::Table {
+                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
+                        alias: table_alias(true, "c"),
+                        args: None,
+                        with_hints: vec![],
+                        version: None,
+                        partitions: vec![],
+                        with_ordinality: false,
+                        json_path: None,
+                        sample: None,
+                        index_hints: vec![],
+                    },
+                    joins: vec![Join {
+                        relation: TableFactor::Table {
+                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
+                            alias: table_alias(true, "p"),
+                            args: None,
+                            with_hints: vec![],
+                            version: None,
+                            partitions: vec![],
+                            with_ordinality: false,
+                            json_path: None,
+                            sample: None,
+                            index_hints: vec![],
+                        },
+                        global: false,
+                        join_operator: JoinOperator::FullOuter(JoinConstraint::On(
+                            Expr::BinaryOp {
+                                left: Box::new(Expr::CompoundIdentifier(vec![
+                                    Ident::new("p".to_string()),
+                                    Ident::new("customer_id".to_string())
+                                ])),
+                                op: BinaryOperator::Eq,
+                                right: Box::new(Expr::CompoundIdentifier(vec![
+                                    Ident::new("c".to_string()),
+                                    Ident::new("customer_id".to_string())
+                                ])),
+                            }
+                        )),
+                    }]
+                }),
+                alias: None
+            },
+            global: false,
+            join_operator: JoinOperator::FullOuter(JoinConstraint::On(Expr::BinaryOp {
+                left: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("c".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::CompoundIdentifier(vec![
+                    Ident::new("o".to_string()),
+                    Ident::new("order_id".to_string())
+                ])),
+            }))
+        }],
+    );
+}
+
+#[test]
+fn parse_connect_by_root_operator() {
+    let sql = "SELECT CONNECT_BY_ROOT name AS root_name FROM Tbl1";
+
+    match snowflake().verified_stmt(sql) {
+        Statement::Query(query) => {
+            assert_eq!(
+                query.body.as_select().unwrap().projection[0],
+                SelectItem::ExprWithAlias {
+                    expr: Expr::Prefixed {
+                        prefix: Ident::new("CONNECT_BY_ROOT"),
+                        value: Box::new(Expr::Identifier(Ident::new("name")))
+                    },
+                    alias: Ident::new("root_name"),
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    let sql = "SELECT CONNECT_BY_ROOT name FROM Tbl2";
+    match snowflake().verified_stmt(sql) {
+        Statement::Query(query) => {
+            assert_eq!(
+                query.body.as_select().unwrap().projection[0],
+                SelectItem::UnnamedExpr(Expr::Prefixed {
+                    prefix: Ident::new("CONNECT_BY_ROOT"),
+                    value: Box::new(Expr::Identifier(Ident::new("name")))
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    let sql = "SELECT CONNECT_BY_ROOT FROM Tbl2";
+    let res = snowflake().parse_sql_statements(sql);
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "sql parser error: Expected an expression, found: FROM"
+    );
+}
+
+#[test]
+fn test_begin_exception_end() {
+    for sql in [
+        "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN SELECT 2; RAISE; END",
+        "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN SELECT 2; RAISE EX_1; END",
+        "BEGIN SELECT 1; EXCEPTION WHEN FOO THEN SELECT 2; WHEN OTHER THEN SELECT 3; RAISE; END",
+        "BEGIN BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN SELECT 2; RAISE; END; END",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+
+    let sql = r#"
+DECLARE
+  EXCEPTION_1 EXCEPTION (-20001, 'I caught the expected exception.');
+  EXCEPTION_2 EXCEPTION (-20002, 'Not the expected exception!');
+  EXCEPTION_3 EXCEPTION (-20003, 'The worst exception...');
+BEGIN
+    BEGIN
+        SELECT 1;
+    EXCEPTION
+        WHEN EXCEPTION_1 THEN
+            SELECT 1;
+        WHEN EXCEPTION_2 OR EXCEPTION_3 THEN
+            SELECT 2;
+            SELECT 3;
+        WHEN OTHER THEN
+            SELECT 4;
+    RAISE;
+    END;
+END
+"#;
+
+    // Outer `BEGIN` of the two nested `BEGIN` statements.
+    let Statement::StartTransaction { mut statements, .. } = snowflake()
+        .parse_sql_statements(sql)
+        .unwrap()
+        .pop()
+        .unwrap()
+    else {
+        unreachable!();
+    };
+
+    // Inner `BEGIN` of the two nested `BEGIN` statements.
+    let Statement::StartTransaction {
+        statements,
+        exception,
+        has_end_keyword,
+        ..
+    } = statements.pop().unwrap()
+    else {
+        unreachable!();
+    };
+
+    assert_eq!(1, statements.len());
+    assert!(has_end_keyword);
+
+    let exception = exception.unwrap();
+    assert_eq!(3, exception.len());
+    assert_eq!(1, exception[0].idents.len());
+    assert_eq!(1, exception[0].statements.len());
+    assert_eq!(2, exception[1].idents.len());
+    assert_eq!(2, exception[1].statements.len());
+}
+
+/// Bare `var := expr;` inside an `EXCEPTION WHEN ... THEN` handler body
+/// must parse — same as in the outer scripting body.
+#[test]
+fn test_exception_handler_body_bare_assignment() {
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN msg := 'caught'; RETURN msg; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
+        panic!("expected StartTransaction");
+    };
+    let arms = exception.expect("expected EXCEPTION arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].statements.len(), 2);
+    match &arms[0].statements[0] {
+        Statement::Assignment { target, .. } => assert_eq!(target.value, "msg"),
+        other => panic!("expected Assignment, got {other:?}"),
+    }
+}
+
+/// `LET var TYPE := expr;` inside an `EXCEPTION WHEN ... THEN` handler body
+/// must parse — the handler body sees the same scripting surface as the
+/// outer body.
+#[test]
+fn test_exception_handler_body_let_declaration() {
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN LET t VARCHAR := 'caught'; RETURN t; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
+        panic!("expected StartTransaction");
+    };
+    let arms = exception.expect("expected EXCEPTION arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].statements.len(), 2);
+    match &arms[0].statements[0] {
+        Statement::Let {
+            name, data_type, ..
+        } => {
+            assert_eq!(name.value, "t");
+            assert!(data_type.is_some());
+        }
+        other => panic!("expected Let, got {other:?}"),
+    }
+}
+
+/// Loop-control statements (`BREAK`, `CONTINUE`, `EXIT`, `ITERATE`) inside
+/// an `EXCEPTION WHEN ... THEN` body must parse — the keyword surface is
+/// the same as the outer scripting body. (`LOOP ... EXCEPTION ...` is not
+/// the natural shape — instead nest the LOOP inside a BEGIN block whose
+/// handler issues BREAK.)
+#[test]
+fn test_exception_handler_body_loop_control() {
+    let sql = "BEGIN LOOP SELECT 1; END LOOP; EXCEPTION WHEN OTHER THEN BREAK; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    let Statement::StartTransaction { exception, .. } = stmts.into_iter().next().unwrap() else {
+        panic!("expected StartTransaction");
+    };
+    let arms = exception.expect("expected EXCEPTION arms");
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].statements.len(), 1);
+    match &arms[0].statements[0] {
+        Statement::LoopControl(lc) => {
+            assert_eq!(lc.kind, LoopControlKind::Break);
+            assert!(lc.label.is_none());
+        }
+        other => panic!("expected LoopControl, got {other:?}"),
+    }
+}
+
+/// Regression: a malformed handler body (missing terminator) still surfaces
+/// a `ParserError`. The terminal keywords (`WHEN`, `END`) are unchanged
+/// after switching the call to `parse_scripting_statement_list`, so an
+/// unterminated handler body still errors at the same place.
+#[test]
+fn test_exception_handler_body_missing_terminator_errors() {
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN var := 1";
+    let err = snowflake()
+        .parse_sql_statements(sql)
+        .expect_err("missing END must error");
+    assert!(matches!(err, ParserError::ParserError(_)), "{err:?}");
+}
+
+#[test]
+fn test_begin_transaction() {
+    snowflake().verified_stmt("BEGIN TRANSACTION");
+    snowflake().verified_stmt("BEGIN WORK");
+
+    // BEGIN TRANSACTION with statements
+    let stmts = snowflake()
+        .parse_sql_statements("BEGIN TRANSACTION; DROP TABLE IF EXISTS bla; COMMIT")
+        .unwrap();
+    assert_eq!(3, stmts.len());
+
+    // Bare BEGIN (no TRANSACTION keyword) with statements
+    let stmts = snowflake()
+        .parse_sql_statements("BEGIN; DROP TABLE IF EXISTS bla; COMMIT")
+        .unwrap();
+    assert_eq!(3, stmts.len());
+
+    // Bare BEGIN at EOF (no semicolon, no TRANSACTION keyword)
+    snowflake().verified_stmt("BEGIN");
+}
+
+/// Snowflake allows an optional `NAME <id>` clause on `BEGIN`/`START
+/// TRANSACTION`.  See <https://docs.snowflake.com/en/sql-reference/sql/begin>.
+#[test]
+fn test_begin_transaction_name_clause() {
+    // BEGIN NAME <id>
+    let stmt = snowflake().verified_stmt("BEGIN NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            name,
+            ..
+        } => {
+            assert!(begin);
+            assert!(transaction.is_none());
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // BEGIN TRANSACTION NAME <id>
+    let stmt = snowflake().verified_stmt("BEGIN TRANSACTION NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            name,
+            ..
+        } => {
+            assert!(begin);
+            assert_eq!(transaction, Some(BeginTransactionKind::Transaction));
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // BEGIN WORK NAME <id>
+    let stmt = snowflake().verified_stmt("BEGIN WORK NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            transaction, name, ..
+        } => {
+            assert_eq!(transaction, Some(BeginTransactionKind::Work));
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // START TRANSACTION NAME <id>
+    let stmt = snowflake().verified_stmt("START TRANSACTION NAME mytxn");
+    match stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            name,
+            ..
+        } => {
+            assert!(!begin);
+            assert_eq!(transaction, Some(BeginTransactionKind::Transaction));
+            assert_eq!(name.unwrap().value, "mytxn");
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // Quoted identifier name round-trips with quotes preserved.
+    let stmt = snowflake().verified_stmt("BEGIN TRANSACTION NAME \"My Txn\"");
+    match stmt {
+        Statement::StartTransaction { name, .. } => {
+            let name = name.unwrap();
+            assert_eq!(name.value, "My Txn");
+            assert_eq!(name.quote_style, Some('"'));
+        }
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+
+    // No NAME clause → name is None.
+    let stmt = snowflake().verified_stmt("BEGIN TRANSACTION");
+    match stmt {
+        Statement::StartTransaction { name, .. } => assert!(name.is_none()),
+        other => panic!("expected StartTransaction, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_snowflake_fetch_clause_syntax() {
+    let canonical = "SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS ONLY";
+    snowflake().verified_only_select_with_canonical("SELECT c1 FROM fetch_test FETCH 2", canonical);
+
+    snowflake()
+        .verified_only_select_with_canonical("SELECT c1 FROM fetch_test FETCH FIRST 2", canonical);
+    snowflake()
+        .verified_only_select_with_canonical("SELECT c1 FROM fetch_test FETCH NEXT 2", canonical);
+
+    snowflake()
+        .verified_only_select_with_canonical("SELECT c1 FROM fetch_test FETCH 2 ROW", canonical);
+
+    snowflake().verified_only_select_with_canonical(
+        "SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS",
+        canonical,
+    );
+}
+
+#[test]
+fn test_snowflake_create_view_with_multiple_column_options() {
+    let create_view_with_tag =
+        r#"CREATE VIEW X (COL WITH TAG (pii='email') COMMENT 'foobar') AS SELECT * FROM Y"#;
+    snowflake().verified_stmt(create_view_with_tag);
+}
+
+#[test]
+fn test_snowflake_create_view_with_composite_tag() {
+    let create_view_with_tag =
+        r#"CREATE VIEW X (COL WITH TAG (foo.bar.baz.pii='email')) AS SELECT * FROM Y"#;
+    snowflake().verified_stmt(create_view_with_tag);
+}
+
+#[test]
+fn test_snowflake_create_view_with_composite_policy_name() {
+    let create_view_with_tag =
+        r#"CREATE VIEW X (COL WITH MASKING POLICY foo.bar.baz) AS SELECT * FROM Y"#;
+    snowflake().verified_stmt(create_view_with_tag);
+}
+
+#[test]
+fn test_snowflake_create_view_copy_grants() {
+    snowflake().verified_stmt("CREATE OR REPLACE VIEW bla COPY GRANTS AS (SELECT * FROM source)");
+    snowflake()
+        .verified_stmt("CREATE OR REPLACE SECURE VIEW bla COPY GRANTS AS (SELECT * FROM source)");
+    // COPY GRANTS with column list
+    snowflake().verified_stmt(
+        "CREATE OR REPLACE VIEW bla COPY GRANTS (a, b) AS (SELECT a, b FROM source)",
+    );
+}
+
+#[test]
+fn test_snowflake_identifier_function() {
+    // Using IDENTIFIER to reference a column
+    match &snowflake()
+        .verified_only_select("SELECT identifier('email') FROM customers")
+        .projection[0]
+    {
+        SelectItem::UnnamedExpr(Expr::Function(Function { name, args, .. })) => {
+            assert_eq!(*name, ObjectName::from(vec![Ident::new("identifier")]));
+            assert_eq!(
+                *args,
+                FunctionArguments::List(FunctionArgumentList {
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString("email".to_string()).into()
+                    )))],
+                    clauses: vec![],
+                    duplicate_treatment: None
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Using IDENTIFIER to reference a case-sensitive column
+    match &snowflake()
+        .verified_only_select(r#"SELECT identifier('"Email"') FROM customers"#)
+        .projection[0]
+    {
+        SelectItem::UnnamedExpr(Expr::Function(Function { name, args, .. })) => {
+            assert_eq!(*name, ObjectName::from(vec![Ident::new("identifier")]));
+            assert_eq!(
+                *args,
+                FunctionArguments::List(FunctionArgumentList {
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString("\"Email\"".to_string()).into()
+                    )))],
+                    clauses: vec![],
+                    duplicate_treatment: None
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Using IDENTIFIER to reference an alias of a table
+    match &snowflake()
+        .verified_only_select("SELECT identifier('alias1').* FROM tbl AS alias1")
+        .projection[0]
+    {
+        SelectItem::QualifiedWildcard(
+            SelectItemQualifiedWildcardKind::Expr(Expr::Function(Function { name, args, .. })),
+            _,
+        ) => {
+            assert_eq!(*name, ObjectName::from(vec![Ident::new("identifier")]));
+            assert_eq!(
+                *args,
+                FunctionArguments::List(FunctionArgumentList {
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString("alias1".to_string()).into()
+                    )))],
+                    clauses: vec![],
+                    duplicate_treatment: None
+                })
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Using IDENTIFIER to reference a database
+    match snowflake().verified_stmt("CREATE DATABASE IDENTIFIER('tbl')") {
+        Statement::CreateDatabase { db_name, .. } => {
+            assert_eq!(
+                db_name,
+                ObjectName(vec![ObjectNamePart::Function(ObjectNamePartFunction {
+                    name: Ident::new("IDENTIFIER"),
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString("tbl".to_string()).into()
+                    )))]
+                })])
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Using IDENTIFIER to reference a schema
+    match snowflake().verified_stmt("CREATE SCHEMA IDENTIFIER('db1.sc1')") {
+        Statement::CreateSchema { schema_name, .. } => {
+            assert_eq!(
+                schema_name,
+                SchemaName::Simple(ObjectName(vec![ObjectNamePart::Function(
+                    ObjectNamePartFunction {
+                        name: Ident::new("IDENTIFIER"),
+                        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                            Value::SingleQuotedString("db1.sc1".to_string()).into()
+                        )))]
+                    }
+                )]))
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Using IDENTIFIER to reference a table
+    match snowflake().verified_stmt("CREATE TABLE IDENTIFIER('tbl') (id INT)") {
+        Statement::CreateTable(CreateTable { name, .. }) => {
+            assert_eq!(
+                name,
+                ObjectName(vec![ObjectNamePart::Function(ObjectNamePartFunction {
+                    name: Ident::new("IDENTIFIER"),
+                    args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        Value::SingleQuotedString("tbl".to_string()).into()
+                    )))]
+                })])
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    // Cannot have more than one IDENTIFIER part in an object name
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements(
+                "CREATE TABLE IDENTIFIER('db1').IDENTIFIER('sc1').IDENTIFIER('tbl') (id INT)"
+            )
+            .is_err(),
+        true
+    );
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("CREATE TABLE IDENTIFIER('db1')..IDENTIFIER('tbl') (id INT)")
+            .is_err(),
+        true
+    );
+}
+
+#[test]
+fn test_create_database() {
+    snowflake().verified_stmt("CREATE DATABASE my_db");
+    snowflake().verified_stmt("CREATE OR REPLACE DATABASE my_db");
+    snowflake().verified_stmt("CREATE TRANSIENT DATABASE IF NOT EXISTS my_db");
+    snowflake().verified_stmt("CREATE DATABASE my_db CLONE src_db");
+    snowflake().verified_stmt(
+        "CREATE OR REPLACE DATABASE my_db CLONE src_db DATA_RETENTION_TIME_IN_DAYS = 1",
+    );
+    snowflake().one_statement_parses_to(
+        r#"
+        CREATE OR REPLACE TRANSIENT DATABASE IF NOT EXISTS my_db
+        CLONE src_db
+        DATA_RETENTION_TIME_IN_DAYS = 1
+        MAX_DATA_EXTENSION_TIME_IN_DAYS = 5
+        EXTERNAL_VOLUME = 'volume1'
+        CATALOG = 'my_catalog'
+        REPLACE_INVALID_CHARACTERS = TRUE
+        DEFAULT_DDL_COLLATION = 'en-ci'
+        STORAGE_SERIALIZATION_POLICY = COMPATIBLE
+        COMMENT = 'This is my database'
+        CATALOG_SYNC = 'sync_integration'
+        CATALOG_SYNC_NAMESPACE_MODE = NEST
+        CATALOG_SYNC_NAMESPACE_FLATTEN_DELIMITER = '/'
+        WITH TAG (env = 'prod', team = 'data')
+        WITH CONTACT (owner = 'admin', dpo = 'compliance')
+    "#,
+        "CREATE OR REPLACE TRANSIENT DATABASE IF NOT EXISTS \
+        my_db CLONE src_db DATA_RETENTION_TIME_IN_DAYS = 1 MAX_DATA_EXTENSION_TIME_IN_DAYS = 5 \
+        EXTERNAL_VOLUME = 'volume1' CATALOG = 'my_catalog' \
+        REPLACE_INVALID_CHARACTERS = TRUE DEFAULT_DDL_COLLATION = 'en-ci' \
+        STORAGE_SERIALIZATION_POLICY = COMPATIBLE COMMENT = 'This is my database' \
+        CATALOG_SYNC = 'sync_integration' CATALOG_SYNC_NAMESPACE_MODE = NEST \
+        CATALOG_SYNC_NAMESPACE_FLATTEN_DELIMITER = '/' \
+        WITH TAG (env='prod', team='data') \
+        WITH CONTACT (owner = admin, dpo = compliance)",
+    );
+
+    let err = snowflake()
+        .parse_sql_statements("CREATE DATABASE")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Expected"), "Unexpected error: {err}");
+
+    let err = snowflake()
+        .parse_sql_statements("CREATE DATABASE my_db CLONE")
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Expected"), "Unexpected error: {err}");
+}
+
+#[test]
+fn test_timestamp_ntz_with_precision() {
+    snowflake().verified_stmt("SELECT CAST('2024-01-01 01:00:00' AS TIMESTAMP_NTZ(1))");
+    snowflake().verified_stmt("SELECT CAST('2024-01-01 01:00:00' AS TIMESTAMP_NTZ(9))");
+
+    let select =
+        snowflake().verified_only_select("SELECT CAST('2024-01-01 01:00:00' AS TIMESTAMP_NTZ(9))");
+    match expr_from_projection(only(&select.projection)) {
+        Expr::Cast { data_type, .. } => {
+            assert_eq!(*data_type, DataType::TimestampNtz(Some(9)));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_constraints() {
+    snowflake().verified_stmt("ALTER TABLE tbl DROP PRIMARY KEY");
+    snowflake().verified_stmt("ALTER TABLE tbl DROP FOREIGN KEY k1");
+    snowflake().verified_stmt("ALTER TABLE tbl DROP CONSTRAINT c1");
+    snowflake().verified_stmt("ALTER TABLE tbl DROP PRIMARY KEY CASCADE");
+    snowflake().verified_stmt("ALTER TABLE tbl DROP FOREIGN KEY k1 RESTRICT");
+    snowflake().verified_stmt("ALTER TABLE tbl DROP CONSTRAINT c1 CASCADE");
+}
+
+#[test]
+fn test_alter_dynamic_table() {
+    snowflake().verified_stmt("ALTER DYNAMIC TABLE MY_DYNAMIC_TABLE REFRESH");
+    snowflake().verified_stmt("ALTER DYNAMIC TABLE my_database.my_schema.my_dynamic_table REFRESH");
+    snowflake().verified_stmt("ALTER DYNAMIC TABLE my_dyn_table SUSPEND");
+    snowflake().verified_stmt("ALTER DYNAMIC TABLE my_dyn_table RESUME");
+}
+
+#[test]
+fn test_alter_external_table() {
+    snowflake().verified_stmt("ALTER EXTERNAL TABLE some_table REFRESH");
+    snowflake().verified_stmt("ALTER EXTERNAL TABLE some_table REFRESH 'year=2025/month=12/'");
+    snowflake().verified_stmt("ALTER EXTERNAL TABLE IF EXISTS some_table REFRESH");
+    snowflake()
+        .verified_stmt("ALTER EXTERNAL TABLE IF EXISTS some_table REFRESH 'year=2025/month=12/'");
+}
+
+#[test]
+fn test_truncate_table_if_exists() {
+    snowflake().verified_stmt("TRUNCATE TABLE IF EXISTS my_table");
+    snowflake().verified_stmt("TRUNCATE TABLE my_table");
+    snowflake().verified_stmt("TRUNCATE IF EXISTS my_table");
+}
+
+#[test]
+fn test_select_dollar_column_from_stage() {
+    // With table function args and alias
+    snowflake().verified_stmt("SELECT t.$1, t.$2 FROM @mystage1(file_format => 'myformat', pattern => '.*data.*[.]csv.gz') t");
+    // Without table function args, with alias
+    snowflake().verified_stmt("SELECT t.$1, t.$2 FROM @mystage1 t");
+    // Without table function args, without alias
+    snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1");
+    // With table function args, without alias
+    snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1(file_format => 'myformat')");
+}
+
+#[test]
+fn test_select_from_stage_comma_join_lateral() {
+    // Comma immediately abutting the stage path, followed by LATERAL FLATTEN.
+    snowflake().one_statement_parses_to(
+        "SELECT value FROM @stage/test.jsonl, LATERAL FLATTEN(input => $1, path => 'attr1')",
+        "SELECT value FROM @stage/test.jsonl, LATERAL FLATTEN(input => $1, path => 'attr1')",
+    );
+    // Space before the comma parses to the same canonical form.
+    snowflake().one_statement_parses_to(
+        "SELECT value FROM @stage/test.jsonl , LATERAL FLATTEN(input => $1, path => 'attr1')",
+        "SELECT value FROM @stage/test.jsonl, LATERAL FLATTEN(input => $1, path => 'attr1')",
+    );
+    // Comma abutting the path, with a table alias on the stage factor.
+    let stmt = snowflake()
+        .parse_sql_statements("SELECT value FROM @stage/test.jsonl t, LATERAL FLATTEN(input => $1)")
+        .expect("stage factor with alias and comma join should parse");
+    assert_eq!(
+        stmt[0].to_string(),
+        "SELECT value FROM @stage/test.jsonl t, LATERAL FLATTEN(input => $1)"
+    );
+    // Explicit `AS` alias round-trips.
+    snowflake()
+        .verified_stmt("SELECT value FROM @stage/test.jsonl AS t, LATERAL FLATTEN(input => $1)");
+    // Plain comma join of a stage factor with an ordinary table.
+    snowflake().verified_stmt("SELECT * FROM @stage, other_table");
+    snowflake().verified_stmt("SELECT * FROM @stage/test.jsonl, other_table");
+}
+
+/// Bare assignment `var := expr` inside `BEGIN...END` scripting blocks.
+#[test]
+fn test_scripting_bare_assignment() {
+    // Bare assignment directly inside BEGIN...END.
+    let sql = r#"CREATE PROCEDURE p() RETURNS TEXT LANGUAGE SQL AS $$
+BEGIN
+  result := 'hello';
+  RETURN result;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("bare assignment should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    // First statement inside BEGIN...END is the bare assignment.
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Assignment { target, value: _ }
+                if target.value == "result"
+        ),
+        "expected bare assignment statement, got {:?}",
+        begin_stmts[0]
+    );
+    // Display round-trips correctly.
+    assert_eq!(
+        begin_stmts[0].to_string(),
+        "result := 'hello'",
+        "bare assignment Display should render `var := expr`"
+    );
+
+    // Bare assignment with DECLARE at top level (END must be followed by `;`
+    // since it is a statement in a Sequence context).
+    let sql_with_declare = r#"CREATE PROCEDURE p() RETURNS TEXT LANGUAGE SQL AS $$
+DECLARE result VARCHAR;
+BEGIN
+  result := 'hello';
+  RETURN result;
+END; $$"#;
+    let stmts2 = snowflake()
+        .parse_sql_statements(sql_with_declare)
+        .expect("bare assignment with DECLARE should parse");
+    let body2 = match &stmts2[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let seq = match body2 {
+        ConditionalStatements::Sequence { statements } => statements,
+        other => panic!("expected Sequence body, got {other:?}"),
+    };
+    assert_eq!(2, seq.len(), "expected DECLARE + BEGIN block");
+    let begin_stmts2 = match &seq[1] {
+        Statement::StartTransaction { statements, .. } => statements,
+        other => panic!("expected StartTransaction for BEGIN block, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts2[0],
+            Statement::Assignment { target, value: _ }
+                if target.value == "result"
+        ),
+        "expected bare assignment inside DECLARE+BEGIN block, got {:?}",
+        begin_stmts2[0]
+    );
+}
+
+/// Snowflake allows a `NOT NULL` nullability annotation on a procedure's
+/// return type. It is consumed (and dropped) so the parsed shape matches the
+/// un-annotated form.
+#[test]
+fn test_create_procedure_returns_not_null() {
+    let sql = r#"CREATE OR REPLACE PROCEDURE p() RETURNS BOOLEAN NOT NULL LANGUAGE SQL AS $$
+BEGIN
+  RETURN TRUE;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("RETURNS <type> NOT NULL procedure should parse");
+    let returns = match &stmts[0] {
+        Statement::CreateProcedure { returns, .. } => returns,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    assert_eq!(returns, &Some(DataType::Boolean));
+
+    // The un-annotated form parses to the same return type.
+    let sql_plain = r#"CREATE OR REPLACE PROCEDURE p() RETURNS BOOLEAN LANGUAGE SQL AS $$
+BEGIN
+  RETURN TRUE;
+END $$"#;
+    let stmts_plain = snowflake()
+        .parse_sql_statements(sql_plain)
+        .expect("RETURNS <type> procedure should parse");
+    assert_eq!(stmts[0], stmts_plain[0]);
+}
+
+/// `EXECUTE AS { CALLER | OWNER }` rights clause parses, is recoverable from
+/// the AST, and round-trips through `Display`. An omitted clause is reported
+/// as owner's-rights (`None`).
+#[test]
+fn test_create_procedure_execute_as() {
+    fn execute_as_of(sql: &str) -> Option<ProcedureExecuteAs> {
+        let stmts = snowflake()
+            .parse_sql_statements(sql)
+            .expect("EXECUTE AS procedure should parse");
+        match &stmts[0] {
+            Statement::CreateProcedure { execute_as, .. } => *execute_as,
+            other => panic!("expected CreateProcedure, got {other:?}"),
+        }
+    }
+
+    let caller = r#"CREATE OR REPLACE PROCEDURE p(a INT) RETURNS VARCHAR LANGUAGE SQL EXECUTE AS CALLER AS $$
+BEGIN
+  RETURN 'x';
+END $$"#;
+    assert_eq!(execute_as_of(caller), Some(ProcedureExecuteAs::Caller));
+
+    let owner = r#"CREATE OR REPLACE PROCEDURE p(a INT) RETURNS VARCHAR LANGUAGE SQL EXECUTE AS OWNER AS $$
+BEGIN
+  RETURN 'x';
+END $$"#;
+    assert_eq!(execute_as_of(owner), Some(ProcedureExecuteAs::Owner));
+
+    let omitted = r#"CREATE OR REPLACE PROCEDURE p(a INT) RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  RETURN 'x';
+END $$"#;
+    assert_eq!(execute_as_of(omitted), None);
+
+    // A `CALLER` declaration is distinguishable from `OWNER`/omitted.
+    assert_ne!(execute_as_of(caller), execute_as_of(owner));
+    assert_ne!(execute_as_of(caller), execute_as_of(omitted));
+
+    // parse → Display → parse round-trips for all three forms.
+    for sql in [caller, owner, omitted] {
+        let first = snowflake().parse_sql_statements(sql).unwrap();
+        let rendered = first[0].to_string();
+        let second = snowflake()
+            .parse_sql_statements(&rendered)
+            .expect("re-parse of Display output should succeed");
+        assert_eq!(first[0], second[0]);
+    }
+
+    // The omitted form does not gain a spurious `EXECUTE AS` rendering.
+    let rendered_omitted = snowflake().parse_sql_statements(omitted).unwrap()[0].to_string();
+    assert!(!rendered_omitted.contains("EXECUTE AS"));
+    assert!(snowflake().parse_sql_statements(caller).unwrap()[0]
+        .to_string()
+        .contains("EXECUTE AS CALLER"));
+    assert!(snowflake().parse_sql_statements(owner).unwrap()[0]
+        .to_string()
+        .contains("EXECUTE AS OWNER"));
+}
+
+/// `LET var := expr` (without data type) inside `BEGIN...END`.
+#[test]
+fn test_scripting_let_without_type() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS INT LANGUAGE SQL AS $$
+BEGIN
+  LET x := 42;
+  RETURN x;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET without type should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Let { name, data_type: None, value: _ }
+                if name.value == "x"
+        ),
+        "expected Let statement without type, got {:?}",
+        begin_stmts[0]
+    );
+    assert_eq!(
+        begin_stmts[0].to_string(),
+        "LET x := 42",
+        "LET without type Display"
+    );
+}
+
+/// `LET var TYPE := expr` (with data type) inside `BEGIN...END`.
+#[test]
+fn test_scripting_let_with_type() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET name VARCHAR := 'hello';
+  RETURN name;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET with type should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Let { name, data_type: Some(_), value: _ }
+                if name.value == "name"
+        ),
+        "expected Let statement with type, got {:?}",
+        begin_stmts[0]
+    );
+    assert_eq!(
+        begin_stmts[0].to_string(),
+        "LET name VARCHAR := 'hello'",
+        "LET with type Display"
+    );
+}
+
+/// `LET res RESULTSET := (<query>)` routes into the same `Declare` shape as
+/// `DECLARE res RESULTSET := (<query>)`.
+#[test]
+fn test_scripting_let_resultset() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET res RESULTSET := (SELECT id FROM invoices);
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET RESULTSET should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[0] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.names[0].value, "res");
+    assert_eq!(decl.declare_type, Some(DeclareType::ResultSet));
+    assert!(
+        matches!(decl.assignment, Some(DeclareAssignment::DuckAssignment(_))),
+        "expected RESULTSET := query assignment, got {:?}",
+        decl.assignment
+    );
+}
+
+/// `LET cur CURSOR FOR (<query>)` routes into the same `Declare` shape as
+/// `DECLARE cur CURSOR FOR (<query>)`.
+#[test]
+fn test_scripting_let_cursor_for_query() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET cur CURSOR FOR (SELECT id FROM invoices);
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET CURSOR FOR query should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[0] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.names[0].value, "cur");
+    assert_eq!(decl.declare_type, Some(DeclareType::Cursor));
+    assert!(
+        matches!(decl.assignment, Some(DeclareAssignment::For(_))),
+        "expected CURSOR FOR assignment, got {:?}",
+        decl.assignment
+    );
+}
+
+/// `LET cur CURSOR FOR <resultset_name>` routes into the same `Declare` shape
+/// as `DECLARE cur CURSOR FOR res`.
+#[test]
+fn test_scripting_let_cursor_for_resultset_name() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET res RESULTSET := (SELECT id FROM invoices);
+  LET cur CURSOR FOR res;
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET CURSOR FOR resultset name should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[1] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.names[0].value, "cur");
+    assert_eq!(decl.declare_type, Some(DeclareType::Cursor));
+    match &decl.assignment {
+        Some(DeclareAssignment::For(expr)) => {
+            assert_eq!(expr.to_string(), "res");
+        }
+        other => panic!("expected CURSOR FOR res assignment, got {other:?}"),
+    }
+}
+
+/// The scalar `LET x [type] := expr` form must remain a `Statement::Let`.
+#[test]
+fn test_scripting_let_scalar_unaffected() {
+    let sql = r#"CREATE PROCEDURE p() RETURNS INT LANGUAGE SQL AS $$
+BEGIN
+  LET x INT := 42;
+  RETURN x;
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("scalar LET should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            &begin_stmts[0],
+            Statement::Let { name, data_type: Some(_), .. } if name.value == "x"
+        ),
+        "expected scalar Let, got {:?}",
+        begin_stmts[0]
+    );
+}
+
+#[test]
+fn test_create_external_volume_basic() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/path/'))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume {
+            or_replace,
+            if_not_exists,
+            name,
+            storage_locations,
+            allow_writes,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("my_vol", name.to_string());
+            assert_eq!(1, storage_locations.len());
+            assert_eq!("loc1", storage_locations[0].name);
+            assert_eq!("S3", storage_locations[0].storage_provider);
+            assert_eq!("s3://bucket/path/", storage_locations[0].storage_base_url);
+            assert!(storage_locations[0].storage_aws_role_arn.is_none());
+            assert!(storage_locations[0].encryption.is_none());
+            assert!(allow_writes.is_none());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_or_replace() {
+    let sql = concat!(
+        "CREATE OR REPLACE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/'))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume { or_replace, .. } => {
+            assert!(or_replace);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_if_not_exists() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME IF NOT EXISTS my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/'))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume { if_not_exists, .. } => {
+            assert!(if_not_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_multi_location() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket1/'), ",
+        "(NAME = 'loc2' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket2/' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/myrole'))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            assert_eq!(2, storage_locations.len());
+            assert_eq!("loc1", storage_locations[0].name);
+            assert_eq!("loc2", storage_locations[1].name);
+            assert_eq!(
+                Some("arn:aws:iam::role/myrole".to_string()),
+                storage_locations[1].storage_aws_role_arn
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_with_encryption_sse_s3() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "ENCRYPTION = (TYPE = 'AWS_SSE_S3')))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            let enc = storage_locations[0].encryption.as_ref().unwrap();
+            assert_eq!("AWS_SSE_S3", enc.kind);
+            assert!(enc.kms_key_id.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_with_encryption_kms() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "ENCRYPTION = (TYPE = 'AWS_SSE_KMS' KMS_KEY_ID = 'my-key-id')))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            let enc = storage_locations[0].encryption.as_ref().unwrap();
+            assert_eq!("AWS_SSE_KMS", enc.kind);
+            assert_eq!(Some("my-key-id".to_string()), enc.kms_key_id);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_with_encryption_none() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "ENCRYPTION = (TYPE = 'NONE')))",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            let enc = storage_locations[0].encryption.as_ref().unwrap();
+            assert_eq!("NONE", enc.kind);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_full() {
+    let sql = concat!(
+        "CREATE OR REPLACE EXTERNAL VOLUME IF NOT EXISTS my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r' ",
+        "STORAGE_AWS_EXTERNAL_ID = 'ext-id' ",
+        "ENCRYPTION = (TYPE = 'AWS_SSE_KMS' KMS_KEY_ID = 'key'))) ",
+        "ALLOW_WRITES = TRUE ",
+        "COMMENT = 'my comment'",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume {
+            or_replace,
+            if_not_exists,
+            storage_locations,
+            allow_writes,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(if_not_exists);
+            assert_eq!(1, storage_locations.len());
+            assert_eq!(
+                Some("ext-id".to_string()),
+                storage_locations[0].storage_aws_external_id
+            );
+            assert_eq!(Some(true), allow_writes);
+            assert_eq!(Some("my comment".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_allow_writes_false() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/')) ",
+        "ALLOW_WRITES = FALSE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateExternalVolume { allow_writes, .. } => {
+            assert_eq!(Some(false), allow_writes);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_external_volume_add_storage_location() {
+    let sql = concat!(
+        "ALTER EXTERNAL VOLUME my_vol ADD STORAGE_LOCATION = ",
+        "(NAME = 'loc2' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket2/')",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterExternalVolume {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("my_vol", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterExternalVolumeOperation::AddStorageLocation(loc) => {
+                    assert_eq!("loc2", loc.name);
+                    assert_eq!("S3", loc.storage_provider);
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_external_volume_set_allow_writes() {
+    let sql = "ALTER EXTERNAL VOLUME my_vol SET ALLOW_WRITES = TRUE";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterExternalVolume { operation, .. } => {
+            assert_eq!(
+                AlterExternalVolumeOperation::SetAllowWrites(true),
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    let sql = "ALTER EXTERNAL VOLUME my_vol SET ALLOW_WRITES = FALSE";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterExternalVolume { operation, .. } => {
+            assert_eq!(
+                AlterExternalVolumeOperation::SetAllowWrites(false),
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_external_volume_if_exists() {
+    let sql = "ALTER EXTERNAL VOLUME IF EXISTS my_vol SET ALLOW_WRITES = TRUE";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterExternalVolume { if_exists, .. } => {
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_external_volume_remove_storage_location() {
+    let sql = "ALTER EXTERNAL VOLUME my_vol REMOVE STORAGE_LOCATION 'loc1'";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterExternalVolume { operation, .. } => {
+            assert_eq!(
+                AlterExternalVolumeOperation::RemoveStorageLocation("loc1".to_string()),
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_external_volume() {
+    let sql = "DROP EXTERNAL VOLUME my_vol";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropExternalVolume { name, if_exists } => {
+            assert_eq!("my_vol", name.to_string());
+            assert!(!if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_external_volume_if_exists() {
+    let sql = "DROP EXTERNAL VOLUME IF EXISTS my_vol";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropExternalVolume { if_exists, .. } => {
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_external_volume() {
+    let sql = "DESCRIBE EXTERNAL VOLUME my_vol";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeExternalVolume { name } => {
+            assert_eq!("my_vol", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_external_volumes() {
+    let sql = "SHOW EXTERNAL VOLUMES";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowExternalVolumes { filter } => {
+            assert!(filter.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_external_volumes_like() {
+    let sql = "SHOW EXTERNAL VOLUMES LIKE 'my_%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowExternalVolumes { filter } => {
+            assert!(filter.is_some());
+            match filter.unwrap() {
+                ShowStatementFilter::Like(pattern) => {
+                    assert_eq!("my_%", pattern);
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_external_volume() {
+    let sql = "DESC EXTERNAL VOLUME my_vol";
+    let canonical = "DESCRIBE EXTERNAL VOLUME my_vol";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::DescribeExternalVolume { name } => {
+            assert_eq!("my_vol", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_comma_separated_fields() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1', STORAGE_PROVIDER = 'S3', STORAGE_BASE_URL = 's3://bucket/', ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    let canonical = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            assert_eq!(1, storage_locations.len());
+            assert_eq!("loc1", storage_locations[0].name);
+            assert_eq!("S3", storage_locations[0].storage_provider);
+            assert_eq!("s3://bucket/", storage_locations[0].storage_base_url);
+            assert_eq!(
+                Some("arn:aws:iam::role/r".to_string()),
+                storage_locations[0].storage_aws_role_arn
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_flexible_field_ordering() {
+    // Real Snowflake accepts STORAGE_BASE_URL anywhere after STORAGE_PROVIDER.
+    // Here STORAGE_AWS_ROLE_ARN appears before STORAGE_BASE_URL.
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r' ",
+        "STORAGE_BASE_URL = 's3://bucket/'))",
+    );
+    let canonical = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateExternalVolume {
+            storage_locations, ..
+        } => {
+            assert_eq!(1, storage_locations.len());
+            assert_eq!("loc1", storage_locations[0].name);
+            assert_eq!("S3", storage_locations[0].storage_provider);
+            assert_eq!("s3://bucket/", storage_locations[0].storage_base_url);
+            assert_eq!(
+                Some("arn:aws:iam::role/r".to_string()),
+                storage_locations[0].storage_aws_role_arn
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_external_volume_missing_storage_base_url() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' ",
+        "STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::role/r'))",
+    );
+    let err = snowflake()
+        .parse_sql_statements(sql)
+        .expect_err("parser must reject STORAGE_LOCATION without STORAGE_BASE_URL");
+    assert!(
+        err.to_string().contains("STORAGE_BASE_URL"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_create_external_volume_duplicate_storage_base_url() {
+    let sql = concat!(
+        "CREATE EXTERNAL VOLUME my_vol ",
+        "STORAGE_LOCATIONS = (",
+        "(NAME = 'loc1' STORAGE_PROVIDER = 'S3' ",
+        "STORAGE_BASE_URL = 's3://bucket/' ",
+        "STORAGE_BASE_URL = 's3://other/'))",
+    );
+    let err = snowflake()
+        .parse_sql_statements(sql)
+        .expect_err("parser must reject duplicate STORAGE_BASE_URL");
+    assert!(
+        err.to_string().contains("duplicate STORAGE_BASE_URL"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_create_catalog_integration_minimal_iceberg_rest_oauth() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'secret' OAUTH_ALLOWED_SCOPES = ('PRINCIPAL_ROLE:ALL')) ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            or_replace,
+            if_not_exists,
+            name,
+            catalog_source,
+            table_format,
+            catalog_namespace,
+            rest_config,
+            rest_authentication,
+            enabled,
+            refresh_interval_seconds,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("my_cat", name.to_string());
+            assert_eq!(CatalogSource::IcebergRest, catalog_source);
+            assert_eq!(CatalogTableFormat::Iceberg, table_format);
+            assert!(catalog_namespace.is_none());
+            let cfg = rest_config.expect("rest_config");
+            assert_eq!("https://rest.example.com", cfg.catalog_uri);
+            assert!(cfg.catalog_name.is_none());
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!("OAUTH", auth.auth_type);
+            assert_eq!(Some("cid".to_string()), auth.oauth_client_id);
+            assert_eq!(Some("secret".to_string()), auth.oauth_client_secret);
+            assert_eq!(
+                vec!["PRINCIPAL_ROLE:ALL".to_string()],
+                auth.oauth_allowed_scopes
+            );
+            assert!(enabled);
+            assert!(refresh_interval_seconds.is_none());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_unquoted_oauth_scope_with_colon() {
+    // Snowflake accepts unquoted scopes that embed a colon; they canonicalize
+    // to the quoted form on display.
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'secret' OAUTH_ALLOWED_SCOPES = (PRINCIPAL_ROLE:ALL)) ",
+        "ENABLED = TRUE",
+    );
+    let canonical = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'secret' OAUTH_ALLOWED_SCOPES = ('PRINCIPAL_ROLE:ALL')) ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateCatalogIntegration {
+            rest_authentication,
+            ..
+        } => {
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!(
+                vec!["PRINCIPAL_ROLE:ALL".to_string()],
+                auth.oauth_allowed_scopes
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_full_rest_config() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "CATALOG_NAMESPACE = 'ns1' ",
+        "REST_CONFIG = (CATALOG_URI = 'https://rest.example.com' ",
+        "CATALOG_NAME = 'catname' CATALOG_API_TYPE = AWS_GLUE ",
+        "WAREHOUSE = 'my_wh' ACCESS_DELEGATION_MODE = VENDED_CREDENTIALS) ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH OAUTH_CLIENT_ID = 'cid' ",
+        "OAUTH_CLIENT_SECRET = 'sec' ",
+        "OAUTH_ALLOWED_SCOPES = ('read', 'write')) ",
+        "ENABLED = TRUE REFRESH_INTERVAL_SECONDS = 3600 COMMENT = 'my comment'",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            catalog_namespace,
+            rest_config,
+            rest_authentication,
+            refresh_interval_seconds,
+            comment,
+            ..
+        } => {
+            assert_eq!(Some("ns1".to_string()), catalog_namespace);
+            let cfg = rest_config.expect("rest_config");
+            assert_eq!("https://rest.example.com", cfg.catalog_uri);
+            assert_eq!(Some("catname".to_string()), cfg.catalog_name);
+            assert_eq!(Some("AWS_GLUE".to_string()), cfg.catalog_api_type);
+            assert_eq!(Some("my_wh".to_string()), cfg.warehouse);
+            assert_eq!(
+                Some("VENDED_CREDENTIALS".to_string()),
+                cfg.access_delegation_mode
+            );
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!(
+                vec!["read".to_string(), "write".to_string()],
+                auth.oauth_allowed_scopes
+            );
+            assert_eq!(Some(3600_u64), refresh_interval_seconds);
+            assert_eq!(Some("my comment".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_or_replace_if_not_exists() {
+    let sql = concat!(
+        "CREATE OR REPLACE CATALOG INTEGRATION IF NOT EXISTS my_cat ",
+        "CATALOG_SOURCE = SNOWFLAKE TABLE_FORMAT = ICEBERG ",
+        "ENABLED = FALSE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            or_replace,
+            if_not_exists,
+            catalog_source,
+            enabled,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(if_not_exists);
+            assert_eq!(CatalogSource::Snowflake, catalog_source);
+            assert!(!enabled);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_aws_sigv4_auth() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = GLUE TABLE_FORMAT = ICEBERG ",
+        "REST_CONFIG = (CATALOG_URI = 'https://glue.amazonaws.com') ",
+        "REST_AUTHENTICATION = (TYPE = AWS_SIGV4 ",
+        "AWS_ACCESS_KEY_ID = 'AKIA...' AWS_SECRET_ACCESS_KEY = 'secret' ",
+        "AWS_REGION = 'us-east-1' AWS_SERVICE = 'glue') ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration {
+            catalog_source,
+            rest_authentication,
+            ..
+        } => {
+            assert_eq!(CatalogSource::Glue, catalog_source);
+            let auth = rest_authentication.expect("rest_authentication");
+            assert_eq!("AWS_SIGV4", auth.auth_type);
+            assert_eq!(Some("AKIA...".to_string()), auth.aws_access_key_id);
+            assert_eq!(Some("secret".to_string()), auth.aws_secret_access_key);
+            assert_eq!(Some("us-east-1".to_string()), auth.aws_region);
+            assert_eq!(Some("glue".to_string()), auth.aws_service);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_polaris() {
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = POLARIS TABLE_FORMAT = ICEBERG ",
+        "ENABLED = TRUE",
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateCatalogIntegration { catalog_source, .. } => {
+            assert_eq!(CatalogSource::Polaris, catalog_source);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_catalog_integration() {
+    let sql = "DROP CATALOG INTEGRATION my_cat";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropCatalogIntegration { name, if_exists } => {
+            assert_eq!("my_cat", name.to_string());
+            assert!(!if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_catalog_integration_if_exists() {
+    let sql = "DROP CATALOG INTEGRATION IF EXISTS my_cat";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropCatalogIntegration { if_exists, .. } => {
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_catalog_integrations() {
+    let sql = "SHOW CATALOG INTEGRATIONS";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowCatalogIntegrations { filter } => {
+            assert!(filter.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_catalog_integrations_like() {
+    let sql = "SHOW CATALOG INTEGRATIONS LIKE 'my_%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowCatalogIntegrations { filter } => {
+            let f = filter.expect("filter");
+            match f {
+                ShowStatementFilter::Like(pattern) => assert_eq!("my_%", pattern),
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_catalog_integration_option_order_agnostic() {
+    // Options in reverse order — parser must accept any order.
+    let sql = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "COMMENT = 'c' ENABLED = TRUE ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH) ",
+        "REST_CONFIG = (CATALOG_URI = 'u') ",
+        "CATALOG_NAMESPACE = 'ns' ",
+        "TABLE_FORMAT = ICEBERG CATALOG_SOURCE = ICEBERG_REST",
+    );
+    let canonical = concat!(
+        "CREATE CATALOG INTEGRATION my_cat ",
+        "CATALOG_SOURCE = ICEBERG_REST TABLE_FORMAT = ICEBERG ",
+        "CATALOG_NAMESPACE = 'ns' ",
+        "REST_CONFIG = (CATALOG_URI = 'u') ",
+        "REST_AUTHENTICATION = (TYPE = OAUTH) ",
+        "ENABLED = TRUE COMMENT = 'c'",
+    );
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateCatalogIntegration {
+            catalog_source,
+            catalog_namespace,
+            ..
+        } => {
+            assert_eq!(CatalogSource::IcebergRest, catalog_source);
+            assert_eq!(Some("ns".to_string()), catalog_namespace);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_warehouses() {
+    let sql = "SHOW WAREHOUSES";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowWarehouses { filter } => {
+            assert!(filter.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_warehouses_like() {
+    let sql = "SHOW WAREHOUSES LIKE 'pat%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowWarehouses { filter } => match filter.unwrap() {
+            ShowStatementFilter::Like(p) => assert_eq!("pat%", p),
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_warehouse() {
+    let sql = "DESCRIBE WAREHOUSE foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeWarehouse { name } => {
+            assert_eq!("foo", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_warehouse() {
+    let sql = "DESC WAREHOUSE foo";
+    let canonical = "DESCRIBE WAREHOUSE foo";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::DescribeWarehouse { name } => {
+            assert_eq!("foo", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_set_named() {
+    let sql = "ALTER WAREHOUSE foo SET WAREHOUSE_SIZE = MEDIUM";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("foo", name.unwrap().to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterWarehouseOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+                    assert_eq!("MEDIUM", params[0].value.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_set_no_name() {
+    let sql = "ALTER WAREHOUSE SET WAREHOUSE_SIZE = MEDIUM";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert!(name.is_none());
+            assert!(!if_exists);
+            match operation {
+                AlterWarehouseOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_if_exists_suspend() {
+    let sql = "ALTER WAREHOUSE IF EXISTS foo SUSPEND";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("foo", name.unwrap().to_string());
+            assert!(if_exists);
+            assert_eq!(AlterWarehouseOperation::Suspend, operation);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_resume_if_suspended() {
+    let sql = "ALTER WAREHOUSE foo RESUME IF SUSPENDED";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            name, operation, ..
+        } => {
+            assert_eq!("foo", name.unwrap().to_string());
+            assert_eq!(
+                AlterWarehouseOperation::Resume { if_suspended: true },
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_resume_plain() {
+    let sql = "ALTER WAREHOUSE foo RESUME";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => {
+            assert_eq!(
+                AlterWarehouseOperation::Resume {
+                    if_suspended: false
+                },
+                operation
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_rename_to() {
+    let sql = "ALTER WAREHOUSE foo RENAME TO bar";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            operation: AlterWarehouseOperation::RenameTo { new_name },
+            ..
+        } => {
+            assert_eq!("bar", new_name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_abort_all_queries() {
+    let sql = "ALTER WAREHOUSE foo ABORT ALL QUERIES";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse { operation, .. } => {
+            assert_eq!(AlterWarehouseOperation::AbortAllQueries, operation);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_unset_multi() {
+    let sql = "ALTER WAREHOUSE foo UNSET COMMENT, AUTO_SUSPEND";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            operation: AlterWarehouseOperation::Unset { params },
+            ..
+        } => {
+            assert_eq!(2, params.len());
+            assert_eq!("COMMENT", params[0].to_string());
+            assert_eq!("AUTO_SUSPEND", params[1].to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_warehouse_set_multi_params() {
+    let sql = "ALTER WAREHOUSE foo SET WAREHOUSE_SIZE = LARGE, AUTO_SUSPEND = 60";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterWarehouse {
+            operation: AlterWarehouseOperation::Set { params },
+            ..
+        } => {
+            assert_eq!(2, params.len());
+            assert_eq!("WAREHOUSE_SIZE", params[0].name.to_string());
+            assert_eq!("AUTO_SUSPEND", params[1].name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_account() {
+    let sql = "CREATE ACCOUNT acc1 ADMIN_NAME = admin ADMIN_PASSWORD = 'secret' EMAIL = 'a@b.com' EDITION = STANDARD";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateAccount { name, options } => {
+            assert_eq!("acc1", name.to_string());
+            assert_eq!(4, options.len());
+            assert_eq!("ADMIN_NAME", options[0].name.to_string());
+            assert_eq!("admin", options[0].value.to_string());
+            assert_eq!("ADMIN_PASSWORD", options[1].name.to_string());
+            assert_eq!("'secret'", options[1].value.to_string());
+            assert_eq!("EMAIL", options[2].name.to_string());
+            assert_eq!("EDITION", options[3].name.to_string());
+            assert_eq!("STANDARD", options[3].value.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_account_full_options() {
+    let sql = "CREATE ACCOUNT acc1 ADMIN_NAME = admin ADMIN_PASSWORD = 'secret' \
+               FIRST_NAME = 'Jane' LAST_NAME = 'Doe' EMAIL = 'a@b.com' \
+               MUST_CHANGE_PASSWORD = true EDITION = BUSINESS_CRITICAL \
+               REGION = aws_us_west_2 REGION_GROUP = PUBLIC COMMENT = 'hi'";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateAccount { name, options } => {
+            assert_eq!("acc1", name.to_string());
+            assert_eq!(10, options.len());
+            assert_eq!("MUST_CHANGE_PASSWORD", options[5].name.to_string());
+            assert_eq!("true", options[5].value.to_string());
+            assert_eq!("EDITION", options[6].name.to_string());
+            assert_eq!("BUSINESS_CRITICAL", options[6].value.to_string());
+            assert_eq!("COMMENT", options[9].name.to_string());
+            assert_eq!("'hi'", options[9].value.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_set_named() {
+    let sql = "ALTER ACCOUNT acc1 SET STATEMENT_TIMEOUT_IN_SECONDS = 3600";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert_eq!("acc1", name.unwrap().to_string());
+            match operation {
+                AlterAccountOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("STATEMENT_TIMEOUT_IN_SECONDS", params[0].name.to_string());
+                    assert_eq!("3600", params[0].value.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_set_multi() {
+    let sql = "ALTER ACCOUNT acc1 SET STATEMENT_TIMEOUT_IN_SECONDS = 3600, TIMEZONE = 'UTC'";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount {
+            operation: AlterAccountOperation::Set { params },
+            ..
+        } => {
+            assert_eq!(2, params.len());
+            assert_eq!("TIMEZONE", params[1].name.to_string());
+            assert_eq!("'UTC'", params[1].value.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_set_no_name() {
+    let sql = "ALTER ACCOUNT SET TIMEZONE = 'UTC'";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert!(name.is_none());
+            match operation {
+                AlterAccountOperation::Set { params } => {
+                    assert_eq!(1, params.len());
+                    assert_eq!("TIMEZONE", params[0].name.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_account_rename_to() {
+    let sql = "ALTER ACCOUNT acc1 RENAME TO acc2";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert_eq!("acc1", name.unwrap().to_string());
+            match operation {
+                AlterAccountOperation::RenameTo { new_name } => {
+                    assert_eq!("acc2", new_name.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_account() {
+    let sql = "DROP ACCOUNT acc1 GRACE_PERIOD_IN_DAYS = 7";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropAccount {
+            if_exists,
+            name,
+            grace_period_in_days,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("acc1", name.to_string());
+            assert_eq!("7", grace_period_in_days.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_account_if_exists() {
+    let sql = "DROP ACCOUNT IF EXISTS acc1 GRACE_PERIOD_IN_DAYS = 30";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropAccount {
+            if_exists,
+            name,
+            grace_period_in_days,
+        } => {
+            assert!(if_exists);
+            assert_eq!("acc1", name.to_string());
+            assert_eq!("30", grace_period_in_days.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts() {
+    let sql = "SHOW ACCOUNTS";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(!history);
+            assert!(like.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts_history() {
+    let sql = "SHOW ACCOUNTS HISTORY";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(history);
+            assert!(like.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts_like() {
+    let sql = "SHOW ACCOUNTS LIKE 'pat%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(!history);
+            assert_eq!("pat%", like.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_accounts_history_like() {
+    let sql = "SHOW ACCOUNTS HISTORY LIKE 'pat%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowAccounts { history, like } => {
+            assert!(history);
+            assert_eq!("pat%", like.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_task_warehouse_schedule() {
+    let sql = "CREATE TASK foo WAREHOUSE = wh SCHEDULE = '1 MINUTE' AS SELECT 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            or_replace,
+            if_not_exists,
+            name,
+            warehouse,
+            schedule,
+            after,
+            when_condition,
+            suspend_task_after_num_failures,
+            comment,
+            sql_body,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("foo", name.to_string());
+            assert_eq!("wh", warehouse.unwrap().to_string());
+            assert_eq!("1 MINUTE", schedule.unwrap());
+            assert!(after.is_empty());
+            assert!(when_condition.is_none());
+            assert!(suspend_task_after_num_failures.is_none());
+            assert!(comment.is_none());
+            assert_eq!("SELECT 1", sql_body.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_or_replace_task() {
+    let sql = "CREATE OR REPLACE TASK foo SCHEDULE = '10 SECOND' AS SELECT 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            or_replace,
+            if_not_exists,
+            schedule,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("10 SECOND", schedule.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_task_if_not_exists() {
+    let sql = "CREATE TASK IF NOT EXISTS foo AS SELECT 1";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            or_replace,
+            if_not_exists,
+            warehouse,
+            schedule,
+            ..
+        } => {
+            assert!(!or_replace);
+            assert!(if_not_exists);
+            assert!(warehouse.is_none());
+            assert!(schedule.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_task_with_cron_and_insert_body() {
+    let sql = "CREATE TASK foo WAREHOUSE = wh SCHEDULE = 'USING CRON * * * * * UTC' AS INSERT INTO t (id) VALUES (123)";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateTask {
+            warehouse,
+            schedule,
+            sql_body,
+            ..
+        } => {
+            assert_eq!("wh", warehouse.unwrap().to_string());
+            assert_eq!("USING CRON * * * * * UTC", schedule.unwrap());
+            assert!(matches!(*sql_body, Statement::Insert(_)));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_task() {
+    let sql = "DROP TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => {
+            assert_eq!(ObjectType::Task, object_type);
+            assert!(!if_exists);
+            assert_eq!(1, names.len());
+            assert_eq!("foo", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_task_if_exists() {
+    let sql = "DROP TASK IF EXISTS foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            ..
+        } => {
+            assert_eq!(ObjectType::Task, object_type);
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_task_resume() {
+    let sql = "ALTER TASK foo RESUME";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterTask {
+            if_exists,
+            name,
+            action,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("foo", name.to_string());
+            assert_eq!(AlterTaskAction::Resume, action);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_task_if_exists_suspend() {
+    let sql = "ALTER TASK IF EXISTS foo SUSPEND";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterTask {
+            if_exists,
+            name,
+            action,
+        } => {
+            assert!(if_exists);
+            assert_eq!("foo", name.to_string());
+            assert_eq!(AlterTaskAction::Suspend, action);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_execute_task() {
+    let sql = "EXECUTE TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::ExecuteTask { name } => {
+            assert_eq!("foo", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_task() {
+    let sql = "DESCRIBE TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeObject {
+            object_type,
+            object_name,
+            ..
+        } => {
+            assert_eq!(DescribeObjectType::Task, object_type);
+            assert_eq!("foo", object_name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_task() {
+    // `DESC` is preserved verbatim by `DescribeObject`'s `describe_alias`.
+    let sql = "DESC TASK foo";
+    match snowflake().verified_stmt(sql) {
+        Statement::DescribeObject {
+            describe_alias,
+            object_type,
+            object_name,
+            ..
+        } => {
+            assert_eq!(DescribeAlias::Desc, describe_alias);
+            assert_eq!(DescribeObjectType::Task, object_type);
+            assert_eq!("foo", object_name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_sequence() {
+    for sql in ["DESCRIBE SEQUENCE foo", "DESC SEQUENCE foo"] {
+        match snowflake().verified_stmt(sql) {
+            Statement::DescribeObject {
+                object_type,
+                object_name,
+                ..
+            } => {
+                assert_eq!(DescribeObjectType::Sequence, object_type);
+                assert_eq!("foo", object_name.to_string());
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_desc_table_type_columns() {
+    for sql in [
+        "DESC TABLE foo TYPE = COLUMNS",
+        "DESCRIBE TABLE foo TYPE = COLUMNS",
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::DescribeObject {
+                object_type,
+                object_name,
+                table_type,
+                ..
+            } => {
+                assert_eq!(DescribeObjectType::Table, object_type);
+                assert_eq!("foo", object_name.to_string());
+                assert_eq!(Some(DescribeTableType::Columns), table_type);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_desc_table_type_stage() {
+    match snowflake().verified_stmt("DESC TABLE foo TYPE = STAGE") {
+        Statement::DescribeObject {
+            object_type,
+            object_name,
+            table_type,
+            ..
+        } => {
+            assert_eq!(DescribeObjectType::Table, object_type);
+            assert_eq!("foo", object_name.to_string());
+            assert_eq!(Some(DescribeTableType::Stage), table_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_table_no_type_clause() {
+    match snowflake().verified_stmt("DESC TABLE foo") {
+        Statement::DescribeObject { table_type, .. } => {
+            assert_eq!(None, table_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_tasks() {
+    let sql = "SHOW TASKS";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowTasks { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_tasks_like() {
+    let sql = "SHOW TASKS LIKE 'foo%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowTasks {
+            terse,
+            show_options,
+        } => {
+            assert!(!terse);
+            // The presence of LIKE is captured by ShowStatementOptions; rely on
+            // Display round-trip via verified_stmt for content correctness.
+            assert!(show_options.to_string().contains("LIKE 'foo%'"));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_terse_tasks_like() {
+    let sql = "SHOW TERSE TASKS LIKE 'foo%'";
+    match snowflake().verified_stmt(sql) {
+        Statement::ShowTasks { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+// ── Snowflake scripting loop constructs (LAV-377-1) ───────────────────────
+
+#[test]
+fn test_while_do_end_while() {
+    let sql = "WHILE (counter <= 10) DO RETURN 1; END WHILE";
+    match snowflake().verified_stmt(sql) {
+        Statement::While(WhileStatement { body_kind, .. }) => {
+            assert_eq!(body_kind, Some(WhileBodyKind::Do));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_while_loop_end_loop() {
+    let sql = "WHILE (counter <= 10) LOOP RETURN 1; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::While(WhileStatement { body_kind, .. }) => {
+            assert_eq!(body_kind, Some(WhileBodyKind::Loop));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_to_end_for() {
+    let sql = "FOR counter IN 1 TO 10 DO RETURN 1; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { iteration, .. }) => match iteration {
+            ForIterationSource::Range { reverse, .. } => assert!(!reverse),
+            other => panic!("expected Range, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_reverse_to_end_for() {
+    let sql = "FOR counter IN REVERSE 1 TO 10 DO RETURN 1; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { iteration, .. }) => match iteration {
+            ForIterationSource::Range { reverse, .. } => assert!(reverse),
+            other => panic!("expected Range, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_in_cursor_end_for() {
+    let sql = "FOR rec IN cur DO RETURN rec.price; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { var, iteration, .. }) => {
+            assert_eq!(var.value, "rec");
+            match iteration {
+                ForIterationSource::Cursor(source) => {
+                    assert_eq!(source, Expr::Identifier(Ident::new("cur")));
+                }
+                other => panic!("expected Cursor, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_for_in_cursor_not_supported_in_other_dialects() {
+    let sql = "FOR rec IN cur DO RETURN 1; END FOR";
+    let res = TestedDialects::new(vec![Box::new(GenericDialect {})]).parse_sql_statements(sql);
+    assert_eq!(
+        res.unwrap_err(),
+        ParserError::ParserError("Expected: TO, found: DO".to_string())
+    );
+}
+
+#[test]
+fn test_loop_end_loop() {
+    let sql = "LOOP RETURN 1; END LOOP";
+    assert!(matches!(snowflake().verified_stmt(sql), Statement::Loop(_)));
+}
+
+#[test]
+fn test_repeat_until_end_repeat() {
+    let sql = "REPEAT RETURN 1; UNTIL (1 = 1) END REPEAT";
+    assert!(matches!(
+        snowflake().verified_stmt(sql),
+        Statement::Repeat(_)
+    ));
+}
+
+#[test]
+fn test_loop_control_statements_in_scripting_body() {
+    // BREAK / EXIT / CONTINUE / ITERATE are body-only — wrap them in a
+    // scripting BEGIN…END so the parser dispatches via
+    // parse_scripting_statement_list.
+    for (sql, expected_kind) in [
+        ("BEGIN BREAK; END", LoopControlKind::Break),
+        ("BEGIN EXIT; END", LoopControlKind::Exit),
+        ("BEGIN CONTINUE; END", LoopControlKind::Continue),
+        ("BEGIN ITERATE; END", LoopControlKind::Iterate),
+    ] {
+        let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+        assert_eq!(stmts.len(), 1, "{sql}");
+        let stmt = &stmts[0];
+        assert_eq!(stmt.to_string(), sql);
+        match stmt {
+            Statement::StartTransaction { statements, .. } => {
+                assert_eq!(statements.len(), 1, "{sql}");
+                match &statements[0] {
+                    Statement::LoopControl(lc) => {
+                        assert_eq!(lc.kind, expected_kind, "{sql}");
+                        assert!(lc.label.is_none(), "{sql}");
+                    }
+                    other => panic!("expected LoopControl, got {other:?} for {sql}"),
+                }
+            }
+            other => panic!("expected StartTransaction wrapper, got {other:?} for {sql}"),
+        }
+    }
+}
+
+#[test]
+fn test_while_do_body_with_loop_control_no_inner_begin() {
+    let sql = "WHILE (c <= 10) DO BREAK; END WHILE";
+    match snowflake().verified_stmt(sql) {
+        Statement::While(WhileStatement {
+            while_block,
+            body_kind,
+        }) => {
+            assert_eq!(body_kind, Some(WhileBodyKind::Do));
+            match &while_block.conditional_statements {
+                ConditionalStatements::Sequence { statements } => {
+                    assert_eq!(statements.len(), 1);
+                    match &statements[0] {
+                        Statement::LoopControl(lc) => {
+                            assert_eq!(lc.kind, LoopControlKind::Break);
+                            assert!(lc.label.is_none());
+                        }
+                        other => panic!("expected LoopControl, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Sequence body, got {other:?}"),
+            }
+        }
+        other => panic!("expected While, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_for_do_body_with_let_no_inner_begin() {
+    let sql = "FOR i IN 1 TO 10 DO LET v INT := i; END FOR";
+    match snowflake().verified_stmt(sql) {
+        Statement::For(ForStatement { body, .. }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::Let {
+                        name,
+                        data_type,
+                        value: _,
+                    } => {
+                        assert_eq!(name.value, "v");
+                        assert!(data_type.is_some());
+                    }
+                    other => panic!("expected Let, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected For, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_loop_body_with_bare_assignment_no_inner_begin() {
+    let sql = "LOOP v := v + 1; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::Loop(LoopStatement { body }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::Assignment { target, .. } => {
+                        assert_eq!(target.value, "v");
+                    }
+                    other => panic!("expected Assignment, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected Loop, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_repeat_body_with_loop_control_no_inner_begin() {
+    let sql = "REPEAT CONTINUE; UNTIL (c = 1) END REPEAT";
+    match snowflake().verified_stmt(sql) {
+        Statement::Repeat(RepeatStatement { body, .. }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::LoopControl(lc) => {
+                        assert_eq!(lc.kind, LoopControlKind::Continue);
+                        assert!(lc.label.is_none());
+                    }
+                    other => panic!("expected LoopControl, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected Repeat, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_if_then_body_with_loop_control_no_inner_begin() {
+    // Wrap in a LOOP so BREAK is contextually valid scripting.
+    let sql = "LOOP IF (c = 1) THEN BREAK; END IF; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::Loop(LoopStatement { body }) => match &body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                match &statements[0] {
+                    Statement::If(IfStatement { if_block, .. }) => {
+                        match &if_block.conditional_statements {
+                            ConditionalStatements::Sequence { statements } => {
+                                assert_eq!(statements.len(), 1);
+                                match &statements[0] {
+                                    Statement::LoopControl(lc) => {
+                                        assert_eq!(lc.kind, LoopControlKind::Break);
+                                        assert!(lc.label.is_none());
+                                    }
+                                    other => panic!("expected LoopControl, got {other:?}"),
+                                }
+                            }
+                            other => panic!("expected Sequence IF-then arm, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected If, got {other:?}"),
+                }
+            }
+            other => panic!("expected Sequence LOOP body, got {other:?}"),
+        },
+        other => panic!("expected Loop, got {other:?}"),
+    }
+}
+
+/// Bare `NULL;` is a scripting no-op anywhere `parse_scripting_statement_list`
+/// runs: top-level body, after another statement, inside an inner `BEGIN…END`,
+/// and as the only statement in an `EXCEPTION WHEN OTHER THEN` handler body.
+#[test]
+fn test_scripting_null_statement_no_op_in_body() {
+    // Bare NULL; at the start of a BEGIN…END body.
+    let sql = "BEGIN NULL; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            assert!(matches!(statements[0], Statement::Null), "{statements:?}");
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+    assert_eq!(stmts[0].to_string(), sql);
+}
+
+#[test]
+fn test_scripting_null_after_other_statement() {
+    // Bare NULL; after another statement.
+    let sql = "BEGIN LET x := 1; NULL; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 2);
+            assert!(matches!(statements[0], Statement::Let { .. }));
+            assert!(matches!(statements[1], Statement::Null));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+    assert_eq!(stmts[0].to_string(), sql);
+}
+
+#[test]
+fn test_scripting_null_in_exception_when_other_handler() {
+    // NULL; is the only statement in an EXCEPTION WHEN OTHER THEN body.
+    let sql = "BEGIN SELECT 1; EXCEPTION WHEN OTHER THEN NULL; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { exception, .. } => {
+            let arms = exception.as_ref().expect("expected EXCEPTION arms");
+            assert_eq!(arms.len(), 1);
+            assert_eq!(arms[0].statements.len(), 1);
+            assert!(matches!(arms[0].statements[0], Statement::Null));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_null_in_nested_begin_end() {
+    // Bare NULL; inside an inner BEGIN…END sub-block.
+    let sql = "BEGIN BEGIN NULL; END; END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            match &statements[0] {
+                Statement::StartTransaction {
+                    statements: inner, ..
+                } => {
+                    assert_eq!(inner.len(), 1);
+                    assert!(matches!(inner[0], Statement::Null));
+                }
+                other => panic!("expected nested StartTransaction, got {other:?}"),
+            }
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_null_in_loop_body() {
+    // Bare NULL; inside a LOOP body (a scripting body parsed through
+    // parse_scripting_statement_list).
+    let sql = "LOOP NULL; END LOOP";
+    match snowflake().verified_stmt(sql) {
+        Statement::Loop(LoopStatement { body }) => match body {
+            ConditionalStatements::Sequence { statements } => {
+                assert_eq!(statements.len(), 1);
+                assert!(matches!(statements[0], Statement::Null));
+            }
+            other => panic!("expected Sequence body, got {other:?}"),
+        },
+        other => panic!("expected Loop, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_top_level_null_still_errors() {
+    // Bare `NULL;` outside a scripting context must still error — the change
+    // is intentionally scoped to parse_scripting_statement_list.
+    assert!(snowflake().parse_sql_statements("NULL;").is_err());
+}
+
+#[test]
+fn test_scripting_bare_function_call() {
+    // A bare `identifier(args);` inside a scripting body parses as a BareCall.
+    let sql = "BEGIN SYSTEM$LOG_INFO('m'); END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert_eq!(statements.len(), 1);
+            match &statements[0] {
+                Statement::BareCall(func) => {
+                    assert_eq!("SYSTEM$LOG_INFO", func.name.to_string());
+                }
+                other => panic!("expected BareCall, got {other:?}"),
+            }
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_bare_call_empty_args() {
+    // Zero-argument bare call still parses as a BareCall.
+    let sql = "BEGIN SYSTEM$LOG(); END";
+    let stmts = snowflake().parse_sql_statements(sql).expect(sql);
+    match &stmts[0] {
+        Statement::StartTransaction { statements, .. } => {
+            assert!(matches!(&statements[0], Statement::BareCall(_)));
+        }
+        other => panic!("expected StartTransaction wrapper, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scripting_quoted_bare_call_errors() {
+    // A quoted callee in statement position is a syntax error — only unquoted,
+    // non-keyword words followed by `(` become a BareCall.
+    assert!(snowflake()
+        .parse_sql_statements("BEGIN \"SYSTEM$LOG_INFO\"('m'); END")
+        .is_err());
+}
+
+#[test]
+fn test_top_level_bare_call_still_errors() {
+    // A bare call outside a scripting context must still error — the arm is
+    // scoped to parse_scripting_statement_list.
+    assert!(snowflake()
+        .parse_sql_statements("SYSTEM$LOG('info','x');")
+        .is_err());
+}
+
+#[test]
+fn test_create_file_format_type_csv() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT f TYPE = CSV") {
+        Statement::CreateFileFormat {
+            or_replace,
+            temporary,
+            if_not_exists,
+            name,
+            format_type,
+            options,
+            like_source,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!temporary);
+            assert!(!if_not_exists);
+            assert_eq!("f", name.to_string());
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert!(options.options.is_empty());
+            assert!(like_source.is_none());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_or_replace() {
+    match snowflake().verified_stmt("CREATE OR REPLACE FILE FORMAT f TYPE = JSON") {
+        Statement::CreateFileFormat {
+            or_replace,
+            format_type,
+            ..
+        } => {
+            assert!(or_replace);
+            assert_eq!(Some(Ident::new("JSON")), format_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_if_not_exists_with_options() {
+    let sql = "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER = '|' SKIP_HEADER = 1";
+    let canonical =
+        "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER='|' SKIP_HEADER=1";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateFileFormat {
+            if_not_exists,
+            format_type,
+            options,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert_eq!(2, options.options.len());
+            assert_eq!("FIELD_DELIMITER", options.options[0].option_name);
+            assert_eq!("SKIP_HEADER", options.options[1].option_name);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_temporary_with_comment() {
+    match snowflake().verified_stmt("CREATE TEMPORARY FILE FORMAT f TYPE = CSV COMMENT = 'hi'") {
+        Statement::CreateFileFormat {
+            temporary,
+            format_type,
+            options,
+            comment,
+            ..
+        } => {
+            assert!(temporary);
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert!(options.options.is_empty());
+            assert_eq!(Some("hi".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_comment_between_options() {
+    // Snowflake accepts options in any order, including COMMENT before other
+    // options. COMMENT is hoisted into its own field; the rest stay in options.
+    let sql = "CREATE FILE FORMAT f TYPE = CSV COMMENT = 'c' COMPRESSION = 'GZIP'";
+    let canonical = "CREATE FILE FORMAT f TYPE = CSV COMPRESSION='GZIP' COMMENT = 'c'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateFileFormat {
+            format_type,
+            options,
+            comment,
+            ..
+        } => {
+            assert_eq!(Some(Ident::new("CSV")), format_type);
+            assert_eq!(1, options.options.len());
+            assert_eq!("COMPRESSION", options.options[0].option_name);
+            assert_eq!(Some("c".to_string()), comment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_temp_synonym() {
+    // TEMP and VOLATILE are synonyms of TEMPORARY for file formats; both
+    // canonicalize to TEMPORARY.
+    for sql in [
+        "CREATE TEMP FILE FORMAT f TYPE = CSV",
+        "CREATE VOLATILE FILE FORMAT f TYPE = CSV",
+    ] {
+        match snowflake().one_statement_parses_to(sql, "CREATE TEMPORARY FILE FORMAT f TYPE = CSV")
+        {
+            Statement::CreateFileFormat { temporary, .. } => assert!(temporary),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_create_file_format_three_part_name() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT db.sch.f TYPE = AVRO") {
+        Statement::CreateFileFormat {
+            name, format_type, ..
+        } => {
+            assert_eq!("db.sch.f", name.to_string());
+            assert_eq!(Some(Ident::new("AVRO")), format_type);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_like_one_part() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT f LIKE other") {
+        Statement::CreateFileFormat {
+            name,
+            format_type,
+            options,
+            like_source,
+            ..
+        } => {
+            assert_eq!("f", name.to_string());
+            assert!(format_type.is_none());
+            assert!(options.options.is_empty());
+            assert_eq!(
+                Some("other".to_string()),
+                like_source.map(|s| s.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_like_three_part() {
+    match snowflake().verified_stmt("CREATE FILE FORMAT f LIKE db.sch.other") {
+        Statement::CreateFileFormat { like_source, .. } => {
+            assert_eq!(
+                Some("db.sch.other".to_string()),
+                like_source.map(|s| s.to_string())
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_list_valued_option() {
+    let sql = "CREATE FILE FORMAT f TYPE = CSV NULL_IF = ('NULL', 'null')";
+    let canonical = "CREATE FILE FORMAT f TYPE = CSV NULL_IF=('NULL', 'null')";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::CreateFileFormat { options, .. } => {
+            assert_eq!(1, options.options.len());
+            assert_eq!("NULL_IF", options.options[0].option_name);
+            match &options.options[0].option_value {
+                KeyValueOptionKind::Multi(values) => assert_eq!(2, values.len()),
+                other => panic!("expected Multi, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_file_format_all_type_values() {
+    for ty in ["CSV", "JSON", "AVRO", "ORC", "PARQUET", "XML"] {
+        let sql = format!("CREATE FILE FORMAT f TYPE = {ty}");
+        match snowflake().verified_stmt(&sql) {
+            Statement::CreateFileFormat { format_type, .. } => {
+                assert_eq!(Some(Ident::new(ty)), format_type);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_create_file_format_like_with_type_rejected() {
+    snowflake()
+        .parse_sql_statements("CREATE FILE FORMAT f LIKE g TYPE = CSV")
+        .expect_err("LIKE and TYPE are mutually exclusive");
+}
+
+#[test]
+fn test_create_file_format_like_with_option_rejected() {
+    snowflake()
+        .parse_sql_statements("CREATE FILE FORMAT f LIKE g FIELD_DELIMITER = '|'")
+        .expect_err("LIKE and options are mutually exclusive");
+}
+
+#[test]
+fn test_alter_file_format_rename() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT f RENAME TO g") {
+        Statement::AlterFileFormat {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("f", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterFileFormatOperation::RenameTo(target) => {
+                    assert_eq!("g", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_rename_cross_schema() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT IF EXISTS f RENAME TO db.sch.g") {
+        Statement::AlterFileFormat {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterFileFormatOperation::RenameTo(target) => {
+                    assert_eq!("db.sch.g", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_rename_cross_db() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT db1.sch1.f RENAME TO db2.sch2.g") {
+        Statement::AlterFileFormat {
+            name, operation, ..
+        } => {
+            assert_eq!("db1.sch1.f", name.to_string());
+            match operation {
+                AlterFileFormatOperation::RenameTo(target) => {
+                    assert_eq!("db2.sch2.g", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_set() {
+    let sql = "ALTER FILE FORMAT f SET FIELD_DELIMITER = ','";
+    let canonical = "ALTER FILE FORMAT f SET FIELD_DELIMITER=','";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Set { options, comment } => {
+                assert_eq!(1, options.options.len());
+                assert_eq!("FIELD_DELIMITER", options.options[0].option_name);
+                assert!(comment.is_none());
+            }
+            other => panic!("expected Set, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_set_with_comment() {
+    let sql = "ALTER FILE FORMAT f SET FIELD_DELIMITER = ',' COMMENT = 'updated'";
+    let canonical = "ALTER FILE FORMAT f SET FIELD_DELIMITER=',' COMMENT = 'updated'";
+    match snowflake().one_statement_parses_to(sql, canonical) {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Set { options, comment } => {
+                assert_eq!(1, options.options.len());
+                assert_eq!(Some("updated".to_string()), comment);
+            }
+            other => panic!("expected Set, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_unset_single() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT IF EXISTS f UNSET FIELD_DELIMITER") {
+        Statement::AlterFileFormat {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterFileFormatOperation::Unset {
+                    options,
+                    unset_comment,
+                } => {
+                    assert_eq!(vec![Ident::new("FIELD_DELIMITER")], options);
+                    assert!(!unset_comment);
+                }
+                other => panic!("expected Unset, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_unset_multiple() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT f UNSET FIELD_DELIMITER, RECORD_DELIMITER") {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Unset {
+                options,
+                unset_comment,
+            } => {
+                assert_eq!(
+                    vec![
+                        Ident::new("FIELD_DELIMITER"),
+                        Ident::new("RECORD_DELIMITER")
+                    ],
+                    options
+                );
+                assert!(!unset_comment);
+            }
+            other => panic!("expected Unset, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_unset_comment() {
+    match snowflake().verified_stmt("ALTER FILE FORMAT f UNSET COMMENT") {
+        Statement::AlterFileFormat { operation, .. } => match operation {
+            AlterFileFormatOperation::Unset {
+                options,
+                unset_comment,
+            } => {
+                assert!(options.is_empty());
+                assert!(unset_comment);
+            }
+            other => panic!("expected Unset, got {other:?}"),
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_file_format_set_no_options_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER FILE FORMAT f SET")
+        .expect_err("SET requires at least one option");
+}
+
+#[test]
+fn test_alter_file_format_unset_no_options_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER FILE FORMAT f UNSET")
+        .expect_err("UNSET requires at least one option");
+}
+
+#[test]
+fn test_alter_stage_rename() {
+    match snowflake().verified_stmt("ALTER STAGE s RENAME TO t") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("s", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::RenameTo(target) => {
+                    assert_eq!("t", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_rename_if_exists_cross_schema() {
+    match snowflake().verified_stmt("ALTER STAGE IF EXISTS db.sch.s RENAME TO db.sch.t") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("db.sch.s", name.to_string());
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::RenameTo(target) => {
+                    assert_eq!("db.sch.t", target.to_string());
+                }
+                other => panic!("expected RenameTo, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_set_stage_params() {
+    let sql = concat!(
+        "ALTER STAGE my_ext_stage SET ",
+        "URL='s3://load/files/' ",
+        "STORAGE_INTEGRATION=myint ",
+        "CREDENTIALS=(AWS_KEY_ID='1a2b3c' AWS_SECRET_KEY='4x5y6z') ",
+        "ENCRYPTION=(MASTER_KEY='key' TYPE='AWS_SSE_KMS')"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("my_ext_stage", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::Set {
+                    stage_params,
+                    comment,
+                    ..
+                } => {
+                    assert_eq!("s3://load/files/", stage_params.url.unwrap());
+                    assert_eq!("myint", stage_params.storage_integration.unwrap());
+                    assert!(stage_params.credentials.options.contains(&KeyValueOption {
+                        option_name: "AWS_KEY_ID".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString("1a2b3c".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(stage_params.encryption.options.contains(&KeyValueOption {
+                        option_name: "TYPE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString("AWS_SSE_KMS".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(comment.is_none());
+                }
+                other => panic!("expected Set, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_set_file_format_copy_options_comment() {
+    let sql = concat!(
+        "ALTER STAGE IF EXISTS my_stage SET ",
+        "DIRECTORY=(ENABLE=true) ",
+        "FILE_FORMAT=(TYPE=CSV) ",
+        "COPY_OPTIONS=(ON_ERROR=CONTINUE) ",
+        "COMMENT='updated'"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterStage {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::Set {
+                    directory_table_params,
+                    file_format,
+                    copy_options,
+                    comment,
+                    ..
+                } => {
+                    assert!(directory_table_params.options.contains(&KeyValueOption {
+                        option_name: "ENABLE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Boolean(true).with_empty_span()
+                        ),
+                    }));
+                    assert!(file_format.options.contains(&KeyValueOption {
+                        option_name: "TYPE".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("CSV".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert!(copy_options.options.contains(&KeyValueOption {
+                        option_name: "ON_ERROR".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder("CONTINUE".to_string()).with_empty_span()
+                        ),
+                    }));
+                    assert_eq!(Some("updated".to_string()), comment);
+                }
+                other => panic!("expected Set, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_invalid_operation_rejected() {
+    snowflake()
+        .parse_sql_statements("ALTER STAGE s UNSET COMMENT")
+        .expect_err("ALTER STAGE only supports SET and RENAME TO");
+}
+
+#[test]
+fn test_drop_file_format() {
+    match snowflake().verified_stmt("DROP FILE FORMAT f") {
+        Statement::DropFileFormat { name, if_exists } => {
+            assert_eq!("f", name.to_string());
+            assert!(!if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_file_format_if_exists() {
+    match snowflake().verified_stmt("DROP FILE FORMAT IF EXISTS db.sch.f") {
+        Statement::DropFileFormat { name, if_exists } => {
+            assert_eq!("db.sch.f", name.to_string());
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_file_format() {
+    match snowflake().verified_stmt("DESCRIBE FILE FORMAT f") {
+        Statement::DescribeFileFormat { name } => {
+            assert_eq!("f", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_desc_file_format() {
+    match snowflake()
+        .one_statement_parses_to("DESC FILE FORMAT db.sch.f", "DESCRIBE FILE FORMAT db.sch.f")
+    {
+        Statement::DescribeFileFormat { name } => {
+            assert_eq!("db.sch.f", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_file_formats() {
+    match snowflake().verified_stmt("SHOW FILE FORMATS") {
+        Statement::ShowFileFormats { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_file_formats_like() {
+    snowflake().verified_stmt("SHOW FILE FORMATS LIKE 'pat%'");
+}
+
+#[test]
+fn test_show_file_formats_in_schema() {
+    snowflake().verified_stmt("SHOW FILE FORMATS IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_show_file_formats_in_database() {
+    snowflake().verified_stmt("SHOW FILE FORMATS IN DATABASE db");
+}
+
+#[test]
+fn test_show_file_formats_in_account() {
+    snowflake().verified_stmt("SHOW FILE FORMATS IN ACCOUNT");
+}
+
+#[test]
+fn test_show_file_formats_starts_with() {
+    snowflake().verified_stmt("SHOW FILE FORMATS STARTS WITH 'ff_'");
+}
+
+#[test]
+fn test_show_file_formats_limit_from() {
+    snowflake().verified_stmt("SHOW FILE FORMATS LIMIT 10 FROM 'cursor'");
+}
+
+#[test]
+fn test_show_terse_file_formats() {
+    match snowflake().verified_stmt("SHOW TERSE FILE FORMATS") {
+        Statement::ShowFileFormats { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_stage_options_any_order() {
+    // Snowflake accepts the stage property groups in any order.
+    snowflake().one_statement_parses_to(
+        "CREATE OR REPLACE STAGE s FILE_FORMAT = (TYPE=CSV) URL = 's3://test/'",
+        "CREATE OR REPLACE STAGE s URL='s3://test/' FILE_FORMAT=(TYPE=CSV)",
+    );
+}
+
+#[test]
+fn test_show_stages() {
+    match snowflake().verified_stmt("SHOW STAGES") {
+        Statement::ShowStages { terse, .. } => {
+            assert!(!terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_show_stages_like_in_schema() {
+    snowflake().verified_stmt("SHOW STAGES LIKE 'pat%' IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_show_terse_stages() {
+    match snowflake().verified_stmt("SHOW TERSE STAGES") {
+        Statement::ShowStages { terse, .. } => {
+            assert!(terse);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_select_into_placeholder_target() {
+    // Snowflake scripting: a colon placeholder is a valid `SELECT ... INTO`
+    // target (a local variable), and it round-trips as `:res`.
+    let stmt = snowflake().verified_stmt("SELECT :res + t.hmy INTO :res FROM tbl AS t");
+    let Statement::Query(query) = stmt else {
+        unreachable!()
+    };
+    let SetExpr::Select(select) = *query.body else {
+        unreachable!()
+    };
+    let into = select.into.expect("expected SELECT ... INTO clause");
+    assert_eq!(into.name.to_string(), ":res");
+    assert!(!into.table);
+
+    // Bare-identifier targets are unaffected.
+    let stmt = snowflake().verified_stmt("SELECT 1 INTO res FROM tbl");
+    let Statement::Query(query) = stmt else {
+        unreachable!()
+    };
+    let SetExpr::Select(select) = *query.body else {
+        unreachable!()
+    };
+    assert_eq!(select.into.unwrap().name.to_string(), "res");
+}
+
+#[test]
+fn test_fetch_cursor_into_variables() {
+    // Snowflake scripting FETCH has no direction and no FROM/IN; it binds the
+    // current cursor row into one or more local variables.
+    let stmt = snowflake().verified_stmt("FETCH c INTO x, y");
+    match stmt {
+        Statement::FetchInto { cursor, into } => {
+            assert_eq!(cursor.value, "c");
+            let names: Vec<String> = into.iter().map(ToString::to_string).collect();
+            assert_eq!(names, vec!["x".to_string(), "y".to_string()]);
+        }
+        other => panic!("expected FetchInto, got {other:?}"),
+    }
+
+    // Single variable and colon-placeholder targets both round-trip.
+    let stmt = snowflake().verified_stmt("FETCH c INTO :res");
+    match stmt {
+        Statement::FetchInto { cursor, into } => {
+            assert_eq!(cursor.value, "c");
+            assert_eq!(into.len(), 1);
+            assert_eq!(into[0].to_string(), ":res");
+        }
+        other => panic!("expected FetchInto, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_call_into_variable() {
+    let stmt = snowflake().verified_stmt("CALL myproc(1, 'a') INTO :ret");
+    match stmt {
+        Statement::CallInto { function, into } => {
+            assert_eq!(function.name.to_string(), "myproc");
+            assert_eq!(into.len(), 1);
+            assert_eq!(into[0].to_string(), ":ret");
+        }
+        other => panic!("expected CallInto, got {other:?}"),
+    }
+
+    // Multiple targets.
+    let stmt = snowflake().verified_stmt("CALL p() INTO a, b");
+    match stmt {
+        Statement::CallInto { into, .. } => {
+            let names: Vec<String> = into.iter().map(ToString::to_string).collect();
+            assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
+        }
+        other => panic!("expected CallInto, got {other:?}"),
+    }
+
+    // A plain CALL is unaffected.
+    let stmt = snowflake().verified_stmt("CALL myproc(1)");
+    assert!(matches!(stmt, Statement::Call(_)));
+}
+
+#[test]
+fn test_alter_procedure() {
+    let stmt =
+        snowflake().verified_stmt("ALTER PROCEDURE myproc(NUMBER, VARCHAR) RENAME TO newproc");
+    match stmt {
+        Statement::AlterProcedure(AlterProcedure {
+            if_exists,
+            name,
+            args,
+            operation,
+        }) => {
+            assert!(!if_exists);
+            assert_eq!(name.to_string(), "myproc");
+            assert_eq!(args.len(), 2);
+            assert_eq!(
+                operation,
+                AlterProcedureOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("newproc")])
+                }
+            );
+        }
+        other => panic!("expected AlterProcedure, got {other:?}"),
+    }
+
+    // IF EXISTS + EXECUTE AS CALLER.
+    let stmt = snowflake().verified_stmt("ALTER PROCEDURE IF EXISTS p() EXECUTE AS CALLER");
+    match stmt {
+        Statement::AlterProcedure(AlterProcedure {
+            if_exists,
+            args,
+            operation,
+            ..
+        }) => {
+            assert!(if_exists);
+            assert!(args.is_empty());
+            assert_eq!(
+                operation,
+                AlterProcedureOperation::ExecuteAs(ProcedureExecuteAs::Caller)
+            );
+        }
+        other => panic!("expected AlterProcedure, got {other:?}"),
+    }
+
+    // SET / UNSET COMMENT.
+    snowflake().verified_stmt("ALTER PROCEDURE p(NUMBER) SET COMMENT = 'hi'");
+    snowflake().verified_stmt("ALTER PROCEDURE p(NUMBER) UNSET COMMENT");
+    snowflake().verified_stmt("ALTER PROCEDURE p(NUMBER) EXECUTE AS OWNER");
+}
+
+#[test]
+fn test_with_as_procedure() {
+    let sql = "WITH myproc AS PROCEDURE (arg1 INT) RETURNS INT LANGUAGE SQL AS BEGIN RETURN arg1; END CALL myproc(10)";
+    let stmt = snowflake().verified_stmt(sql);
+    match stmt {
+        Statement::WithProcedure {
+            name,
+            params,
+            returns,
+            language,
+            call,
+            ..
+        } => {
+            assert_eq!(name.value, "myproc");
+            assert_eq!(params.as_ref().map(Vec::len), Some(1));
+            assert!(returns.is_some());
+            assert_eq!(language.map(|l| l.value), Some("SQL".to_string()));
+            assert!(matches!(*call, Statement::Call(_)));
+        }
+        other => panic!("expected WithProcedure, got {other:?}"),
+    }
+
+    // An ordinary CTE query is unaffected.
+    let stmt = snowflake().verified_stmt("WITH t AS (SELECT 1) SELECT * FROM t");
+    assert!(matches!(stmt, Statement::Query(_)));
+}
+
+#[test]
+fn parse_snowflake_create_masking_policy() {
+    match snowflake()
+        .verified_stmt("CREATE MASKING POLICY p AS (a VARCHAR, b VARCHAR) RETURNS VARCHAR -> a")
+    {
+        Statement::CreateMaskingPolicy {
+            or_replace,
+            if_not_exists,
+            name,
+            args,
+            return_type,
+            policy_expr,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("p", name.to_string());
+            assert_eq!(2, args.len());
+            assert_eq!(Some(Ident::new("a")), args[0].name);
+            assert_eq!(DataType::Varchar(None), args[0].data_type);
+            assert_eq!(Some(Ident::new("b")), args[1].name);
+            assert_eq!(DataType::Varchar(None), return_type);
+            assert_eq!(Expr::Identifier(Ident::new("a")), policy_expr);
+            assert_eq!(None, comment);
+        }
+        other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+    }
+
+    // OR REPLACE, IF NOT EXISTS, and a COMMENT.
+    match snowflake().verified_stmt(
+        "CREATE OR REPLACE MASKING POLICY p AS (a VARCHAR) RETURNS VARCHAR -> a COMMENT = 'hi'",
+    ) {
+        Statement::CreateMaskingPolicy {
+            or_replace,
+            if_not_exists,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(!if_not_exists);
+            assert_eq!(Some("hi".to_string()), comment);
+        }
+        other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake()
+        .verified_stmt("CREATE MASKING POLICY IF NOT EXISTS p AS (a VARCHAR) RETURNS VARCHAR -> a")
+    {
+        Statement::CreateMaskingPolicy { if_not_exists, .. } => assert!(if_not_exists),
+        other => panic!("expected CreateMaskingPolicy, got {other:?}"),
+    }
+
+    // A conditional-masking body with multiple arguments round-trips.
+    snowflake().verified_stmt(
+        "CREATE MASKING POLICY p AS (a VARCHAR, b VARCHAR) RETURNS VARCHAR -> \
+         CASE WHEN b = 'x' THEN '***' ELSE a END",
+    );
+}
+
+#[test]
+fn parse_snowflake_alter_masking_policy() {
+    match snowflake().verified_stmt("ALTER MASKING POLICY p SET BODY -> 'true'") {
+        Statement::AlterMaskingPolicy {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("p", name.to_string());
+            assert_eq!(
+                AlterMaskingPolicyOperation::SetBody {
+                    body: Expr::Value(
+                        Value::SingleQuotedString("true".to_string()).with_empty_span()
+                    ),
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("ALTER MASKING POLICY IF EXISTS p RENAME TO q") {
+        Statement::AlterMaskingPolicy {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(
+                AlterMaskingPolicyOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("q")]),
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("ALTER MASKING POLICY p SET COMMENT = 'c'") {
+        Statement::AlterMaskingPolicy { operation, .. } => assert_eq!(
+            AlterMaskingPolicyOperation::SetComment {
+                comment: "c".to_string(),
+            },
+            operation
+        ),
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("ALTER MASKING POLICY p UNSET COMMENT") {
+        Statement::AlterMaskingPolicy { operation, .. } => {
+            assert_eq!(AlterMaskingPolicyOperation::UnsetComment, operation)
+        }
+        other => panic!("expected AlterMaskingPolicy, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_drop_masking_policy() {
+    match snowflake().verified_stmt("DROP MASKING POLICY p") {
+        Statement::DropMaskingPolicy { if_exists, name } => {
+            assert!(!if_exists);
+            assert_eq!("p", name.to_string());
+        }
+        other => panic!("expected DropMaskingPolicy, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("DROP MASKING POLICY IF EXISTS p") {
+        Statement::DropMaskingPolicy { if_exists, .. } => assert!(if_exists),
+        other => panic!("expected DropMaskingPolicy, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_describe_masking_policy() {
+    for sql in ["DESCRIBE MASKING POLICY p", "DESC MASKING POLICY p"] {
+        match snowflake().one_statement_parses_to(sql, "DESCRIBE MASKING POLICY p") {
+            Statement::DescribeMaskingPolicy { name } => assert_eq!("p", name.to_string()),
+            other => panic!("expected DescribeMaskingPolicy, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn parse_snowflake_show_masking_policies() {
+    match snowflake().verified_stmt("SHOW MASKING POLICIES") {
+        Statement::ShowMaskingPolicies { show_options } => {
+            assert!(show_options.filter_position.is_none());
+        }
+        other => panic!("expected ShowMaskingPolicies, got {other:?}"),
+    }
+
+    match snowflake().verified_stmt("SHOW MASKING POLICIES LIKE '%p%'") {
+        Statement::ShowMaskingPolicies { .. } => {}
+        other => panic!("expected ShowMaskingPolicies, got {other:?}"),
+    }
+
+    snowflake().verified_stmt("SHOW MASKING POLICIES IN SCHEMA s");
+}
+
+#[test]
+fn parse_snowflake_alter_table_column_masking_policy() {
+    for keyword in ["MODIFY", "ALTER"] {
+        let sql = format!("ALTER TABLE t {keyword} COLUMN c SET MASKING POLICY p");
+        match snowflake()
+            .one_statement_parses_to(&sql, "ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p")
+        {
+            Statement::AlterTable(AlterTable { operations, .. }) => match &operations[0] {
+                AlterTableOperation::AlterColumn { column_name, op } => {
+                    assert_eq!("c", column_name.to_string());
+                    assert_eq!(
+                        &AlterColumnOperation::SetMaskingPolicy {
+                            policy_name: ObjectName::from(vec![Ident::new("p")]),
+                            using_columns: None,
+                            force: false,
+                        },
+                        op
+                    );
+                }
+                other => panic!("expected AlterColumn, got {other:?}"),
+            },
+            other => panic!("expected AlterTable, got {other:?}"),
+        }
+    }
+
+    // USING and FORCE.
+    match snowflake()
+        .verified_stmt("ALTER TABLE t ALTER COLUMN c SET MASKING POLICY p USING (c, d) FORCE")
+    {
+        Statement::AlterTable(AlterTable { operations, .. }) => match &operations[0] {
+            AlterTableOperation::AlterColumn {
+                op:
+                    AlterColumnOperation::SetMaskingPolicy {
+                        using_columns,
+                        force,
+                        ..
+                    },
+                ..
+            } => {
+                assert_eq!(&Some(vec![Ident::new("c"), Ident::new("d")]), using_columns);
+                assert!(force);
+            }
+            other => panic!("expected SetMaskingPolicy, got {other:?}"),
+        },
+        other => panic!("expected AlterTable, got {other:?}"),
+    }
+
+    // UNSET.
+    match snowflake().verified_stmt("ALTER TABLE t ALTER COLUMN c UNSET MASKING POLICY") {
+        Statement::AlterTable(AlterTable { operations, .. }) => assert_eq!(
+            AlterTableOperation::AlterColumn {
+                column_name: Ident::new("c"),
+                op: AlterColumnOperation::UnsetMaskingPolicy,
+            },
+            operations[0]
+        ),
+        other => panic!("expected AlterTable, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_view_column_masking_policy() {
+    for keyword in ["MODIFY", "ALTER"] {
+        let sql = format!("ALTER VIEW v {keyword} COLUMN c SET MASKING POLICY p");
+        match snowflake()
+            .one_statement_parses_to(&sql, "ALTER VIEW v ALTER COLUMN c SET MASKING POLICY p")
+        {
+            Statement::AlterViewColumn {
+                name,
+                column_name,
+                op,
+            } => {
+                assert_eq!("v", name.to_string());
+                assert_eq!("c", column_name.to_string());
+                assert_eq!(
+                    AlterColumnOperation::SetMaskingPolicy {
+                        policy_name: ObjectName::from(vec![Ident::new("p")]),
+                        using_columns: None,
+                        force: false,
+                    },
+                    op
+                );
+            }
+            other => panic!("expected AlterViewColumn, got {other:?}"),
+        }
+    }
+
+    match snowflake().verified_stmt("ALTER VIEW v ALTER COLUMN c UNSET MASKING POLICY") {
+        Statement::AlterViewColumn { op, .. } => {
+            assert_eq!(AlterColumnOperation::UnsetMaskingPolicy, op)
+        }
+        other => panic!("expected AlterViewColumn, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_create_view_column_masking_policy() {
+    match snowflake()
+        .verified_stmt("CREATE VIEW v (c WITH MASKING POLICY p USING (c, d)) AS SELECT c, d FROM t")
+    {
+        Statement::CreateView(CreateView { columns, .. }) => {
+            assert_eq!(1, columns.len());
+            assert_eq!("c", columns[0].name.to_string());
+            match &columns[0].options {
+                Some(ColumnOptions::SpaceSeparated(options)) => match &options[0] {
+                    ColumnOption::Policy(ColumnPolicy::MaskingPolicy(property)) => {
+                        assert!(property.with);
+                        assert_eq!("p", property.policy_name.to_string());
+                        assert_eq!(
+                            Some(vec![Ident::new("c"), Ident::new("d")]),
+                            property.using_columns
+                        );
+                    }
+                    other => panic!("expected MaskingPolicy, got {other:?}"),
+                },
+                other => panic!("expected column options, got {other:?}"),
+            }
+        }
+        other => panic!("expected CreateView, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_tag_rename() {
+    match snowflake().verified_stmt("ALTER TAG IF EXISTS t RENAME TO u") {
+        Statement::AlterTag {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(if_exists);
+            assert_eq!("t", name.to_string());
+            assert_eq!(
+                AlterTagOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("u")]),
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_tag_set_masking_policy() {
+    match snowflake().verified_stmt("ALTER TAG t SET MASKING POLICY p") {
+        Statement::AlterTag {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(!if_exists);
+            assert_eq!(
+                AlterTagOperation::SetMaskingPolicy {
+                    policies: vec![ObjectName::from(vec![Ident::new("p")])],
+                    force: false,
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+
+    match snowflake()
+        .verified_stmt("ALTER TAG IF EXISTS t SET MASKING POLICY p, MASKING POLICY q FORCE")
+    {
+        Statement::AlterTag {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(
+                AlterTagOperation::SetMaskingPolicy {
+                    policies: vec![
+                        ObjectName::from(vec![Ident::new("p")]),
+                        ObjectName::from(vec![Ident::new("q")]),
+                    ],
+                    force: true,
+                },
+                operation
+            );
+        }
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_alter_tag_unset_masking_policy() {
+    match snowflake().verified_stmt("ALTER TAG t UNSET MASKING POLICY p, MASKING POLICY q") {
+        Statement::AlterTag { operation, .. } => assert_eq!(
+            AlterTagOperation::UnsetMaskingPolicy {
+                policies: vec![
+                    ObjectName::from(vec![Ident::new("p")]),
+                    ObjectName::from(vec![Ident::new("q")]),
+                ],
+            },
+            operation
+        ),
+        other => panic!("expected AlterTag, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_undrop() {
+    for (sql, expected_type) in [
+        ("UNDROP TABLE t", ObjectType::Table),
+        ("UNDROP DYNAMIC TABLE t", ObjectType::DynamicTable),
+        ("UNDROP SCHEMA s", ObjectType::Schema),
+        ("UNDROP DATABASE d", ObjectType::Database),
+        ("UNDROP VIEW v", ObjectType::View),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::Undrop { object_type, name } => {
+                assert_eq!(object_type, expected_type);
+                assert_eq!(
+                    name,
+                    ObjectName::from(vec![Ident::new(sql.rsplit(' ').next().unwrap())])
+                );
+            }
+            other => panic!("expected Undrop, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn parse_snowflake_undrop_qualified_name() {
+    match snowflake().verified_stmt("UNDROP TABLE db.sch.t") {
+        Statement::Undrop { object_type, name } => {
+            assert_eq!(object_type, ObjectType::Table);
+            assert_eq!(
+                name,
+                ObjectName::from(vec![Ident::new("db"), Ident::new("sch"), Ident::new("t")])
+            );
+        }
+        other => panic!("expected Undrop, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_snowflake_undrop_missing_object_type() {
+    let res = snowflake().parse_sql_statements("UNDROP t");
+    assert!(res.is_err(), "expected parse error, got {res:?}");
+}
+
+#[test]
+fn test_create_pipe_auto_ingest() {
+    let sql = "CREATE PIPE p AUTO_INGEST = TRUE AS COPY INTO t FROM @s";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreatePipe {
+            or_replace,
+            if_not_exists,
+            name,
+            auto_ingest,
+            error_integration,
+            aws_sns_topic,
+            integration,
+            comment,
+            copy_statement,
+        } => {
+            assert!(!or_replace);
+            assert!(!if_not_exists);
+            assert_eq!("p", name.to_string());
+            assert_eq!(Some(true), auto_ingest);
+            assert!(error_integration.is_none());
+            assert!(aws_sns_topic.is_none());
+            assert!(integration.is_none());
+            assert!(comment.is_none());
+            assert!(matches!(
+                *copy_statement,
+                Statement::CopyIntoSnowflake { .. }
+            ));
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_or_replace_pipe_all_options() {
+    let sql = "CREATE OR REPLACE PIPE db.sch.p AUTO_INGEST = FALSE ERROR_INTEGRATION = ei AWS_SNS_TOPIC = 'arn:topic' INTEGRATION = 'ni' COMMENT = 'c' AS COPY INTO t FROM @s";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreatePipe {
+            or_replace,
+            name,
+            auto_ingest,
+            error_integration,
+            aws_sns_topic,
+            integration,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert_eq!("db.sch.p", name.to_string());
+            assert_eq!(Some(false), auto_ingest);
+            assert_eq!("ei", error_integration.unwrap().to_string());
+            assert_eq!("arn:topic", aws_sns_topic.unwrap());
+            assert_eq!("ni", integration.unwrap());
+            assert_eq!("c", comment.unwrap());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_create_pipe_if_not_exists() {
+    let sql = "CREATE PIPE IF NOT EXISTS p AS COPY INTO t FROM @s";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreatePipe {
+            if_not_exists,
+            auto_ingest,
+            ..
+        } => {
+            assert!(if_not_exists);
+            assert!(auto_ingest.is_none());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_pipe() {
+    let sql = "DROP PIPE p";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => {
+            assert_eq!(ObjectType::Pipe, object_type);
+            assert!(!if_exists);
+            assert_eq!(1, names.len());
+            assert_eq!("p", names[0].to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_pipe_if_exists() {
+    let sql = "DROP PIPE IF EXISTS p";
+    match snowflake().verified_stmt(sql) {
+        Statement::Drop {
+            object_type,
+            if_exists,
+            ..
+        } => {
+            assert_eq!(ObjectType::Pipe, object_type);
+            assert!(if_exists);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_describe_pipe() {
+    for sql in ["DESCRIBE PIPE p", "DESC PIPE p"] {
+        match snowflake().verified_stmt(sql) {
+            Statement::DescribeObject {
+                object_type,
+                object_name,
+                ..
+            } => {
+                assert_eq!(DescribeObjectType::Pipe, object_type);
+                assert_eq!("p", object_name.to_string());
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn test_show_pipes() {
+    match snowflake().verified_stmt("SHOW PIPES") {
+        Statement::ShowPipes { terse, .. } => assert!(!terse),
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("SHOW TERSE PIPES") {
+        Statement::ShowPipes { terse, .. } => assert!(terse),
+        _ => unreachable!(),
+    }
+    snowflake().verified_stmt("SHOW PIPES LIKE 'p%'");
+    snowflake().verified_stmt("SHOW PIPES IN SCHEMA db.sch");
+}
+
+#[test]
+fn test_alter_pipe() {
+    match snowflake().verified_stmt("ALTER PIPE p SET PIPE_EXECUTION_PAUSED=true") {
+        Statement::AlterPipe {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("p", name.to_string());
+            assert!(matches!(operation, AlterPipeOperation::Set(_)));
+        }
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("ALTER PIPE IF EXISTS p UNSET COMMENT") {
+        Statement::AlterPipe {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert!(matches!(operation, AlterPipeOperation::Unset(_)));
+        }
+        _ => unreachable!(),
+    }
+    match snowflake()
+        .verified_stmt("ALTER PIPE p REFRESH PREFIX = 'a/' MODIFIED_AFTER = '2020-01-01'")
+    {
+        Statement::AlterPipe { operation, .. } => {
+            assert!(matches!(
+                operation,
+                AlterPipeOperation::Refresh {
+                    prefix: Some(_),
+                    modified_after: Some(_)
+                }
+            ));
+        }
+        _ => unreachable!(),
+    }
+    snowflake().verified_stmt("ALTER PIPE p REFRESH");
+}
+
+#[test]
+fn parse_snowflake_external_table_family_roundtrips() {
+    // Every member of the Snowflake external-table statement family must parse
+    // under the Snowflake dialect and survive a `Display` -> reparse round trip
+    // to the same AST (ADR 074 §6).
+    let dialect = snowflake();
+    for sql in [
+        // CREATE with virtual columns (parenthesised and bare AS), the full set
+        // of trailing option clauses, and the deferred/rejected knobs.
+        "CREATE EXTERNAL TABLE et (id INT AS (VALUE:c1::INT)) \
+         LOCATION=@stage/data/ FILE_FORMAT=(TYPE=JSON) AUTO_REFRESH=FALSE",
+        "CREATE OR REPLACE EXTERNAL TABLE IF NOT EXISTS et \
+         (id INT AS (VALUE:id::INT), name STRING AS (VALUE:name::STRING)) \
+         LOCATION=@stage/json/ FILE_FORMAT=(FORMAT_NAME='ff') AUTO_REFRESH=FALSE",
+        "CREATE EXTERNAL TABLE et \
+         (id INT AS (VALUE:id::INT), dt DATE AS (TO_DATE(SPLIT_PART(METADATA$FILENAME, '/', 2), 'YYYY-MM-DD'))) \
+         LOCATION=@stage/logs/ FILE_FORMAT=(TYPE=JSON) PATTERN='.*[.]json' \
+         REFRESH_ON_CREATE=TRUE AUTO_REFRESH=FALSE PARTITION BY dt",
+        "CREATE EXTERNAL TABLE et (id INT AS (VALUE:id::INT)) \
+         LOCATION=@stage/parquet/ FILE_FORMAT=(TYPE=PARQUET) TABLE_FORMAT=DELTA",
+        "CREATE EXTERNAL TABLE et \
+         (dt DATE AS (TO_DATE(SPLIT_PART(METADATA$FILENAME, '/', 2), 'YYYY-MM-DD'))) \
+         LOCATION=@stage/logs/ FILE_FORMAT=(TYPE=JSON) PARTITION_TYPE=USER_SPECIFIED \
+         AUTO_REFRESH=FALSE PARTITION BY dt",
+        // DROP / DESC.
+        "DROP EXTERNAL TABLE et",
+        "DROP EXTERNAL TABLE IF EXISTS et",
+        "DESC EXTERNAL TABLE et",
+        "DESCRIBE EXTERNAL TABLE et",
+        // ALTER operations.
+        "ALTER EXTERNAL TABLE et REFRESH",
+        "ALTER EXTERNAL TABLE et REFRESH 'sub_a/'",
+        "ALTER EXTERNAL TABLE IF EXISTS et ADD FILES ('a.json', 'b.json')",
+        "ALTER EXTERNAL TABLE et REMOVE FILES ('a.json')",
+        "ALTER EXTERNAL TABLE et SET AUTO_REFRESH = TRUE",
+        "ALTER EXTERNAL TABLE et ADD PARTITION (dt = '2026-01-01') LOCATION 'json/'",
+        "ALTER EXTERNAL TABLE et DROP PARTITION LOCATION 'json/'",
+    ] {
+        let ast = dialect
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+        let rendered = ast[0].to_string();
+        let reparsed = dialect
+            .parse_sql_statements(&rendered)
+            .unwrap_or_else(|e| panic!("failed to reparse {rendered:?}: {e}"));
+        assert_eq!(ast, reparsed, "round trip changed AST\n  in:  {sql}\n  out: {rendered}");
+    }
+}
