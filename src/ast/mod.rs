@@ -5841,6 +5841,54 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] SECURITY INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-security-integration>
+    CreateSecurityIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Security integration name.
+        name: ObjectName,
+        /// Configuration parameters (`TYPE`, `ENABLED`, provider keys, …).
+        params: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET ...
+    /// ```
+    AlterSecurityIntegration {
+        /// Security integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET` options.
+        set_options: KeyValueOptions,
+    },
+    /// ```sql
+    /// DROP SECURITY INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropSecurityIntegration {
+        /// Security integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] SECURITY INTEGRATION <name>
+    /// ```
+    DescribeSecurityIntegration {
+        /// Security integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW SECURITY INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowSecurityIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// DESC[RIBE] INTEGRATION <name>
     /// ```
     /// Family-agnostic describe that resolves `<name>` across integration
@@ -8662,6 +8710,55 @@ impl fmt::Display for Statement {
             }
             Statement::ShowApiIntegrations { filter } => {
                 write!(f, "SHOW API INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateSecurityIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                params,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}SECURITY INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !params.options.is_empty() {
+                    write!(f, " {params}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterSecurityIntegration {
+                name,
+                if_exists,
+                set_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER SECURITY INTEGRATION {if_exists}{name} SET",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )?;
+                if !set_options.options.is_empty() {
+                    write!(f, " {set_options}")?;
+                }
+                Ok(())
+            }
+            Statement::DropSecurityIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP SECURITY INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeSecurityIntegration { name } => {
+                write!(f, "DESCRIBE SECURITY INTEGRATION {name}")
+            }
+            Statement::ShowSecurityIntegrations { filter } => {
+                write!(f, "SHOW SECURITY INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }

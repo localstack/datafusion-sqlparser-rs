@@ -352,6 +352,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_api_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SECURITY, Keyword::INTEGRATION]) {
+            // ALTER SECURITY INTEGRATION
+            return Some(parse_alter_security_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
             // ALTER PROCEDURE
             return Some(parse_alter_procedure(parser));
@@ -482,6 +487,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_api_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SECURITY, Keyword::INTEGRATION]) {
+            // DROP SECURITY INTEGRATION
+            return Some(parse_drop_security_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
             // DROP FILE FORMAT
             return Some(parse_drop_file_format(parser));
@@ -532,6 +542,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
                 // DESC[RIBE] API INTEGRATION
                 return Some(parse_describe_api_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
+                // DESC[RIBE] SECURITY INTEGRATION
+                return Some(parse_describe_security_integration(parser));
             }
             if parser.parse_keyword(Keyword::INTEGRATION) {
                 // DESC[RIBE] INTEGRATION (family-agnostic)
@@ -593,6 +607,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] API INTEGRATION
             if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATION]) {
                 return Some(parse_create_api_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SECURITY INTEGRATION
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
+                return Some(parse_create_security_integration(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] ROW ACCESS POLICY
@@ -739,6 +758,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::API, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_api_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_security_integrations(parser));
             }
             if parser.parse_keyword(Keyword::INTEGRATIONS) {
                 // SHOW INTEGRATIONS (family-agnostic)
@@ -4575,6 +4597,61 @@ fn parse_describe_api_integration(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_api_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowApiIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] SECURITY INTEGRATION [IF NOT EXISTS] <name> <params>`.
+///
+/// Params (`TYPE`, `ENABLED`, and the per-type property set) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// type-specific property set.
+fn parse_create_security_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateSecurityIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET <params>`.
+///
+/// Only the `SET` form is modeled; the `SET` options are captured generically
+/// as key-value options.
+fn parse_alter_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    let set_options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::AlterSecurityIntegration {
+        name,
+        if_exists,
+        set_options,
+    })
+}
+
+/// Parse `DROP SECURITY INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSecurityIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] SECURITY INTEGRATION <name>`.
+fn parse_describe_security_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSecurityIntegration { name })
+}
+
+/// Parse `SHOW SECURITY INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_security_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowSecurityIntegrations { filter })
 }
 
 /// Parse `DESC[RIBE] INTEGRATION <name>` (family-agnostic).
