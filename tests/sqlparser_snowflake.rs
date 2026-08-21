@@ -9779,3 +9779,84 @@ fn parse_snowflake_external_table_family_roundtrips() {
         assert_eq!(ast, reparsed, "round trip changed AST\n  in:  {sql}\n  out: {rendered}");
     }
 }
+
+#[test]
+fn parse_sf_alter_role_account_forms() {
+    // The non-tag account-role forms parse in the Snowflake dialect (they hit
+    // the 001003 "only support for PostgreSqlDialect" guard without the
+    // interceptor) and round-trip through Display.
+    match snowflake().verified_stmt("ALTER ROLE r RENAME TO r2") {
+        Statement::AlterRole { name, operation } => {
+            assert_eq!(name.value, "r");
+            assert_eq!(
+                operation,
+                AlterRoleOperation::RenameRole {
+                    role_name: Ident::new("r2")
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().verified_stmt("ALTER ROLE r SET COMMENT = 'hello'") {
+        Statement::AlterRole { name, operation } => {
+            assert_eq!(name.value, "r");
+            assert_eq!(
+                operation,
+                AlterRoleOperation::SetComment {
+                    comment: "hello".to_string()
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().verified_stmt("ALTER ROLE r UNSET COMMENT") {
+        Statement::AlterRole { name, operation } => {
+            assert_eq!(name.value, "r");
+            assert_eq!(operation, AlterRoleOperation::UnsetComment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_alter_role_if_exists_is_accepted() {
+    // `IF EXISTS` parses; it is not carried on the AST node (the transform
+    // recovers it from the raw SQL), so the canonical form drops it.
+    match snowflake()
+        .one_statement_parses_to("ALTER ROLE IF EXISTS r RENAME TO r2", "ALTER ROLE r RENAME TO r2")
+    {
+        Statement::AlterRole { operation, .. } => {
+            assert_eq!(
+                operation,
+                AlterRoleOperation::RenameRole {
+                    role_name: Ident::new("r2")
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    snowflake().one_statement_parses_to(
+        "ALTER ROLE IF EXISTS r UNSET COMMENT",
+        "ALTER ROLE r UNSET COMMENT",
+    );
+}
+
+#[test]
+fn parse_sf_alter_role_set_tag_still_intercepted() {
+    // The tag interceptor still wins for the SET/UNSET TAG forms — they become
+    // `Statement::SetTags`, not `Statement::AlterRole`.
+    match snowflake().verified_stmt("ALTER ROLE r SET TAG t1='v1'") {
+        Statement::SetTags {
+            object_type,
+            unset,
+            ..
+        } => {
+            assert_eq!(object_type, ObjectType::Role);
+            assert!(!unset);
+        }
+        _ => unreachable!(),
+    }
+}

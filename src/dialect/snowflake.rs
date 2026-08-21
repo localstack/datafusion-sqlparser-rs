@@ -28,7 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterNetworkRuleOperation, AlterSnowflakeSecretOperation,
+    AlterNetworkRuleOperation, AlterRoleOperation, AlterSnowflakeSecretOperation,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -407,6 +407,18 @@ impl Dialect for SnowflakeDialect {
         if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
             p.expect_keywords(&[Keyword::ALTER, Keyword::ROLE])?;
             parse_alter_object_set_tags(p, ObjectType::Role)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        // ALTER ROLE [IF EXISTS] <name> { RENAME TO <new> | SET COMMENT = '…' |
+        // UNSET COMMENT } — the non-tag account-role forms. The tag form above is
+        // tried first; anything that isn't one of these three fails the closure
+        // and falls through to Parser::parse_alter_role (the 001003 dialect
+        // guard), keeping unsupported forms an error.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::ROLE])?;
+            parse_alter_role(p)
         }) {
             return Some(Ok(stmt));
         }
@@ -3795,6 +3807,35 @@ fn parse_alter_object_set_tags(
         set_tags,
         unset_tags,
     })
+}
+
+/// Parse the non-tag Snowflake `ALTER ROLE [IF EXISTS] <name>` account-role
+/// forms: `RENAME TO <new_name>`, `SET COMMENT = '<text>'`, `UNSET COMMENT`.
+/// `IF EXISTS` is accepted and consumed here; the leading `ALTER ROLE` keywords
+/// are consumed by the caller. Any other trailing shape returns an error so the
+/// enclosing `maybe_parse` backtracks and the form falls through to the generic
+/// grammar.
+fn parse_alter_role(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let _if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_identifier()?;
+
+    let operation = if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        let role_name = parser.parse_identifier()?;
+        AlterRoleOperation::RenameRole { role_name }
+    } else if parser.parse_keyword(Keyword::SET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        parser.expect_token(&Token::Eq)?;
+        let comment = parser.parse_literal_string()?;
+        AlterRoleOperation::SetComment { comment }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        AlterRoleOperation::UnsetComment
+    } else {
+        return parser.expected("RENAME, SET COMMENT, or UNSET COMMENT", parser.peek_token());
+    };
+
+    Ok(Statement::AlterRole { name, operation })
 }
 
 /// Parse `SHOW [TERSE] TAGS [ ... ]`
