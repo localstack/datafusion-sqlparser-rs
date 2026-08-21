@@ -189,6 +189,13 @@ pub enum AlterRoleOperation {
         /// Optional database scope for the reset.
         in_database: Option<ObjectName>,
     },
+    /// Snowflake: `SET COMMENT = '<text>'`
+    SetComment {
+        /// The comment text.
+        comment: String,
+    },
+    /// Snowflake: `UNSET COMMENT`
+    UnsetComment,
 }
 
 impl fmt::Display for AlterRoleOperation {
@@ -234,6 +241,10 @@ impl fmt::Display for AlterRoleOperation {
                     ResetConfig::ConfigName(name) => write!(f, "RESET {name}"),
                 }
             }
+            AlterRoleOperation::SetComment { comment } => {
+                write!(f, "SET COMMENT = '{}'", comment.replace('\'', "''"))
+            }
+            AlterRoleOperation::UnsetComment => write!(f, "UNSET COMMENT"),
         }
     }
 }
