@@ -5499,11 +5499,11 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
-    /// SHOW ROW ACCESS POLICIES [ LIKE '<pattern>' ]
+    /// SHOW ROW ACCESS POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowRowAccessPolicies {
-        /// Optional `LIKE` filter.
-        filter: Option<ShowStatementFilter>,
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
     },
     /// ```sql
     /// CREATE [OR REPLACE] MASKING POLICY [IF NOT EXISTS] <name>
@@ -8376,12 +8376,8 @@ impl fmt::Display for Statement {
             Statement::DescribeRowAccessPolicy { name } => {
                 write!(f, "DESCRIBE ROW ACCESS POLICY {name}")
             }
-            Statement::ShowRowAccessPolicies { filter } => {
-                write!(f, "SHOW ROW ACCESS POLICIES")?;
-                if let Some(filter) = filter {
-                    write!(f, " {filter}")?;
-                }
-                Ok(())
+            Statement::ShowRowAccessPolicies { show_options } => {
+                write!(f, "SHOW ROW ACCESS POLICIES{show_options}")
             }
             Statement::CreateMaskingPolicy {
                 or_replace,

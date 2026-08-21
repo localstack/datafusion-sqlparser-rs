@@ -3897,10 +3897,10 @@ fn parse_describe_row_access_policy(parser: &mut Parser) -> Result<Statement, Pa
     Ok(Statement::DescribeRowAccessPolicy { name })
 }
 
-/// Parse `SHOW ROW ACCESS POLICIES [LIKE '<pattern>']`
+/// Parse `SHOW ROW ACCESS POLICIES [LIKE '<pattern>'] [IN <scope>]`
 fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
-    let filter = parser.parse_show_statement_filter()?;
-    Ok(Statement::ShowRowAccessPolicies { filter })
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowRowAccessPolicies { show_options })
 }
 
 /// Parse `CREATE [OR REPLACE] MASKING POLICY [IF NOT EXISTS] <name>
