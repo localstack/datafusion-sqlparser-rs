@@ -249,6 +249,42 @@ impl fmt::Display for AlterRoleOperation {
     }
 }
 
+/// An `ALTER DATABASE ROLE` (`Statement::AlterDatabaseRole`) operation
+/// (Snowflake). The new name of a rename may itself be database-qualified,
+/// which is why this carries an `ObjectName` rather than reusing
+/// `AlterRoleOperation`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterDatabaseRoleOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo {
+        /// The (optionally database-qualified) new role name.
+        new_name: ObjectName,
+    },
+    /// `SET COMMENT = '<text>'`
+    SetComment {
+        /// The comment text.
+        comment: String,
+    },
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterDatabaseRoleOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterDatabaseRoleOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+            AlterDatabaseRoleOperation::SetComment { comment } => {
+                write!(f, "SET COMMENT = '{}'", comment.replace('\'', "''"))
+            }
+            AlterDatabaseRoleOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+        }
+    }
+}
+
 /// A `USE` (`Statement::Use`) operation
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

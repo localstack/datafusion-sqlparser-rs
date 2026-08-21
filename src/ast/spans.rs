@@ -439,6 +439,7 @@ impl Spanned for Statement {
             Statement::AlterOperatorClass { .. } => Span::empty(),
             Statement::AlterTextSearch { .. } => Span::empty(),
             Statement::AlterRole { .. } => Span::empty(),
+            Statement::AlterDatabaseRole { .. } => Span::empty(),
             Statement::AlterSession { .. } => Span::empty(),
             Statement::AttachDatabase { .. } => Span::empty(),
             Statement::AttachDuckDBDatabase { .. } => Span::empty(),
