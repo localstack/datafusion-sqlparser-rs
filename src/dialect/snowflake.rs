@@ -28,7 +28,8 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterNetworkRuleOperation, AlterRoleOperation, AlterSnowflakeSecretOperation,
+    AlterDatabaseRoleOperation, AlterNetworkRuleOperation, AlterRoleOperation,
+    AlterSnowflakeSecretOperation,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -370,6 +371,16 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::TAG]) {
             // ALTER TAG
             return Some(parse_alter_tag(parser));
+        }
+
+        // ALTER DATABASE ROLE [IF EXISTS] <name> { RENAME TO <new> |
+        // SET COMMENT = '…' | UNSET COMMENT } — must win before the ALTER
+        // DATABASE tag form below, which unconditionally consumes ALTER DATABASE.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::DATABASE, Keyword::ROLE])?;
+            parse_alter_database_role(p)
+        }) {
+            return Some(Ok(stmt));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATABASE]) {
@@ -3836,6 +3847,38 @@ fn parse_alter_role(parser: &mut Parser) -> Result<Statement, ParserError> {
     };
 
     Ok(Statement::AlterRole { name, operation })
+}
+
+/// Parse the Snowflake `ALTER DATABASE ROLE [IF EXISTS] <name>` forms:
+/// `RENAME TO <new_name>`, `SET COMMENT = '<text>'`, `UNSET COMMENT`. Both the
+/// altered name and a rename target may be database-qualified. The leading
+/// `ALTER DATABASE ROLE` keywords are consumed by the caller. Any other trailing
+/// shape returns an error so the enclosing `maybe_parse` backtracks.
+fn parse_alter_database_role(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let operation = if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        let new_name = parser.parse_object_name(false)?;
+        AlterDatabaseRoleOperation::RenameTo { new_name }
+    } else if parser.parse_keyword(Keyword::SET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        parser.expect_token(&Token::Eq)?;
+        let comment = parser.parse_literal_string()?;
+        AlterDatabaseRoleOperation::SetComment { comment }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        AlterDatabaseRoleOperation::UnsetComment
+    } else {
+        return parser.expected("RENAME, SET COMMENT, or UNSET COMMENT", parser.peek_token());
+    };
+
+    Ok(Statement::AlterDatabaseRole {
+        if_exists,
+        name,
+        operation,
+    })
 }
 
 /// Parse `SHOW [TERSE] TAGS [ ... ]`

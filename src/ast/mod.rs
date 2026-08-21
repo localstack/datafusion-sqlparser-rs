@@ -58,8 +58,8 @@ pub use self::data_type::{
     ExactNumberInfo, IntervalFields, StructBracketKind, TimezoneInfo,
 };
 pub use self::dcl::{
-    AlterRoleOperation, CreateRole, Grant, ResetConfig, Revoke, RoleOption, SecondaryRoles,
-    SetConfigValue, Use,
+    AlterDatabaseRoleOperation, AlterRoleOperation, CreateRole, Grant, ResetConfig, Revoke,
+    RoleOption, SecondaryRoles, SetConfigValue, Use,
 };
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
@@ -4210,6 +4210,20 @@ pub enum Statement {
         operation: AlterRoleOperation,
     },
     /// ```sql
+    /// ALTER DATABASE ROLE [IF EXISTS] <name>
+    ///     { RENAME TO <new_name> | SET COMMENT = '...' | UNSET COMMENT }
+    /// ```
+    /// Snowflake database role (scoped to a database, distinct from an
+    /// account-level role).
+    AlterDatabaseRole {
+        /// `true` when `IF EXISTS` was specified.
+        if_exists: bool,
+        /// The (optionally database-qualified) role name being altered.
+        name: ObjectName,
+        /// Operation to perform on the database role.
+        operation: AlterDatabaseRoleOperation,
+    },
+    /// ```sql
     /// ALTER POLICY <NAME> ON <TABLE NAME> [<OPERATION>]
     /// ```
     /// (Postgresql-specific)
@@ -7196,6 +7210,17 @@ impl fmt::Display for Statement {
             }
             Statement::AlterRole { name, operation } => {
                 write!(f, "ALTER ROLE {name} {operation}")
+            }
+            Statement::AlterDatabaseRole {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER DATABASE ROLE {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
             }
             Statement::AlterPolicy(alter_policy) => write!(f, "{alter_policy}"),
             Statement::AlterConnector {

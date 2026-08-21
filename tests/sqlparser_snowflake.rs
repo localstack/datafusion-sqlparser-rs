@@ -9845,6 +9845,99 @@ fn parse_sf_alter_role_if_exists_is_accepted() {
 }
 
 #[test]
+fn parse_sf_alter_database_role_forms() {
+    // RENAME TO / SET COMMENT / UNSET COMMENT round-trip through Display, with
+    // both the altered name and the rename target optionally database-qualified.
+    match snowflake().verified_stmt("ALTER DATABASE ROLE db.r RENAME TO db.r2") {
+        Statement::AlterDatabaseRole {
+            if_exists,
+            name,
+            operation,
+        } => {
+            assert!(!if_exists);
+            assert_eq!(name, ObjectName::from(vec![Ident::new("db"), Ident::new("r")]));
+            assert_eq!(
+                operation,
+                AlterDatabaseRoleOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("db"), Ident::new("r2")])
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().verified_stmt("ALTER DATABASE ROLE r RENAME TO r2") {
+        Statement::AlterDatabaseRole { name, operation, .. } => {
+            assert_eq!(name, ObjectName::from(vec![Ident::new("r")]));
+            assert_eq!(
+                operation,
+                AlterDatabaseRoleOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("r2")])
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().verified_stmt("ALTER DATABASE ROLE db.r SET COMMENT = 'hello'") {
+        Statement::AlterDatabaseRole { operation, .. } => {
+            assert_eq!(
+                operation,
+                AlterDatabaseRoleOperation::SetComment {
+                    comment: "hello".to_string()
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    match snowflake().verified_stmt("ALTER DATABASE ROLE db.r UNSET COMMENT") {
+        Statement::AlterDatabaseRole { operation, .. } => {
+            assert_eq!(operation, AlterDatabaseRoleOperation::UnsetComment);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_alter_database_role_if_exists() {
+    // `IF EXISTS` is carried on the AST node and round-trips through Display.
+    match snowflake().verified_stmt("ALTER DATABASE ROLE IF EXISTS db.r RENAME TO db.r2") {
+        Statement::AlterDatabaseRole {
+            if_exists,
+            operation,
+            ..
+        } => {
+            assert!(if_exists);
+            assert_eq!(
+                operation,
+                AlterDatabaseRoleOperation::RenameTo {
+                    new_name: ObjectName::from(vec![Ident::new("db"), Ident::new("r2")])
+                }
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_alter_database_role_set_tag_still_intercepted() {
+    // The ALTER DATABASE ROLE interceptor only claims RENAME/COMMENT; the tag
+    // form falls through to the ALTER DATABASE tag interceptor unaffected.
+    match snowflake().verified_stmt("ALTER DATABASE db SET TAG t1='v1'") {
+        Statement::SetTags {
+            object_type,
+            unset,
+            ..
+        } => {
+            assert_eq!(object_type, ObjectType::Database);
+            assert!(!unset);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn parse_sf_alter_role_set_tag_still_intercepted() {
     // The tag interceptor still wins for the SET/UNSET TAG forms — they become
     // `Statement::SetTags`, not `Statement::AlterRole`.

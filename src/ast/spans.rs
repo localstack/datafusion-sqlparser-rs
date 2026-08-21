@@ -435,6 +435,7 @@ impl Spanned for Statement {
             Statement::AlterOperatorFamily { .. } => Span::empty(),
             Statement::AlterOperatorClass { .. } => Span::empty(),
             Statement::AlterRole { .. } => Span::empty(),
+            Statement::AlterDatabaseRole { .. } => Span::empty(),
             Statement::AlterSession { .. } => Span::empty(),
             Statement::AttachDatabase { .. } => Span::empty(),
             Statement::AttachDuckDBDatabase { .. } => Span::empty(),
