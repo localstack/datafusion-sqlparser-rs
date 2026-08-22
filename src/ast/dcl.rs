@@ -556,6 +556,9 @@ pub struct Revoke {
     pub objects: Option<GrantObjects>,
     /// Grantees affected by the revoke.
     pub grantees: Vec<Grantee>,
+    /// Whether `GRANT OPTION FOR` is present — flips `grant_option` to false
+    /// without removing the privilege edge itself.
+    pub grant_option_for: bool,
     /// Optional `GRANTED BY` identifier.
     ///
     /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/dcl-statements)
@@ -566,7 +569,11 @@ pub struct Revoke {
 
 impl fmt::Display for Revoke {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "REVOKE {privileges}", privileges = self.privileges)?;
+        write!(f, "REVOKE ")?;
+        if self.grant_option_for {
+            write!(f, "GRANT OPTION FOR ")?;
+        }
+        write!(f, "{privileges}", privileges = self.privileges)?;
         if let Some(ref objects) = self.objects {
             write!(f, " ON {objects}")?;
         }

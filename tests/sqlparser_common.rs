@@ -9987,6 +9987,7 @@ fn test_revoke() {
             privileges,
             objects: Some(GrantObjects::Tables(tables)),
             grantees,
+            grant_option_for,
             granted_by,
             cascade,
         }) => {
@@ -9998,6 +9999,7 @@ fn test_revoke() {
             );
             assert_eq_vec(&["users", "auth"], &tables);
             assert_eq_vec(&["analyst"], &grantees);
+            assert!(!grant_option_for);
             assert_eq!(cascade, None);
             assert_eq!(None, granted_by);
         }
@@ -10013,6 +10015,7 @@ fn test_revoke_with_cascade() {
             privileges,
             objects: Some(GrantObjects::Tables(tables)),
             grantees,
+            grant_option_for,
             granted_by,
             cascade,
         }) => {
@@ -10024,6 +10027,7 @@ fn test_revoke_with_cascade() {
             );
             assert_eq_vec(&["users", "auth"], &tables);
             assert_eq_vec(&["analyst"], &grantees);
+            assert!(!grant_option_for);
             assert_eq!(cascade, Some(CascadeOption::Cascade));
             assert_eq!(None, granted_by);
         }

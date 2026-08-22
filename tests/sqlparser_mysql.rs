@@ -4016,6 +4016,7 @@ fn parse_revoke() {
         privileges,
         objects,
         grantees,
+        grant_option_for,
         granted_by,
         cascade,
     }) = stmt
@@ -4045,6 +4046,7 @@ fn parse_revoke() {
         } else {
             unreachable!()
         }
+        assert!(!grant_option_for);
         assert!(granted_by.is_none());
         assert!(cascade.is_none());
     } else {

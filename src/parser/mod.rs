@@ -19405,6 +19405,8 @@ impl<'a> Parser<'a> {
 
     /// Parse a REVOKE statement
     pub fn parse_revoke(&mut self) -> Result<Revoke, ParserError> {
+        let grant_option_for =
+            self.parse_keywords(&[Keyword::GRANT, Keyword::OPTION, Keyword::FOR]);
         let (privileges, objects) = self.parse_grant_deny_revoke_privileges_objects()?;
 
         self.expect_keyword_is(Keyword::FROM)?;
@@ -19422,6 +19424,7 @@ impl<'a> Parser<'a> {
             privileges,
             objects,
             grantees,
+            grant_option_for,
             granted_by,
             cascade,
         })
