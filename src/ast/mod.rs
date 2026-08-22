@@ -11707,6 +11707,9 @@ pub enum DescribeObjectType {
     Sequence,
     /// `PIPE`
     Pipe,
+    /// `USER` (Snowflake)
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-user>
+    User,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -11724,6 +11727,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Stream => "STREAM",
             DescribeObjectType::Sequence => "SEQUENCE",
             DescribeObjectType::Pipe => "PIPE",
+            DescribeObjectType::User => "USER",
         })
     }
 }
