@@ -1219,6 +1219,7 @@ define_keywords!(
     USAGE,
     USE,
     USER,
+    USERS,
     USER_RESOURCES,
     USER_SPECIFIED,
     USING,
