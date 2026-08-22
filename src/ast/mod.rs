@@ -5378,6 +5378,16 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW [TERSE] USERS [ LIKE '<pattern>' ] [ STARTS WITH '<prefix>' ] [ LIMIT <n> [ FROM '<name>' ] ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-users>
+    ShowUsers {
+        /// Whether to show terse output.
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `STARTS WITH` / `LIMIT` / `FROM`).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] TAG [IF NOT EXISTS] <name>
     ///   [ ALLOWED_VALUES '<val>' [ , '<val>' ... ] ] [ COMMENT = '<comment>' ]
     /// ```
@@ -8266,6 +8276,16 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "SHOW {terse}STAGES{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
+            }
+            Statement::ShowUsers {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}USERS{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }

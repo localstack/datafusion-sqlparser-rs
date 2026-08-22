@@ -847,6 +847,9 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::SHARES) {
                 return Some(parse_show_shares(parser));
             }
+            if parser.parse_keyword(Keyword::USERS) {
+                return Some(parse_show_users(terse, parser));
+            }
             //Give back Keyword::TERSE
             if terse {
                 parser.prev_token();
@@ -3692,6 +3695,15 @@ fn parse_show_file_formats(terse: bool, parser: &mut Parser) -> Result<Statement
 fn parse_show_stages(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowStages {
+        terse,
+        show_options,
+    })
+}
+
+/// Parse `SHOW [TERSE] USERS [ LIKE '<pattern>' ] [ STARTS WITH '<prefix>' ] [ LIMIT <n> [ FROM '<name>' ] ]`
+fn parse_show_users(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowUsers {
         terse,
         show_options,
     })

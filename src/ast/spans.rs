@@ -569,6 +569,7 @@ impl Spanned for Statement {
             Statement::DescribeFileFormat { .. } => Span::empty(),
             Statement::ShowFileFormats { .. } => Span::empty(),
             Statement::ShowStages { .. } => Span::empty(),
+            Statement::ShowUsers { .. } => Span::empty(),
             Statement::CreateTag { .. } => Span::empty(),
             Statement::AlterTag { .. } => Span::empty(),
             Statement::DropTag { .. } => Span::empty(),
