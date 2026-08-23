@@ -10363,6 +10363,29 @@ pub enum GrantObjects {
         /// Optional argument types for overloaded functions.
         arg_types: Vec<DataType>,
     },
+
+    /// `GRANT … ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]`
+    /// for the schema-extensible object kinds the per-variant enumeration can't
+    /// scale to (STREAMLITS, DATASETS, IMAGE REPOSITORIES, MODEL MONITORS,
+    /// AGENTS, MCP SERVERS, SEMANTIC VIEWS). The kind is carried as data rather
+    /// than as one enum variant per (scope × kind × container) combination.
+    AllOrFutureKind {
+        /// `true` for `FUTURE`, `false` for `ALL`.
+        is_future: bool,
+        /// The plural object keyword as written (`STREAMLITS`, `IMAGE REPOSITORIES`).
+        plural: String,
+        /// The store's `granted_on`/`object_type` spelling real Snowflake reports
+        /// (`STREAMLIT`, `IMAGE_REPOSITORY`, `CORTEX_AGENT`, …).
+        object_type: String,
+        /// `SCHEMA` or `DATABASE`.
+        container_type: String,
+        /// The container object names.
+        containers: Vec<ObjectName>,
+    },
+
+    /// `GRANT … ON SNOWFLAKE INTELLIGENCE <name>[, …]` — an account-level
+    /// object grant target. `granted_on` is `SNOWFLAKE_INTELLIGENCE`.
+    SnowflakeIntelligence(Vec<ObjectName>),
 }
 
 impl fmt::Display for GrantObjects {
@@ -10586,6 +10609,25 @@ impl fmt::Display for GrantObjects {
                     write!(f, "({})", display_comma_separated(arg_types))?;
                 }
                 Ok(())
+            }
+            GrantObjects::AllOrFutureKind {
+                is_future,
+                plural,
+                object_type: _,
+                container_type,
+                containers,
+            } => {
+                write!(
+                    f,
+                    "{} {} IN {} {}",
+                    if *is_future { "FUTURE" } else { "ALL" },
+                    plural,
+                    container_type,
+                    display_comma_separated(containers)
+                )
+            }
+            GrantObjects::SnowflakeIntelligence(objects) => {
+                write!(f, "SNOWFLAKE INTELLIGENCE {}", display_comma_separated(objects))
             }
         }
     }

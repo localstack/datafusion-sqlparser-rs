@@ -18985,6 +18985,14 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::FutureFunctionsInSchema {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
+            } else if let Some(objs) = self.parse_grant_extensible_objects()? {
+                Some(objs)
+            } else if self.parse_two_word_object("SNOWFLAKE", "INTELLIGENCE") {
+                self.advance_token();
+                self.advance_token();
+                Some(GrantObjects::SnowflakeIntelligence(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else if self.parse_keywords(&[Keyword::RESOURCE, Keyword::MONITOR]) {
                 Some(GrantObjects::ResourceMonitors(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
@@ -19063,6 +19071,92 @@ impl<'a> Parser<'a> {
         };
 
         Ok((privileges, objects))
+    }
+
+    /// The plural-kind table for [`Self::parse_grant_extensible_objects`]:
+    /// `(plural-as-written, [token words], store granted_on spelling)`.
+    /// The store spelling is what real Snowflake reports in `SHOW FUTURE GRANTS`
+    /// / `SHOW GRANTS` (e.g. `CORTEX_AGENT` for `AGENTS`).
+    const BULK_GRANT_KINDS: &'static [(&'static str, &'static [&'static str], &'static str)] = &[
+        ("STREAMLITS", &["STREAMLITS"], "STREAMLIT"),
+        ("DATASETS", &["DATASETS"], "DATASET"),
+        ("IMAGE REPOSITORIES", &["IMAGE", "REPOSITORIES"], "IMAGE_REPOSITORY"),
+        ("MODEL MONITORS", &["MODEL", "MONITORS"], "QUALITY_MONITOR"),
+        ("AGENTS", &["AGENTS"], "CORTEX_AGENT"),
+        ("MCP SERVERS", &["MCP", "SERVERS"], "CORTEX_AGENT_SERVER"),
+        ("SEMANTIC VIEWS", &["SEMANTIC", "VIEWS"], "SEMANTIC_VIEW"),
+    ];
+
+    /// `ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]` for the
+    /// schema-extensible object kinds. Peeks the full pattern and consumes only
+    /// on a complete match, so unknown `ALL <foo>` shapes fall through to the
+    /// generic object-name parse.
+    fn parse_grant_extensible_objects(&mut self) -> Result<Option<GrantObjects>, ParserError> {
+        let is_future = if self.peek_keyword(Keyword::ALL) {
+            false
+        } else if self.peek_keyword(Keyword::FUTURE) {
+            true
+        } else {
+            return Ok(None);
+        };
+        // Kind words start at offset 1 (after ALL/FUTURE).
+        let kind = match Self::BULK_GRANT_KINDS.iter().find(|(_, words, _)| {
+            words
+                .iter()
+                .enumerate()
+                .all(|(i, w)| self.peek_nth_word(i + 1).is_some_and(|t| t.eq_ignore_ascii_case(w)))
+        }) {
+            Some(k) => *k,
+            None => return Ok(None),
+        };
+        let plural_len = kind.1.len();
+        let in_pos = plural_len + 1;
+        if !self.peek_nth_keyword(in_pos, Keyword::IN) {
+            return Ok(None);
+        }
+        let container_type = if self.peek_nth_keyword(in_pos + 1, Keyword::SCHEMA) {
+            "SCHEMA"
+        } else if self.peek_nth_keyword(in_pos + 1, Keyword::DATABASE) {
+            "DATABASE"
+        } else {
+            return Ok(None);
+        };
+        // Consume ALL/FUTURE, the plural-kind words, IN, and the container kw.
+        self.advance_token();
+        for _ in 0..plural_len {
+            self.advance_token();
+        }
+        self.advance_token(); // IN
+        self.advance_token(); // SCHEMA | DATABASE
+        let containers = self.parse_comma_separated(|p| p.parse_object_name(false))?;
+        Ok(Some(GrantObjects::AllOrFutureKind {
+            is_future,
+            plural: kind.0.to_string(),
+            object_type: kind.2.to_string(),
+            container_type: container_type.to_string(),
+            containers,
+        }))
+    }
+
+    /// The unquoted word value of the nth non-whitespace token after the current
+    /// one, or `None`.
+    fn peek_nth_word(&self, n: usize) -> Option<&str> {
+        match &self.peek_nth_token_ref(n).token {
+            Token::Word(w) if w.quote_style.is_none() => Some(&w.value),
+            _ => None,
+        }
+    }
+
+    /// True when the current token is the unquoted word `a` and the next is the
+    /// unquoted word `b`, without consuming either.
+    fn parse_two_word_object(&self, a: &str, b: &str) -> bool {
+        self.peek_nth_word(0).is_some_and(|t| t.eq_ignore_ascii_case(a))
+            && self.peek_nth_word(1).is_some_and(|t| t.eq_ignore_ascii_case(b))
+    }
+
+    /// True when the nth token after the current one resolves to `kw`.
+    fn peek_nth_keyword(&self, n: usize, kw: Keyword) -> bool {
+        matches!(&self.peek_nth_token_ref(n).token, Token::Word(w) if w.keyword == kw)
     }
 
     fn parse_grant_procedure_or_function(
