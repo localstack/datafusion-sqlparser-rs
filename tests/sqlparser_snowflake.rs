@@ -9953,3 +9953,94 @@ fn parse_sf_alter_role_set_tag_still_intercepted() {
         _ => unreachable!(),
     }
 }
+
+#[test]
+fn parse_sf_alter_security_integration_set() {
+    match snowflake().verified_stmt("ALTER SECURITY INTEGRATION i SET ENABLED=false") {
+        Statement::AlterSecurityIntegration {
+            name,
+            if_exists,
+            set_options,
+            unset_options,
+        } => {
+            assert_eq!("i", name.to_string());
+            assert!(!if_exists);
+            assert_eq!(1, set_options.options.len());
+            assert_eq!("ENABLED", set_options.options[0].option_name);
+            assert!(unset_options.is_empty());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_alter_security_integration_unset() {
+    match snowflake().verified_stmt("ALTER SECURITY INTEGRATION i UNSET NETWORK_POLICY") {
+        Statement::AlterSecurityIntegration {
+            name,
+            if_exists,
+            set_options,
+            unset_options,
+        } => {
+            assert_eq!("i", name.to_string());
+            assert!(!if_exists);
+            assert!(set_options.options.is_empty());
+            assert_eq!(
+                vec![Ident::new("NETWORK_POLICY")],
+                unset_options
+                    .iter()
+                    .map(|i| Ident::new(i.value.clone()))
+                    .collect::<Vec<_>>()
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_alter_security_integration_unset_multiple_with_if_exists() {
+    // A comma-separated UNSET list; COMMENT is a keyword but is still accepted
+    // as a bare property name.
+    match snowflake().verified_stmt("ALTER SECURITY INTEGRATION IF EXISTS i UNSET ENABLED, COMMENT")
+    {
+        Statement::AlterSecurityIntegration {
+            if_exists,
+            set_options,
+            unset_options,
+            ..
+        } => {
+            assert!(if_exists);
+            assert!(set_options.options.is_empty());
+            assert_eq!(
+                vec!["ENABLED".to_string(), "COMMENT".to_string()],
+                unset_options
+                    .iter()
+                    .map(|i| i.value.clone())
+                    .collect::<Vec<_>>()
+            );
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_sf_alter_security_integration_requires_set_or_unset() {
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("ALTER SECURITY INTEGRATION i")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: SET or UNSET after ALTER SECURITY INTEGRATION <name>, found: EOF"
+    );
+}
+
+#[test]
+fn parse_sf_alter_security_integration_unset_requires_a_property() {
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("ALTER SECURITY INTEGRATION i UNSET")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected: identifier, found: EOF"
+    );
+}

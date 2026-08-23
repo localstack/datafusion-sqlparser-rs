@@ -5879,15 +5879,17 @@ pub enum Statement {
         params: KeyValueOptions,
     },
     /// ```sql
-    /// ALTER SECURITY INTEGRATION [IF EXISTS] <name> SET ...
+    /// ALTER SECURITY INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
     /// ```
     AlterSecurityIntegration {
         /// Security integration name.
         name: ObjectName,
         /// `IF EXISTS` flag.
         if_exists: bool,
-        /// The `SET` options.
+        /// The `SET` options; empty for the `UNSET` form.
         set_options: KeyValueOptions,
+        /// The property names of the `UNSET` form; empty for the `SET` form.
+        unset_options: Vec<Ident>,
     },
     /// ```sql
     /// DROP SECURITY INTEGRATION [IF EXISTS] <name>
@@ -8777,14 +8779,20 @@ impl fmt::Display for Statement {
                 name,
                 if_exists,
                 set_options,
+                unset_options,
             } => {
                 write!(
                     f,
-                    "ALTER SECURITY INTEGRATION {if_exists}{name} SET",
+                    "ALTER SECURITY INTEGRATION {if_exists}{name}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )?;
-                if !set_options.options.is_empty() {
-                    write!(f, " {set_options}")?;
+                if unset_options.is_empty() {
+                    write!(f, " SET")?;
+                    if !set_options.options.is_empty() {
+                        write!(f, " {set_options}")?;
+                    }
+                } else {
+                    write!(f, " UNSET {}", display_comma_separated(unset_options))?;
                 }
                 Ok(())
             }
