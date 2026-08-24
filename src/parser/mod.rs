@@ -17000,11 +17000,43 @@ impl<'a> Parser<'a> {
             self.parse_show_charset(false)
         } else if self.parse_keyword(Keyword::CHARSET) {
             self.parse_show_charset(true)
+        } else if self.peek_nth_keyword(0, Keyword::GRANTS)
+            && self.peek_nth_keyword(1, Keyword::ON)
+            && (self.peek_nth_keyword(2, Keyword::FUNCTION)
+                || self.peek_nth_keyword(2, Keyword::PROCEDURE))
+        {
+            self.parse_show_grants_on_routine()
         } else {
             Ok(Statement::ShowVariable {
                 variable: self.parse_identifiers()?,
             })
         }
+    }
+
+    /// Parse `SHOW GRANTS ON FUNCTION|PROCEDURE <name> [ ( [<arg_type>, ...] ) ]`.
+    /// The parenthesised argument list is preserved (as `Some`, possibly empty)
+    /// so a caller can distinguish it from the parenthesis-less form (`None`),
+    /// which Snowflake rejects because it cannot disambiguate an overload.
+    fn parse_show_grants_on_routine(&mut self) -> Result<Statement, ParserError> {
+        self.expect_keyword(Keyword::GRANTS)?;
+        self.expect_keyword(Keyword::ON)?;
+        let is_procedure = self.parse_keyword(Keyword::PROCEDURE);
+        if !is_procedure {
+            self.expect_keyword(Keyword::FUNCTION)?;
+        }
+        let name = self.parse_object_name(false)?;
+        let arg_types = if self.consume_token(&Token::LParen) {
+            let list = self.parse_comma_separated0(Self::parse_data_type, Token::RParen)?;
+            self.expect_token(&Token::RParen)?;
+            Some(list)
+        } else {
+            None
+        };
+        Ok(Statement::ShowGrantsOnRoutine {
+            is_procedure,
+            name,
+            arg_types,
+        })
     }
 
     fn parse_show_charset(&mut self, is_shorthand: bool) -> Result<Statement, ParserError> {

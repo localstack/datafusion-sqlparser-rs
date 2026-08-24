@@ -4571,6 +4571,22 @@ pub enum Statement {
         variable: Vec<Ident>,
     },
     /// ```sql
+    /// SHOW GRANTS ON FUNCTION|PROCEDURE <name> [ ( [<arg_type>, ...] ) ]
+    /// ```
+    ///
+    /// Snowflake requires the argument-list parentheses to disambiguate an
+    /// overloaded routine; `arg_types` is `None` when they are omitted and
+    /// `Some(list)` — possibly empty — when present.
+    ShowGrantsOnRoutine {
+        /// `true` for `PROCEDURE`, `false` for `FUNCTION`.
+        is_procedure: bool,
+        /// The routine's (optionally qualified) name.
+        name: ObjectName,
+        /// The parenthesised argument types, or `None` when the parentheses
+        /// were absent.
+        arg_types: Option<Vec<DataType>>,
+    },
+    /// ```sql
     /// SHOW [GLOBAL | SESSION] STATUS [LIKE 'pattern' | WHERE expr]
     /// ```
     ///
@@ -7489,6 +7505,18 @@ impl fmt::Display for Statement {
                 write!(f, "SHOW")?;
                 if !variable.is_empty() {
                     write!(f, " {}", display_separated(variable, " "))?;
+                }
+                Ok(())
+            }
+            Statement::ShowGrantsOnRoutine {
+                is_procedure,
+                name,
+                arg_types,
+            } => {
+                let kind = if *is_procedure { "PROCEDURE" } else { "FUNCTION" };
+                write!(f, "SHOW GRANTS ON {kind} {name}")?;
+                if let Some(arg_types) = arg_types {
+                    write!(f, "({})", display_comma_separated(arg_types))?;
                 }
                 Ok(())
             }
