@@ -12120,12 +12120,20 @@ impl<'a> Parser<'a> {
             let params = self.parse_comma_separated(Parser::parse_identifier)?;
             AlterWarehouseOperation::Unset { params }
         } else if self.parse_keyword(Keyword::SET) {
-            let params = self.parse_comma_separated(|p| {
-                let name = p.parse_identifier()?;
-                p.expect_token(&Token::Eq)?;
-                let value = p.parse_expr()?;
-                Ok::<WarehouseParam, ParserError>(WarehouseParam { name, value })
-            })?;
+            // Warehouse SET properties are space-separated in Snowflake (commas
+            // are also tolerated between them), e.g.
+            // `SET WAREHOUSE_SIZE = 'SMALL' WAIT_FOR_COMPLETION = TRUE`.
+            let mut params = Vec::new();
+            loop {
+                let name = self.parse_identifier()?;
+                self.expect_token(&Token::Eq)?;
+                let value = self.parse_expr()?;
+                params.push(WarehouseParam { name, value });
+                let _ = self.consume_token(&Token::Comma);
+                if !matches!(self.peek_token().token, Token::Word(_)) {
+                    break;
+                }
+            }
             AlterWarehouseOperation::Set { params }
         } else {
             return self.expected(
