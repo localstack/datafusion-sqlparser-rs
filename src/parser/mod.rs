@@ -6449,14 +6449,20 @@ impl<'a> Parser<'a> {
     }
 
     /// True when the next token is a Snowflake Python-UDF property name
-    /// (`RUNTIME_VERSION`, `HANDLER`, `IMPORTS`, `PACKAGES`). None of these are
-    /// reserved keywords, so they are recognised by their bare-word spelling.
+    /// (`RUNTIME_VERSION`, `HANDLER`, `IMPORTS`, `PACKAGES`,
+    /// `EXTERNAL_ACCESS_INTEGRATIONS`, `SECRETS`). None of these are reserved
+    /// keywords, so they are recognised by their bare-word spelling.
     fn peek_snowflake_function_property(&self) -> bool {
         matches!(&self.peek_token_ref().token, Token::Word(w)
         if w.quote_style.is_none()
             && matches!(
                 w.value.to_ascii_uppercase().as_str(),
-                "RUNTIME_VERSION" | "HANDLER" | "IMPORTS" | "PACKAGES"
+                "RUNTIME_VERSION"
+                    | "HANDLER"
+                    | "IMPORTS"
+                    | "PACKAGES"
+                    | "EXTERNAL_ACCESS_INTEGRATIONS"
+                    | "SECRETS"
             ))
     }
 

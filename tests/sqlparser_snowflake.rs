@@ -6157,6 +6157,55 @@ fn test_select_from_stage_comma_join_lateral() {
     snowflake().verified_stmt("SELECT * FROM @stage/test.jsonl, other_table");
 }
 
+/// `CREATE FUNCTION … EXTERNAL_ACCESS_INTEGRATIONS = (…) SECRETS = ('a' = s)`
+/// parses both Snowflake property clauses into `options` as key-value pairs:
+/// the integrations list as a tuple of identifiers, the secrets list as a tuple
+/// of `'alias' = <secret>` bindings.
+#[test]
+fn test_snowflake_create_function_external_access_and_secrets() {
+    let sql = "CREATE FUNCTION f(x NUMBER) RETURNS NUMBER LANGUAGE PYTHON \
+               RUNTIME_VERSION = '3.10' HANDLER = 'run' \
+               EXTERNAL_ACCESS_INTEGRATIONS = (eai_a, eai_b) \
+               SECRETS = ('cred' = my_secret) AS 'def run(x): return x'";
+    let options = match snowflake().parse_sql_statements(sql).unwrap().remove(0) {
+        Statement::CreateFunction(cf) => cf.options.expect("options should be present"),
+        other => panic!("expected CreateFunction, got {other:?}"),
+    };
+
+    let eai = options
+        .iter()
+        .find_map(|o| match o {
+            SqlOption::KeyValue { key, value }
+                if key.value.eq_ignore_ascii_case("EXTERNAL_ACCESS_INTEGRATIONS") =>
+            {
+                Some(value)
+            }
+            _ => None,
+        })
+        .expect("EXTERNAL_ACCESS_INTEGRATIONS option");
+    match eai {
+        Expr::Tuple(items) => assert_eq!(items.len(), 2),
+        other => panic!("expected a tuple of integrations, got {other:?}"),
+    }
+
+    let secrets = options
+        .iter()
+        .find_map(|o| match o {
+            SqlOption::KeyValue { key, value } if key.value.eq_ignore_ascii_case("SECRETS") => {
+                Some(value)
+            }
+            _ => None,
+        })
+        .expect("SECRETS option");
+    match secrets {
+        Expr::Tuple(items) => match &items[0] {
+            Expr::BinaryOp { op, .. } => assert_eq!(*op, BinaryOperator::Eq),
+            other => panic!("expected 'alias' = secret binding, got {other:?}"),
+        },
+        other => panic!("expected a tuple of secret bindings, got {other:?}"),
+    }
+}
+
 /// Bare assignment `var := expr` inside `BEGIN...END` scripting blocks.
 #[test]
 fn test_scripting_bare_assignment() {
