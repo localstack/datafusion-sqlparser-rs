@@ -19354,6 +19354,10 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::Application)
         } else if self.parse_keyword(Keyword::DATABASE) {
             Some(ActionCreateObjectType::Database)
+        } else if self.parse_keyword(Keyword::FUNCTION) {
+            Some(ActionCreateObjectType::Function)
+        } else if self.parse_keyword(Keyword::PROCEDURE) {
+            Some(ActionCreateObjectType::Procedure)
         } else if self.parse_keyword(Keyword::INTEGRATION) {
             Some(ActionCreateObjectType::Integration)
         } else if self.parse_keyword(Keyword::ROLE) {
