@@ -6064,7 +6064,7 @@ impl<'a> Parser<'a> {
         // Trino's `WITH (key='value')` option list, so probe for the
         // Snowflake form first; `parse_keywords` backtracks if the full
         // sequence is absent, leaving the Trino branch below intact.
-        let with_managed_access =
+        let mut with_managed_access =
             self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
 
         // Snowflake inline `[ WITH ] TAG ( <t> = '<v>', ... )` clause. The
@@ -6099,6 +6099,12 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+
+        // Snowflake also allows `WITH MANAGED ACCESS` after `CLONE <src>`.
+        if !with_managed_access {
+            with_managed_access =
+                self.parse_keywords(&[Keyword::WITH, Keyword::MANAGED, Keyword::ACCESS]);
+        }
 
         let comment = self.parse_optional_inline_comment()?;
 
