@@ -6161,6 +6161,12 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let from_share = if self.parse_keywords(&[Keyword::FROM, Keyword::SHARE]) {
+            Some(self.parse_object_name(false)?)
+        } else {
+            None
+        };
+
         // Parse MySQL-style [DEFAULT] CHARACTER SET and [DEFAULT] COLLATE options
         //
         // Note: The docs only mention `CHARACTER SET`, but `CHARSET` is also supported.
@@ -6212,6 +6218,7 @@ impl<'a> Parser<'a> {
             catalog_sync_namespace_flatten_delimiter: None,
             with_tags: None,
             with_contacts: None,
+            from_share,
         })
     }
 
@@ -19027,6 +19034,10 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::Secrets(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
+            } else if self.parse_keyword(Keyword::TAG) {
+                Some(GrantObjects::Tags(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else if self.parse_keyword(Keyword::STAGE) {
                 Some(GrantObjects::Stages(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
@@ -19281,6 +19292,8 @@ impl<'a> Parser<'a> {
             })
         } else if self.parse_keyword(Keyword::READ) {
             Ok(Action::Read)
+        } else if self.parse_keyword(Keyword::REFERENCE_USAGE) {
+            Ok(Action::ReferenceUsage)
         } else if self.parse_keyword(Keyword::WRITE) {
             Ok(Action::Write)
         } else if self.parse_keyword(Keyword::REPLICATE) {

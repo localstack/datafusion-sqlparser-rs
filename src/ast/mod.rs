@@ -4888,6 +4888,8 @@ pub enum Statement {
         with_tags: Option<Vec<Tag>>,
         /// Optional contact entries for the database.
         with_contacts: Option<Vec<ContactEntry>>,
+        /// `FROM SHARE <share>` — creates a database from a share.
+        from_share: Option<ObjectName>,
     },
     /// ```sql
     /// CREATE FUNCTION
@@ -6906,6 +6908,7 @@ impl fmt::Display for Statement {
                 catalog_sync_namespace_flatten_delimiter,
                 with_tags,
                 with_contacts,
+                from_share,
             } => {
                 write!(
                     f,
@@ -6924,6 +6927,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+                if let Some(share) = from_share {
+                    write!(f, " FROM SHARE {share}")?;
                 }
 
                 if let Some(value) = data_retention_time_in_days {
@@ -9740,6 +9746,8 @@ pub enum Action {
         /// Optional list of referenced column identifiers.
         columns: Option<Vec<Ident>>,
     },
+    /// Reference usage permission (Snowflake share grants).
+    ReferenceUsage,
     /// Replication permission.
     Replicate,
     /// Resolve all references.
@@ -9829,6 +9837,7 @@ impl fmt::Display for Action {
             Action::Write => f.write_str("WRITE")?,
             Action::ReadSession => f.write_str("READ SESSION")?,
             Action::References { .. } => f.write_str("REFERENCES")?,
+            Action::ReferenceUsage => f.write_str("REFERENCE_USAGE")?,
             Action::Replicate => f.write_str("REPLICATE")?,
             Action::ResolveAll => f.write_str("RESOLVE ALL")?,
             Action::Role { role } => write!(f, "ROLE {role}")?,
@@ -10386,6 +10395,9 @@ pub enum GrantObjects {
     /// `GRANT … ON SNOWFLAKE INTELLIGENCE <name>[, …]` — an account-level
     /// object grant target. `granted_on` is `SNOWFLAKE_INTELLIGENCE`.
     SnowflakeIntelligence(Vec<ObjectName>),
+
+    /// `GRANT … ON TAG <name>[, …]`. `granted_on` is `TAG`.
+    Tags(Vec<ObjectName>),
 }
 
 impl fmt::Display for GrantObjects {
@@ -10628,6 +10640,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::SnowflakeIntelligence(objects) => {
                 write!(f, "SNOWFLAKE INTELLIGENCE {}", display_comma_separated(objects))
+            }
+            GrantObjects::Tags(objects) => {
+                write!(f, "TAG {}", display_comma_separated(objects))
             }
         }
     }

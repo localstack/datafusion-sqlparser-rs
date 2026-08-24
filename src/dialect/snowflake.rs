@@ -2275,6 +2275,10 @@ pub fn parse_create_database(
                 Keyword::CLONE => {
                     builder = builder.clone_clause(Some(parser.parse_object_name(false)?));
                 }
+                Keyword::FROM => {
+                    parser.expect_keyword(Keyword::SHARE)?;
+                    builder = builder.from_share(Some(parser.parse_object_name(false)?));
+                }
                 Keyword::DATA_RETENTION_TIME_IN_DAYS => {
                     parser.expect_token(&Token::Eq)?;
                     builder =
