@@ -399,6 +399,8 @@ pub struct CreateRole {
     // Snowflake
     /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
     pub with_tags: Vec<Tag>,
+    /// Snowflake `COMMENT = '<string>'` clause; `None` when absent.
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for CreateRole {
@@ -473,6 +475,9 @@ impl fmt::Display for CreateRole {
         }
         if let Some(owner) = &self.authorization_owner {
             write!(f, " AUTHORIZATION {owner}")?;
+        }
+        if let Some(comment) = &self.comment {
+            write!(f, " COMMENT = '{comment}'")?;
         }
         if !self.with_tags.is_empty() {
             write!(
