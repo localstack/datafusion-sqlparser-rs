@@ -10180,12 +10180,18 @@ impl fmt::Display for Action {
 pub enum ActionCreateObjectType {
     /// An account-level object.
     Account,
+    /// An agent object.
+    Agent,
+    /// An alert object.
+    Alert,
     /// An application object.
     Application,
     /// An application package object.
     ApplicationPackage,
     /// A compute pool object.
     ComputePool,
+    /// An MCP server object.
+    McpServer,
     /// A data exchange listing.
     DataExchangeListing,
     /// A class object identified by a qualified name, e.g.
@@ -10219,6 +10225,10 @@ pub enum ActionCreateObjectType {
     Share,
     /// A table object.
     Table,
+    /// A task object.
+    Task,
+    /// A view object.
+    View,
     /// A user object.
     User,
     /// A warehouse object.
@@ -10229,9 +10239,12 @@ impl fmt::Display for ActionCreateObjectType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ActionCreateObjectType::Account => write!(f, "ACCOUNT"),
+            ActionCreateObjectType::Agent => write!(f, "AGENT"),
+            ActionCreateObjectType::Alert => write!(f, "ALERT"),
             ActionCreateObjectType::Application => write!(f, "APPLICATION"),
             ActionCreateObjectType::ApplicationPackage => write!(f, "APPLICATION PACKAGE"),
             ActionCreateObjectType::ComputePool => write!(f, "COMPUTE POOL"),
+            ActionCreateObjectType::McpServer => write!(f, "MCP SERVER"),
             ActionCreateObjectType::DataExchangeListing => write!(f, "DATA EXCHANGE LISTING"),
             ActionCreateObjectType::Class(name) => write!(f, "{name}"),
             ActionCreateObjectType::Database => write!(f, "DATABASE"),
@@ -10248,6 +10261,8 @@ impl fmt::Display for ActionCreateObjectType {
             ActionCreateObjectType::Schema => write!(f, "SCHEMA"),
             ActionCreateObjectType::Share => write!(f, "SHARE"),
             ActionCreateObjectType::Table => write!(f, "TABLE"),
+            ActionCreateObjectType::Task => write!(f, "TASK"),
+            ActionCreateObjectType::View => write!(f, "VIEW"),
             ActionCreateObjectType::User => write!(f, "USER"),
             ActionCreateObjectType::Warehouse => write!(f, "WAREHOUSE"),
         }
