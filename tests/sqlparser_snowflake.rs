@@ -5157,6 +5157,35 @@ fn test_create_database_role() {
 }
 
 #[test]
+fn test_create_role_with_comment() {
+    // Account-role CREATE with the Snowflake `COMMENT = '<string>'` clause.
+    match snowflake().verified_stmt("CREATE ROLE r1 COMMENT = 'hello'") {
+        Statement::CreateRole(create_role) => {
+            assert_eq!(create_role.comment.as_deref(), Some("hello"));
+            assert!(!create_role.if_not_exists);
+        }
+        stmt => panic!("Unexpected statement: {stmt:?}"),
+    }
+
+    match snowflake().verified_stmt("CREATE ROLE IF NOT EXISTS r1 COMMENT = 'hello'") {
+        Statement::CreateRole(create_role) => {
+            assert_eq!(create_role.comment.as_deref(), Some("hello"));
+            assert!(create_role.if_not_exists);
+        }
+        stmt => panic!("Unexpected statement: {stmt:?}"),
+    }
+
+    // COMMENT and WITH TAG coexist and render in a stable order.
+    snowflake().verified_stmt("CREATE ROLE r1 COMMENT = 'hello' WITH TAG (env='prod')");
+
+    // Absent clause leaves `comment` unset.
+    match snowflake().verified_stmt("CREATE ROLE r1") {
+        Statement::CreateRole(create_role) => assert_eq!(create_role.comment, None),
+        stmt => panic!("Unexpected statement: {stmt:?}"),
+    }
+}
+
+#[test]
 fn test_alter_session() {
     assert_eq!(
         snowflake()

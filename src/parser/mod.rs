@@ -7395,17 +7395,28 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let names = self.parse_comma_separated(|p| p.parse_object_name(false))?;
 
-        // Snowflake: trailing `WITH TAG ( <t> = '<v>' [, ...] )`. It is
-        // trailing-only, so no other role option may follow. `WITH TAG` is
-        // consumed atomically here; a bare `WITH` (or `WITH <other>`) is left
-        // for the generic option loop below.
+        // Snowflake: trailing `COMMENT = '<string>'` and `WITH TAG ( <t> = '<v>'
+        // [, ...] )`. Both are trailing-only and may appear in either order, so
+        // no other role option may follow. `WITH TAG` is consumed atomically
+        // here; a bare `WITH` (or `WITH <other>`) is left for the generic option
+        // loop below.
         let mut with_tags = Vec::new();
-        if dialect_of!(self is SnowflakeDialect)
-            && self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
-        {
-            self.expect_token(&Token::LParen)?;
-            with_tags = self.parse_comma_separated(Parser::parse_tag)?;
-            self.expect_token(&Token::RParen)?;
+        let mut comment = None;
+        if dialect_of!(self is SnowflakeDialect) {
+            loop {
+                if comment.is_none() && self.parse_keyword(Keyword::COMMENT) {
+                    self.expect_token(&Token::Eq)?;
+                    comment = Some(self.parse_literal_string()?);
+                } else if with_tags.is_empty()
+                    && self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                {
+                    self.expect_token(&Token::LParen)?;
+                    with_tags = self.parse_comma_separated(Parser::parse_tag)?;
+                    self.expect_token(&Token::RParen)?;
+                } else {
+                    break;
+                }
+            }
         }
 
         let _ = self.parse_keyword(Keyword::WITH); // [ WITH ]
@@ -7627,6 +7638,7 @@ impl<'a> Parser<'a> {
             admin,
             authorization_owner,
             with_tags,
+            comment,
         })
     }
 
