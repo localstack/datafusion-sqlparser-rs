@@ -20416,6 +20416,7 @@ impl<'a> Parser<'a> {
         ("AGENTS", &["AGENTS"], "CORTEX_AGENT"),
         ("MCP SERVERS", &["MCP", "SERVERS"], "CORTEX_AGENT_SERVER"),
         ("SEMANTIC VIEWS", &["SEMANTIC", "VIEWS"], "SEMANTIC_VIEW"),
+        ("TASKS", &["TASKS"], "TASK"),
     ];
 
     /// `ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]` for the
@@ -20646,6 +20647,8 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::ApplicationPackage)
         } else if self.parse_keywords(&[Keyword::COMPUTE, Keyword::POOL]) {
             Some(ActionCreateObjectType::ComputePool)
+        } else if self.parse_keywords(&[Keyword::MCP, Keyword::SERVER]) {
+            Some(ActionCreateObjectType::McpServer)
         } else if self.parse_keywords(&[Keyword::DATA, Keyword::EXCHANGE, Keyword::LISTING]) {
             Some(ActionCreateObjectType::DataExchangeListing)
         } else if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
@@ -20664,6 +20667,10 @@ impl<'a> Parser<'a> {
         // Single-word object types
         else if self.parse_keyword(Keyword::ACCOUNT) {
             Some(ActionCreateObjectType::Account)
+        } else if self.parse_keyword(Keyword::AGENT) {
+            Some(ActionCreateObjectType::Agent)
+        } else if self.parse_keyword(Keyword::ALERT) {
+            Some(ActionCreateObjectType::Alert)
         } else if self.parse_keyword(Keyword::APPLICATION) {
             Some(ActionCreateObjectType::Application)
         } else if self.parse_keyword(Keyword::DATABASE) {
@@ -20682,6 +20689,10 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::Share)
         } else if self.parse_keyword(Keyword::TABLE) {
             Some(ActionCreateObjectType::Table)
+        } else if self.parse_keyword(Keyword::TASK) {
+            Some(ActionCreateObjectType::Task)
+        } else if self.parse_keyword(Keyword::VIEW) {
+            Some(ActionCreateObjectType::View)
         } else if self.parse_keyword(Keyword::USER) {
             Some(ActionCreateObjectType::User)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
