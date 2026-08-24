@@ -10238,6 +10238,10 @@ pub enum ActionCreateObjectType {
     ExternalVolume,
     /// A failover group object.
     FailoverGroup,
+    /// A function object.
+    Function,
+    /// A procedure object.
+    Procedure,
     /// An integration object.
     Integration,
     /// A network policy object.
@@ -10273,6 +10277,8 @@ impl fmt::Display for ActionCreateObjectType {
             ActionCreateObjectType::DatabaseRole => write!(f, "DATABASE ROLE"),
             ActionCreateObjectType::ExternalVolume => write!(f, "EXTERNAL VOLUME"),
             ActionCreateObjectType::FailoverGroup => write!(f, "FAILOVER GROUP"),
+            ActionCreateObjectType::Function => write!(f, "FUNCTION"),
+            ActionCreateObjectType::Procedure => write!(f, "PROCEDURE"),
             ActionCreateObjectType::Integration => write!(f, "INTEGRATION"),
             ActionCreateObjectType::NetworkPolicy => write!(f, "NETWORK POLICY"),
             ActionCreateObjectType::OrganiationListing => write!(f, "ORGANIZATION LISTING"),
