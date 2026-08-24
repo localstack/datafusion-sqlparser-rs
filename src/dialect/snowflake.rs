@@ -34,6 +34,7 @@ use crate::ast::{
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
     ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
+    ExternalAccessAllowedList,
     Expr, ExternalTablePartitionColumn, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
     GeneratedAs, Ident, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
     IdentityPropertyKind, IdentityPropertyOrder, InitializeKind, Insert,
@@ -358,6 +359,16 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_security_integration(parser));
         }
 
+        if parser.parse_keywords(&[
+            Keyword::ALTER,
+            Keyword::EXTERNAL,
+            Keyword::ACCESS,
+            Keyword::INTEGRATION,
+        ]) {
+            // ALTER EXTERNAL ACCESS INTEGRATION
+            return Some(parse_alter_external_access_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
             // ALTER PROCEDURE
             return Some(parse_alter_procedure(parser));
@@ -515,6 +526,16 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_security_integration(parser));
         }
 
+        if parser.parse_keywords(&[
+            Keyword::DROP,
+            Keyword::EXTERNAL,
+            Keyword::ACCESS,
+            Keyword::INTEGRATION,
+        ]) {
+            // DROP EXTERNAL ACCESS INTEGRATION
+            return Some(parse_drop_external_access_integration(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FILE, Keyword::FORMAT]) {
             // DROP FILE FORMAT
             return Some(parse_drop_file_format(parser));
@@ -569,6 +590,14 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
                 // DESC[RIBE] SECURITY INTEGRATION
                 return Some(parse_describe_security_integration(parser));
+            }
+            if parser.parse_keywords(&[
+                Keyword::EXTERNAL,
+                Keyword::ACCESS,
+                Keyword::INTEGRATION,
+            ]) {
+                // DESC[RIBE] EXTERNAL ACCESS INTEGRATION
+                return Some(parse_describe_external_access_integration(parser));
             }
             if parser.parse_keyword(Keyword::INTEGRATION) {
                 // DESC[RIBE] INTEGRATION (family-agnostic)
@@ -635,6 +664,15 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] SECURITY INTEGRATION
             if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
                 return Some(parse_create_security_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION
+            if parser.parse_keywords(&[
+                Keyword::EXTERNAL,
+                Keyword::ACCESS,
+                Keyword::INTEGRATION,
+            ]) {
+                return Some(parse_create_external_access_integration(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] ROW ACCESS POLICY
@@ -784,6 +822,13 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_security_integrations(parser));
+            }
+            if parser.parse_keywords(&[
+                Keyword::EXTERNAL,
+                Keyword::ACCESS,
+                Keyword::INTEGRATIONS,
+            ]) {
+                return Some(parse_show_external_access_integrations(parser));
             }
             if parser.parse_keyword(Keyword::INTEGRATIONS) {
                 // SHOW INTEGRATIONS (family-agnostic)
@@ -4770,6 +4815,152 @@ fn parse_describe_security_integration(parser: &mut Parser) -> Result<Statement,
 fn parse_show_security_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowSecurityIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION [IF NOT EXISTS]
+/// <name> <params>`.
+///
+/// Unlike the sibling integration families, the properties here are
+/// list-valued with bare-keyword alternatives (`NONE` / `ALL`), so they are
+/// parsed explicitly rather than through the generic key-value option reader.
+fn parse_create_external_access_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut allowed_network_rules = None;
+    let mut allowed_api_authentication_integrations = None;
+    let mut allowed_authentication_secrets = None;
+    let mut enabled = None;
+    let mut comment = None;
+
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        let key = match parser.peek_token().token {
+            Token::Word(w) => w.value.to_uppercase(),
+            _ => break,
+        };
+        match key.as_str() {
+            "ALLOWED_NETWORK_RULES" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                allowed_network_rules = Some(parse_object_name_paren_list(parser)?);
+            }
+            "ALLOWED_API_AUTHENTICATION_INTEGRATIONS" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                allowed_api_authentication_integrations =
+                    Some(parse_external_access_allowed_list(parser, false)?);
+            }
+            "ALLOWED_AUTHENTICATION_SECRETS" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                allowed_authentication_secrets =
+                    Some(parse_external_access_allowed_list(parser, true)?);
+            }
+            "ENABLED" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                enabled = Some(parse_bool_literal(parser)?);
+            }
+            "COMMENT" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_literal_string()?);
+            }
+            _ => break,
+        }
+    }
+
+    Ok(Statement::CreateExternalAccessIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        allowed_network_rules,
+        allowed_api_authentication_integrations,
+        allowed_authentication_secrets,
+        enabled,
+        comment,
+    })
+}
+
+/// Parse a parenthesised, comma-separated list of object names: `( a, b, c )`.
+fn parse_object_name_paren_list(parser: &mut Parser) -> Result<Vec<ObjectName>, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    let mut names = Vec::new();
+    if !parser.consume_token(&Token::RParen) {
+        loop {
+            names.push(parser.parse_object_name(false)?);
+            if !parser.consume_token(&Token::Comma) {
+                break;
+            }
+        }
+        parser.expect_token(&Token::RParen)?;
+    }
+    Ok(names)
+}
+
+/// Parse the value of an `ALLOWED_API_AUTHENTICATION_INTEGRATIONS` /
+/// `ALLOWED_AUTHENTICATION_SECRETS` clause: the bare `NONE` keyword, the bare
+/// `ALL` keyword (only when `allow_all`), or a parenthesised name list.
+fn parse_external_access_allowed_list(
+    parser: &mut Parser,
+    allow_all: bool,
+) -> Result<ExternalAccessAllowedList, ParserError> {
+    if parser.parse_keyword(Keyword::NONE) {
+        return Ok(ExternalAccessAllowedList::None);
+    }
+    if allow_all && parser.parse_keyword(Keyword::ALL) {
+        return Ok(ExternalAccessAllowedList::All);
+    }
+    Ok(ExternalAccessAllowedList::List(
+        parse_object_name_paren_list(parser)?,
+    ))
+}
+
+/// Parse `ALTER EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name> SET ENABLED =
+/// { TRUE | FALSE }`. Only the `SET ENABLED` form is modelled.
+fn parse_alter_external_access_integration(
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword(Keyword::SET)?;
+    parser.expect_keyword(Keyword::ENABLED)?;
+    parser.expect_token(&Token::Eq)?;
+    let enabled = parse_bool_literal(parser)?;
+    Ok(Statement::AlterExternalAccessIntegration {
+        name,
+        if_exists,
+        enabled,
+    })
+}
+
+/// Parse `DROP EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_external_access_integration(
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropExternalAccessIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] EXTERNAL ACCESS INTEGRATION <name>`.
+fn parse_describe_external_access_integration(
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeExternalAccessIntegration { name })
+}
+
+/// Parse `SHOW EXTERNAL ACCESS INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_external_access_integrations(
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowExternalAccessIntegrations { filter })
 }
 
 /// Parse `DESC[RIBE] INTEGRATION <name>` (family-agnostic).

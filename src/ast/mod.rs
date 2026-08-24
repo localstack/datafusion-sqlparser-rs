@@ -3848,6 +3848,34 @@ impl fmt::Display for Analyze {
     }
 }
 
+/// The value of an `ALLOWED_API_AUTHENTICATION_INTEGRATIONS` /
+/// `ALLOWED_AUTHENTICATION_SECRETS` clause of `CREATE EXTERNAL ACCESS
+/// INTEGRATION`: an explicit list of names, or one of the bare keyword forms
+/// (`NONE`, `ALL`). `ALL` is only accepted for `ALLOWED_AUTHENTICATION_SECRETS`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ExternalAccessAllowedList {
+    /// The bare `NONE` keyword.
+    None,
+    /// The bare `ALL` keyword.
+    All,
+    /// A parenthesised list of object names.
+    List(Vec<ObjectName>),
+}
+
+impl fmt::Display for ExternalAccessAllowedList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ExternalAccessAllowedList::None => write!(f, "none"),
+            ExternalAccessAllowedList::All => write!(f, "all"),
+            ExternalAccessAllowedList::List(names) => {
+                write!(f, "({})", display_comma_separated(names))
+            }
+        }
+    }
+}
+
 /// A top-level statement (SELECT, INSERT, CREATE, etc.)
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -5913,6 +5941,62 @@ pub enum Statement {
     /// SHOW SECURITY INTEGRATIONS [LIKE '<pattern>']
     /// ```
     ShowSecurityIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
+    /// CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-external-access-integration>
+    CreateExternalAccessIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// External access integration name.
+        name: ObjectName,
+        /// `ALLOWED_NETWORK_RULES = (<rule> [, ...])`, if given.
+        allowed_network_rules: Option<Vec<ObjectName>>,
+        /// `ALLOWED_API_AUTHENTICATION_INTEGRATIONS = (<i> [, ...]) | NONE`.
+        allowed_api_authentication_integrations: Option<ExternalAccessAllowedList>,
+        /// `ALLOWED_AUTHENTICATION_SECRETS = (<s> [, ...]) | ALL | NONE`.
+        allowed_authentication_secrets: Option<ExternalAccessAllowedList>,
+        /// `ENABLED = { TRUE | FALSE }`, if given.
+        enabled: Option<bool>,
+        /// `COMMENT = '<string>'`, if given.
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name> SET ENABLED = { TRUE | FALSE }
+    /// ```
+    AlterExternalAccessIntegration {
+        /// External access integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET ENABLED` value.
+        enabled: bool,
+    },
+    /// ```sql
+    /// DROP EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropExternalAccessIntegration {
+        /// External access integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] EXTERNAL ACCESS INTEGRATION <name>
+    /// ```
+    DescribeExternalAccessIntegration {
+        /// External access integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW EXTERNAL ACCESS INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowExternalAccessIntegrations {
         /// Optional filter (e.g. `LIKE`).
         filter: Option<ShowStatementFilter>,
     },
@@ -8814,6 +8898,72 @@ impl fmt::Display for Statement {
             }
             Statement::ShowSecurityIntegrations { filter } => {
                 write!(f, "SHOW SECURITY INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateExternalAccessIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                allowed_network_rules,
+                allowed_api_authentication_integrations,
+                allowed_authentication_secrets,
+                enabled,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}EXTERNAL ACCESS INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(rules) = allowed_network_rules {
+                    write!(
+                        f,
+                        " ALLOWED_NETWORK_RULES = ({})",
+                        display_comma_separated(rules)
+                    )?;
+                }
+                if let Some(list) = allowed_api_authentication_integrations {
+                    write!(f, " ALLOWED_API_AUTHENTICATION_INTEGRATIONS = {list}")?;
+                }
+                if let Some(list) = allowed_authentication_secrets {
+                    write!(f, " ALLOWED_AUTHENTICATION_SECRETS = {list}")?;
+                }
+                if let Some(enabled) = enabled {
+                    write!(f, " ENABLED = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
+            Statement::AlterExternalAccessIntegration {
+                name,
+                if_exists,
+                enabled,
+            } => {
+                write!(
+                    f,
+                    "ALTER EXTERNAL ACCESS INTEGRATION {if_exists}{name} SET ENABLED = {enabled}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                    enabled = if *enabled { "TRUE" } else { "FALSE" },
+                )
+            }
+            Statement::DropExternalAccessIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP EXTERNAL ACCESS INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeExternalAccessIntegration { name } => {
+                write!(f, "DESCRIBE EXTERNAL ACCESS INTEGRATION {name}")
+            }
+            Statement::ShowExternalAccessIntegrations { filter } => {
+                write!(f, "SHOW EXTERNAL ACCESS INTEGRATIONS")?;
                 if let Some(ref filter) = filter {
                     write!(f, " {filter}")?;
                 }
