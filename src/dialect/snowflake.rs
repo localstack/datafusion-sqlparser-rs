@@ -4920,21 +4920,96 @@ fn parse_external_access_allowed_list(
     ))
 }
 
-/// Parse `ALTER EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name> SET ENABLED =
-/// { TRUE | FALSE }`. Only the `SET ENABLED` form is modelled.
+/// Parse `ALTER EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name>
+/// { SET <props> | UNSET <props> }`.
+///
+/// The settable list-valued properties carry the same bare-keyword (`NONE` /
+/// `ALL`) alternatives as `CREATE`, so `SET` is parsed explicitly rather than
+/// through the generic key-value reader. An unrecognised `SET` property is
+/// captured by name (with its value discarded) so the UDF can reproduce real
+/// Snowflake's `invalid property` reject. `UNSET` takes a comma-separated list
+/// of property names.
 fn parse_alter_external_access_integration(
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+
+    let mut allowed_network_rules = None;
+    let mut allowed_api_authentication_integrations = None;
+    let mut allowed_authentication_secrets = None;
+    let mut enabled = None;
+    let mut comment = None;
+    let mut set_invalid = Vec::new();
+
+    if parser.parse_keyword(Keyword::UNSET) {
+        let unset_options = parser.parse_comma_separated(Parser::parse_identifier)?;
+        return Ok(Statement::AlterExternalAccessIntegration {
+            name,
+            if_exists,
+            allowed_network_rules,
+            allowed_api_authentication_integrations,
+            allowed_authentication_secrets,
+            enabled,
+            comment,
+            set_invalid,
+            unset_options,
+        });
+    }
+
     parser.expect_keyword(Keyword::SET)?;
-    parser.expect_keyword(Keyword::ENABLED)?;
-    parser.expect_token(&Token::Eq)?;
-    let enabled = parse_bool_literal(parser)?;
+    loop {
+        let _ = parser.consume_token(&Token::Comma);
+        let word = match parser.peek_token().token {
+            Token::Word(w) => w,
+            _ => break,
+        };
+        match word.value.to_uppercase().as_str() {
+            "ALLOWED_NETWORK_RULES" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                allowed_network_rules = Some(parse_object_name_paren_list(parser)?);
+            }
+            "ALLOWED_API_AUTHENTICATION_INTEGRATIONS" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                allowed_api_authentication_integrations =
+                    Some(parse_external_access_allowed_list(parser, false)?);
+            }
+            "ALLOWED_AUTHENTICATION_SECRETS" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                allowed_authentication_secrets =
+                    Some(parse_external_access_allowed_list(parser, true)?);
+            }
+            "ENABLED" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                enabled = Some(parse_bool_literal(parser)?);
+            }
+            "COMMENT" => {
+                parser.next_token();
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_literal_string()?);
+            }
+            _ => {
+                set_invalid.push(Ident::new(word.value.clone()));
+                parser.next_token();
+                let _ = parser.parse_key_value_option(&word, false)?;
+            }
+        }
+    }
+
     Ok(Statement::AlterExternalAccessIntegration {
         name,
         if_exists,
+        allowed_network_rules,
+        allowed_api_authentication_integrations,
+        allowed_authentication_secrets,
         enabled,
+        comment,
+        set_invalid,
+        unset_options: vec![],
     })
 }
 

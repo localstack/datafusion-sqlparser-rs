@@ -5967,15 +5967,28 @@ pub enum Statement {
         comment: Option<String>,
     },
     /// ```sql
-    /// ALTER EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name> SET ENABLED = { TRUE | FALSE }
+    /// ALTER EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
     /// ```
     AlterExternalAccessIntegration {
         /// External access integration name.
         name: ObjectName,
         /// `IF EXISTS` flag.
         if_exists: bool,
-        /// The `SET ENABLED` value.
-        enabled: bool,
+        /// `SET ALLOWED_NETWORK_RULES = (<rule> [, ...])`, if given.
+        allowed_network_rules: Option<Vec<ObjectName>>,
+        /// `SET ALLOWED_API_AUTHENTICATION_INTEGRATIONS = (<i> [, ...]) | NONE`.
+        allowed_api_authentication_integrations: Option<ExternalAccessAllowedList>,
+        /// `SET ALLOWED_AUTHENTICATION_SECRETS = (<s> [, ...]) | ALL | NONE`.
+        allowed_authentication_secrets: Option<ExternalAccessAllowedList>,
+        /// `SET ENABLED = { TRUE | FALSE }`, if given.
+        enabled: Option<bool>,
+        /// `SET COMMENT = '<string>'`, if given.
+        comment: Option<String>,
+        /// `SET` property names not recognised for this object (routed to the UDF
+        /// so it reproduces real Snowflake's `invalid property` reject verbatim).
+        set_invalid: Vec<Ident>,
+        /// The property names given in an `UNSET` clause.
+        unset_options: Vec<Ident>,
     },
     /// ```sql
     /// DROP EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name>
@@ -8943,14 +8956,47 @@ impl fmt::Display for Statement {
             Statement::AlterExternalAccessIntegration {
                 name,
                 if_exists,
+                allowed_network_rules,
+                allowed_api_authentication_integrations,
+                allowed_authentication_secrets,
                 enabled,
+                comment,
+                set_invalid,
+                unset_options,
             } => {
                 write!(
                     f,
-                    "ALTER EXTERNAL ACCESS INTEGRATION {if_exists}{name} SET ENABLED = {enabled}",
+                    "ALTER EXTERNAL ACCESS INTEGRATION {if_exists}{name}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
-                    enabled = if *enabled { "TRUE" } else { "FALSE" },
-                )
+                )?;
+                if !unset_options.is_empty() {
+                    write!(f, " UNSET {}", display_comma_separated(unset_options))?;
+                    return Ok(());
+                }
+                write!(f, " SET")?;
+                if let Some(rules) = allowed_network_rules {
+                    write!(
+                        f,
+                        " ALLOWED_NETWORK_RULES = ({})",
+                        display_comma_separated(rules)
+                    )?;
+                }
+                if let Some(list) = allowed_api_authentication_integrations {
+                    write!(f, " ALLOWED_API_AUTHENTICATION_INTEGRATIONS = {list}")?;
+                }
+                if let Some(list) = allowed_authentication_secrets {
+                    write!(f, " ALLOWED_AUTHENTICATION_SECRETS = {list}")?;
+                }
+                if let Some(enabled) = enabled {
+                    write!(f, " ENABLED = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                for prop in set_invalid {
+                    write!(f, " {prop} = <invalid>")?;
+                }
+                Ok(())
             }
             Statement::DropExternalAccessIntegration { name, if_exists } => {
                 write!(
