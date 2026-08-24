@@ -103,6 +103,8 @@ pub struct CreateDatabaseBuilder {
     pub with_tags: Option<Vec<Tag>>,
     /// Optional contact entries associated with the database.
     pub with_contacts: Option<Vec<ContactEntry>>,
+    /// Optional `FROM SHARE <share>` source.
+    pub from_share: Option<ObjectName>,
 }
 
 impl CreateDatabaseBuilder {
@@ -135,6 +137,7 @@ impl CreateDatabaseBuilder {
             catalog_sync_namespace_flatten_delimiter: None,
             with_tags: None,
             with_contacts: None,
+            from_share: None,
         }
     }
 
@@ -276,6 +279,12 @@ impl CreateDatabaseBuilder {
         self
     }
 
+    /// Set the `FROM SHARE` source for the database.
+    pub fn from_share(mut self, from_share: Option<ObjectName>) -> Self {
+        self.from_share = from_share;
+        self
+    }
+
     /// Build the `CREATE DATABASE` statement.
     pub fn build(self) -> Statement {
         Statement::CreateDatabase {
@@ -301,6 +310,7 @@ impl CreateDatabaseBuilder {
             catalog_sync_namespace_flatten_delimiter: self.catalog_sync_namespace_flatten_delimiter,
             with_tags: self.with_tags,
             with_contacts: self.with_contacts,
+            from_share: self.from_share,
         }
     }
 }
@@ -333,6 +343,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 catalog_sync_namespace_flatten_delimiter,
                 with_tags,
                 with_contacts,
+                from_share,
             } => Ok(Self {
                 db_name,
                 if_not_exists,
@@ -356,6 +367,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 catalog_sync_namespace_flatten_delimiter,
                 with_tags,
                 with_contacts,
+                from_share,
             }),
             _ => Err(ParserError::ParserError(format!(
                 "Expected create database statement, but received: {stmt}"
