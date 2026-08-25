@@ -14789,6 +14789,11 @@ pub enum AlterAccountOperation {
         /// catalogue because the executor doesn't read them.
         params: Vec<AccountOption>,
     },
+    /// `UNSET <param> [, ...]`
+    Unset {
+        /// Parameter names to remove from the account-level override bag.
+        params: Vec<Ident>,
+    },
     /// `RENAME TO <new_name>`
     RenameTo {
         /// New account name.
@@ -14808,6 +14813,10 @@ impl fmt::Display for AlterAccountOperation {
                     write!(f, "{p}")?;
                 }
                 Ok(())
+            }
+            AlterAccountOperation::Unset { params } => {
+                write!(f, "UNSET ")?;
+                display_comma_separated(params).fmt(f)
             }
             AlterAccountOperation::RenameTo { new_name } => {
                 write!(f, "RENAME TO {new_name}")
