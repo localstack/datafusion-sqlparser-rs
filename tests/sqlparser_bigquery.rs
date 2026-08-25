@@ -2353,6 +2353,7 @@ fn test_bigquery_create_function() {
     assert_eq!(
         stmt,
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: true,
             temporary: true,

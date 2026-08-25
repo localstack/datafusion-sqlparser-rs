@@ -242,6 +242,7 @@ fn parse_create_function() {
     assert_eq!(
         ms().verified_stmt(return_expression_function),
         sqlparser::ast::Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: false,
             temporary: false,
@@ -429,6 +430,7 @@ fn parse_create_function_parameter_default_values() {
     assert_eq!(
         ms().verified_stmt(single_default_sql),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: false,
             temporary: false,
