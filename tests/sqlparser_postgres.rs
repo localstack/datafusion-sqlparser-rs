@@ -5495,6 +5495,7 @@ $$"#;
     assert_eq!(
         pg_and_generic().verified_stmt(sql1),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: true,
             temporary: false,
@@ -5548,6 +5549,7 @@ $$"#;
     assert_eq!(
         pg_and_generic().verified_stmt(sql2),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: true,
             temporary: false,
@@ -5597,6 +5599,7 @@ $$"#;
     assert_eq!(
         pg_and_generic().verified_stmt(sql3),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: true,
             temporary: false,
@@ -5650,6 +5653,7 @@ $$"#;
     assert_eq!(
         pg_and_generic().verified_stmt(sql4),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: true,
             temporary: false,
@@ -5699,6 +5703,7 @@ $$"#;
     assert_eq!(
         pg_and_generic().verified_stmt(sql5),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: true,
             temporary: false,
@@ -5754,6 +5759,7 @@ fn parse_create_function() {
     assert_eq!(
         pg_and_generic().verified_stmt(sql),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: false,
             temporary: false,
@@ -5899,6 +5905,7 @@ fn parse_create_function_c_with_module_pathname() {
     assert_eq!(
         pg_and_generic().verified_stmt(sql),
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: false,
             temporary: false,
@@ -7785,6 +7792,7 @@ fn parse_trigger_related_functions() {
     assert_eq!(
         create_function,
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace: false,
             temporary: false,
