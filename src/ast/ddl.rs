@@ -4107,6 +4107,8 @@ impl fmt::Display for FunctionReturnType {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// CREATE FUNCTION statement
 pub struct CreateFunction {
+    /// True for Snowflake `CREATE DATA METRIC FUNCTION`.
+    pub data_metric: bool,
     /// True if this is a `CREATE OR ALTER FUNCTION` statement
     ///
     /// [MsSql](https://learn.microsoft.com/en-us/sql/t-sql/statements/create-function-transact-sql?view=sql-server-ver16#or-alter)
@@ -4189,10 +4191,11 @@ impl fmt::Display for CreateFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "CREATE {or_alter}{or_replace}{temp}{secure}FUNCTION {if_not_exists}{name}",
+            "CREATE {or_alter}{or_replace}{temp}{secure}{data_metric}FUNCTION {if_not_exists}{name}",
             name = self.name,
             temp = if self.temporary { "TEMPORARY " } else { "" },
             secure = if self.secure { "SECURE " } else { "" },
+            data_metric = if self.data_metric { "DATA METRIC " } else { "" },
             or_alter = if self.or_alter { "OR ALTER " } else { "" },
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             if_not_exists = if self.if_not_exists {

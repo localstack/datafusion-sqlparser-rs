@@ -400,6 +400,7 @@ fn parse_create_function() {
     let sql = "CREATE TEMPORARY FUNCTION mydb.myfunc AS 'org.random.class.Name' USING JAR 'hdfs://somewhere.com:8020/very/far'";
     match hive().verified_stmt(sql) {
         Statement::CreateFunction(CreateFunction {
+            data_metric: false,
             temporary,
             name,
             function_body,

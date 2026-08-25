@@ -5551,9 +5551,11 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::EXTERNAL) {
             self.parse_create_external_table(or_replace).map(Into::into)
         } else if self.parse_keywords(&[Keyword::SECURE, Keyword::FUNCTION]) {
-            self.parse_create_function(or_alter, or_replace, temporary, true)
+            self.parse_create_function(or_alter, or_replace, temporary, true, false)
+        } else if self.parse_keywords(&[Keyword::DATA, Keyword::METRIC, Keyword::FUNCTION]) {
+            self.parse_create_function(or_alter, or_replace, temporary, false, true)
         } else if self.parse_keyword(Keyword::FUNCTION) {
-            self.parse_create_function(or_alter, or_replace, temporary, false)
+            self.parse_create_function(or_alter, or_replace, temporary, false, false)
         } else if self.parse_keyword(Keyword::DOMAIN) {
             self.parse_create_domain().map(Into::into)
         } else if self.parse_keyword(Keyword::TRIGGER) {
@@ -6252,12 +6254,13 @@ impl<'a> Parser<'a> {
         or_replace: bool,
         temporary: bool,
         secure: bool,
+        data_metric: bool,
     ) -> Result<Statement, ParserError> {
         if dialect_of!(self is HiveDialect) {
             self.parse_hive_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is PostgreSqlDialect | GenericDialect | SnowflakeDialect) {
-            self.parse_postgres_create_function(or_replace, temporary, secure)
+            self.parse_postgres_create_function(or_replace, temporary, secure, data_metric)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
             self.parse_create_macro(or_replace, temporary)
@@ -6281,6 +6284,7 @@ impl<'a> Parser<'a> {
         or_replace: bool,
         temporary: bool,
         secure: bool,
+        data_metric: bool,
     ) -> Result<CreateFunction, ParserError> {
         let name = self.parse_object_name(false)?;
 
@@ -6422,6 +6426,7 @@ impl<'a> Parser<'a> {
         }
 
         Ok(CreateFunction {
+            data_metric,
             or_alter: false,
             or_replace,
             temporary,
@@ -6463,6 +6468,7 @@ impl<'a> Parser<'a> {
                     | "PACKAGES"
                     | "EXTERNAL_ACCESS_INTEGRATIONS"
                     | "SECRETS"
+                    | "COMMENT"
             ))
     }
 
@@ -6498,6 +6504,7 @@ impl<'a> Parser<'a> {
         let using = self.parse_optional_create_function_using()?;
 
         Ok(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace,
             temporary,
@@ -6579,6 +6586,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(CreateFunction {
+            data_metric: false,
             or_alter: false,
             or_replace,
             temporary,
@@ -6671,6 +6679,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(CreateFunction {
+            data_metric: false,
             or_alter,
             or_replace,
             temporary,
@@ -14138,8 +14147,24 @@ impl<'a> Parser<'a> {
         // Snowflake accepts an empty column list — `RETURNS TABLE()` — meaning the
         // result columns are determined at run time. Bare `RETURNS TABLE` without
         // parentheses remains a syntax error (handled by the caller).
-        let columns =
-            self.parse_comma_separated0(Parser::parse_returns_table_column, Token::RParen)?;
+        let type_only = matches!(
+            self.peek_nth_token_ref(1).token,
+            Token::Comma | Token::RParen
+        );
+        let columns = if type_only {
+            self.parse_comma_separated0(
+                |parser| {
+                    Ok(ColumnDef {
+                        name: Ident::new(""),
+                        data_type: parser.parse_data_type()?,
+                        options: vec![],
+                    })
+                },
+                Token::RParen,
+            )?
+        } else {
+            self.parse_comma_separated0(Parser::parse_returns_table_column, Token::RParen)?
+        };
         self.expect_token(&Token::RParen)?;
         Ok(columns)
     }
