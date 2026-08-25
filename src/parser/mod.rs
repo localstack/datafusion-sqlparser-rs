@@ -12163,11 +12163,11 @@ impl<'a> Parser<'a> {
 
     fn parse_alter_account(&mut self) -> Result<Statement, ParserError> {
         // The name is optional — bare `ALTER ACCOUNT SET ...` targets the
-        // current account. SET and RENAME are the only operations, so their
+        // current account. SET, UNSET, and RENAME are the only operations, so their
         // presence indicates no name was provided.
         let starts_with_op = matches!(
             self.peek_token().token,
-            Token::Word(ref w) if matches!(w.keyword, Keyword::SET | Keyword::RENAME)
+            Token::Word(ref w) if matches!(w.keyword, Keyword::SET | Keyword::UNSET | Keyword::RENAME)
         );
         let name = if starts_with_op {
             None
@@ -12186,8 +12186,15 @@ impl<'a> Parser<'a> {
                 Ok::<AccountOption, ParserError>(AccountOption { name, value })
             })?;
             AlterAccountOperation::Set { params }
+        } else if self.parse_keyword(Keyword::UNSET) {
+            AlterAccountOperation::Unset {
+                params: self.parse_comma_separated(Parser::parse_identifier)?,
+            }
         } else {
-            return self.expected("SET or RENAME TO after ALTER ACCOUNT", self.peek_token());
+            return self.expected(
+                "SET, UNSET, or RENAME TO after ALTER ACCOUNT",
+                self.peek_token(),
+            );
         };
 
         Ok(Statement::AlterAccount { name, operation })
