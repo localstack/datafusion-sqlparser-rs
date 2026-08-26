@@ -750,6 +750,7 @@ define_keywords!(
     NOSUPERUSER,
     NOT,
     NOTHING,
+    NOTIFICATION,
     NOTIFY,
     NOTNULL,
     NOVALIDATE,

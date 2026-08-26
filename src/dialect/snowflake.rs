@@ -361,6 +361,15 @@ impl Dialect for SnowflakeDialect {
 
         if parser.parse_keywords(&[
             Keyword::ALTER,
+            Keyword::NOTIFICATION,
+            Keyword::INTEGRATION,
+        ]) {
+            // ALTER NOTIFICATION INTEGRATION
+            return Some(parse_alter_notification_integration(parser));
+        }
+
+        if parser.parse_keywords(&[
+            Keyword::ALTER,
             Keyword::EXTERNAL,
             Keyword::ACCESS,
             Keyword::INTEGRATION,
@@ -528,6 +537,15 @@ impl Dialect for SnowflakeDialect {
 
         if parser.parse_keywords(&[
             Keyword::DROP,
+            Keyword::NOTIFICATION,
+            Keyword::INTEGRATION,
+        ]) {
+            // DROP NOTIFICATION INTEGRATION
+            return Some(parse_drop_notification_integration(parser));
+        }
+
+        if parser.parse_keywords(&[
+            Keyword::DROP,
             Keyword::EXTERNAL,
             Keyword::ACCESS,
             Keyword::INTEGRATION,
@@ -590,6 +608,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
                 // DESC[RIBE] SECURITY INTEGRATION
                 return Some(parse_describe_security_integration(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NOTIFICATION, Keyword::INTEGRATION]) {
+                // DESC[RIBE] NOTIFICATION INTEGRATION
+                return Some(parse_describe_notification_integration(parser));
             }
             if parser.parse_keywords(&[
                 Keyword::EXTERNAL,
@@ -664,6 +686,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] SECURITY INTEGRATION
             if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATION]) {
                 return Some(parse_create_security_integration(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] NOTIFICATION INTEGRATION
+            if parser.parse_keywords(&[Keyword::NOTIFICATION, Keyword::INTEGRATION]) {
+                return Some(parse_create_notification_integration(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION
@@ -822,6 +849,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::SECURITY, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_security_integrations(parser));
+            }
+            if parser.parse_keywords(&[Keyword::NOTIFICATION, Keyword::INTEGRATIONS]) {
+                return Some(parse_show_notification_integrations(parser));
             }
             if parser.parse_keywords(&[
                 Keyword::EXTERNAL,
@@ -4815,6 +4845,77 @@ fn parse_describe_security_integration(parser: &mut Parser) -> Result<Statement,
 fn parse_show_security_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowSecurityIntegrations { filter })
+}
+
+/// Parse `CREATE [OR REPLACE] NOTIFICATION INTEGRATION [IF NOT EXISTS] <name>
+/// <params>`.
+///
+/// Params (`TYPE`, `ENABLED`, and the per-type property set) are captured
+/// generically as key-value options, so the parser stays agnostic to the
+/// type-specific property set.
+fn parse_create_notification_integration(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let params = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateNotificationIntegration {
+        or_replace,
+        if_not_exists,
+        name,
+        params,
+    })
+}
+
+/// Parse `ALTER NOTIFICATION INTEGRATION [IF EXISTS] <name> { SET <params> |
+/// UNSET <props> }`.
+fn parse_alter_notification_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let empty_options = KeyValueOptions {
+        options: vec![],
+        delimiter: KeyValueOptionsDelimiter::Space,
+    };
+    let (set_options, unset_options) =
+        match parser.parse_one_of_keywords(&[Keyword::SET, Keyword::UNSET]) {
+            Some(Keyword::SET) => (parser.parse_key_value_options(false, &[], false)?, vec![]),
+            Some(Keyword::UNSET) => (
+                empty_options,
+                parser.parse_comma_separated(Parser::parse_identifier)?,
+            ),
+            _ => {
+                return parser.expected(
+                    "SET or UNSET after ALTER NOTIFICATION INTEGRATION <name>",
+                    parser.peek_token(),
+                )
+            }
+        };
+    Ok(Statement::AlterNotificationIntegration {
+        name,
+        if_exists,
+        set_options,
+        unset_options,
+    })
+}
+
+/// Parse `DROP NOTIFICATION INTEGRATION [IF EXISTS] <name>`.
+fn parse_drop_notification_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropNotificationIntegration { name, if_exists })
+}
+
+/// Parse `DESC[RIBE] NOTIFICATION INTEGRATION <name>`.
+fn parse_describe_notification_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeNotificationIntegration { name })
+}
+
+/// Parse `SHOW NOTIFICATION INTEGRATIONS [LIKE '<pattern>']`.
+fn parse_show_notification_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let filter = parser.parse_show_statement_filter()?;
+    Ok(Statement::ShowNotificationIntegrations { filter })
 }
 
 /// Parse `CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION [IF NOT EXISTS]

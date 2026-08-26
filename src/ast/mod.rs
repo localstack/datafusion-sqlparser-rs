@@ -5961,6 +5961,56 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] NOTIFICATION INTEGRATION [IF NOT EXISTS] <name> ...
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-notification-integration>
+    CreateNotificationIntegration {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Notification integration name.
+        name: ObjectName,
+        /// Configuration parameters (`TYPE`, `ENABLED`, provider keys, …).
+        params: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER NOTIFICATION INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
+    /// ```
+    AlterNotificationIntegration {
+        /// Notification integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The `SET` options; empty for the `UNSET` form.
+        set_options: KeyValueOptions,
+        /// The property names of the `UNSET` form; empty for the `SET` form.
+        unset_options: Vec<Ident>,
+    },
+    /// ```sql
+    /// DROP NOTIFICATION INTEGRATION [IF EXISTS] <name>
+    /// ```
+    DropNotificationIntegration {
+        /// Notification integration name.
+        name: ObjectName,
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+    },
+    /// ```sql
+    /// DESC[RIBE] NOTIFICATION INTEGRATION <name>
+    /// ```
+    DescribeNotificationIntegration {
+        /// Notification integration name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW NOTIFICATION INTEGRATIONS [LIKE '<pattern>']
+    /// ```
+    ShowNotificationIntegrations {
+        /// Optional filter (e.g. `LIKE`).
+        filter: Option<ShowStatementFilter>,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION [IF NOT EXISTS] <name> ...
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-external-access-integration>
@@ -8936,6 +8986,61 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeSecurityIntegration { name } => {
                 write!(f, "DESCRIBE SECURITY INTEGRATION {name}")
+            }
+            Statement::CreateNotificationIntegration {
+                or_replace,
+                if_not_exists,
+                name,
+                params,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}NOTIFICATION INTEGRATION {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !params.options.is_empty() {
+                    write!(f, " {params}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterNotificationIntegration {
+                name,
+                if_exists,
+                set_options,
+                unset_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER NOTIFICATION INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )?;
+                if unset_options.is_empty() {
+                    write!(f, " SET")?;
+                    if !set_options.options.is_empty() {
+                        write!(f, " {set_options}")?;
+                    }
+                } else {
+                    write!(f, " UNSET {}", display_comma_separated(unset_options))?;
+                }
+                Ok(())
+            }
+            Statement::DropNotificationIntegration { name, if_exists } => {
+                write!(
+                    f,
+                    "DROP NOTIFICATION INTEGRATION {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeNotificationIntegration { name } => {
+                write!(f, "DESCRIBE NOTIFICATION INTEGRATION {name}")
+            }
+            Statement::ShowNotificationIntegrations { filter } => {
+                write!(f, "SHOW NOTIFICATION INTEGRATIONS")?;
+                if let Some(ref filter) = filter {
+                    write!(f, " {filter}")?;
+                }
+                Ok(())
             }
             Statement::ShowSecurityIntegrations { filter } => {
                 write!(f, "SHOW SECURITY INTEGRATIONS")?;
