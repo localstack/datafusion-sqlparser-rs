@@ -21204,6 +21204,10 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::Stages(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
+            } else if self.parse_keyword(Keyword::ALERT) {
+                Some(GrantObjects::Alerts(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else {
                 let object_type = if self.peek_grant_object_type() {
                     self.parse_one_of_keywords(&[
@@ -21260,6 +21264,7 @@ impl<'a> Parser<'a> {
         ("MCP SERVERS", &["MCP", "SERVERS"], "CORTEX_AGENT_SERVER"),
         ("SEMANTIC VIEWS", &["SEMANTIC", "VIEWS"], "SEMANTIC_VIEW"),
         ("TASKS", &["TASKS"], "TASK"),
+        ("ALERTS", &["ALERTS"], "ALERT"),
     ];
 
     /// `ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]` for the
