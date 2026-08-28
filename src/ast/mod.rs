@@ -5354,6 +5354,14 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
+    /// EXECUTE ALERT <name>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-alert>
+    ExecuteAlert {
+        /// Alert name.
+        name: ObjectName,
+    },
+    /// ```sql
     /// SHOW [TERSE] TASKS [LIKE '<pattern>'] [IN { DATABASE <db> | SCHEMA <schema> }]
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/show-tasks>
@@ -8447,6 +8455,9 @@ impl fmt::Display for Statement {
             }
             Statement::ExecuteTask { name } => {
                 write!(f, "EXECUTE TASK {name}")
+            }
+            Statement::ExecuteAlert { name } => {
+                write!(f, "EXECUTE ALERT {name}")
             }
             Statement::ShowTasks {
                 terse,
