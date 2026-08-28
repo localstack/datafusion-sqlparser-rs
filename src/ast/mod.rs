@@ -11021,6 +11021,9 @@ pub enum GrantObjects {
 
     /// `GRANT … ON TAG <name>[, …]`. `granted_on` is `TAG`.
     Tags(Vec<ObjectName>),
+
+    /// `GRANT … ON ALERT <name>[, …]`. `granted_on` is `ALERT`.
+    Alerts(Vec<ObjectName>),
 }
 
 impl fmt::Display for GrantObjects {
@@ -11275,6 +11278,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::Tags(objects) => {
                 write!(f, "TAG {}", display_comma_separated(objects))
+            }
+            GrantObjects::Alerts(objects) => {
+                write!(f, "ALERT {}", display_comma_separated(objects))
             }
         }
     }
