@@ -557,6 +557,7 @@ impl Spanned for Statement {
             Statement::CreateAlert { .. } => Span::empty(),
             Statement::ShowAlerts { .. } => Span::empty(),
             Statement::CreateTask { .. } => Span::empty(),
+            Statement::AlterAlert { .. } => Span::empty(),
             Statement::AlterTask { .. } => Span::empty(),
             Statement::AlterStream { .. } => Span::empty(),
             Statement::CreatePipe { .. } => Span::empty(),
