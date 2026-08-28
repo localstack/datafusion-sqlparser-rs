@@ -560,6 +560,7 @@ impl Spanned for Statement {
             Statement::ShowPipes { .. } => Span::empty(),
             Statement::AlterSequence { .. } => Span::empty(),
             Statement::ExecuteTask { .. } => Span::empty(),
+            Statement::ExecuteAlert { .. } => Span::empty(),
             Statement::ShowTasks { .. } => Span::empty(),
             Statement::ShowStreams { .. } => Span::empty(),
             Statement::CreateExternalVolume { .. } => Span::empty(),

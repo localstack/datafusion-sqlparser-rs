@@ -21306,6 +21306,13 @@ impl<'a> Parser<'a> {
             return Ok(Statement::ExecuteTask { name });
         }
 
+        // Snowflake `EXECUTE ALERT <name>` — same early-dispatch reasoning as
+        // `EXECUTE TASK` so the bare-identifier path can't consume `ALERT`.
+        if self.parse_keyword(Keyword::ALERT) {
+            let name = self.parse_object_name(false)?;
+            return Ok(Statement::ExecuteAlert { name });
+        }
+
         let immediate =
             self.dialect.supports_execute_immediate() && self.parse_keyword(Keyword::IMMEDIATE);
 
