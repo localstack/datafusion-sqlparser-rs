@@ -5576,6 +5576,8 @@ impl<'a> Parser<'a> {
             self.parse_create_account()
         } else if self.parse_keyword(Keyword::TASK) {
             self.parse_create_task(or_replace)
+        } else if self.parse_keyword(Keyword::ALERT) {
+            self.parse_create_alert(or_replace)
         } else if self.parse_keyword(Keyword::PROCEDURE) {
             self.parse_create_procedure(or_alter, or_replace)
         } else if self.parse_keyword(Keyword::SCHEMA) {
@@ -5864,6 +5866,63 @@ impl<'a> Parser<'a> {
                 );
             }
         }
+    }
+
+    /// Parse a Snowflake `CREATE [OR REPLACE] ALERT [IF NOT EXISTS] <name>
+    /// [WAREHOUSE = <wh>] [SCHEDULE = '<sched>'] [COMMENT = '<c>']
+    /// [SUSPEND_ALERT_AFTER_NUM_FAILURES = <n>] IF (EXISTS (<condition>)) THEN
+    /// <action>` statement.
+    fn parse_create_alert(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        let mut warehouse: Option<Ident> = None;
+        let mut schedule: Option<String> = None;
+        let mut comment: Option<String> = None;
+        let mut suspend_after_num_failures: Option<u64> = None;
+
+        loop {
+            if self.parse_keyword(Keyword::WAREHOUSE) {
+                self.expect_token(&Token::Eq)?;
+                warehouse = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::SCHEDULE) {
+                self.expect_token(&Token::Eq)?;
+                schedule = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                comment = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::SUSPEND_ALERT_AFTER_NUM_FAILURES) {
+                self.expect_token(&Token::Eq)?;
+                suspend_after_num_failures = Some(self.parse_literal_uint()?);
+            } else {
+                break;
+            }
+        }
+
+        // `IF (EXISTS (<condition>)) THEN <action>`. Both the condition and the
+        // action parse as full statements so `SELECT` / `SHOW` / `CALL`
+        // conditions are all accepted; the verbatim inner text is recovered from
+        // the raw SQL at rewrite time.
+        self.expect_keyword_is(Keyword::IF)?;
+        self.expect_token(&Token::LParen)?;
+        self.expect_keyword_is(Keyword::EXISTS)?;
+        self.expect_token(&Token::LParen)?;
+        let condition = Box::new(self.parse_statement()?);
+        self.expect_token(&Token::RParen)?;
+        self.expect_token(&Token::RParen)?;
+        self.expect_keyword_is(Keyword::THEN)?;
+        let action = Box::new(self.parse_statement()?);
+
+        Ok(Statement::CreateAlert {
+            or_replace,
+            if_not_exists,
+            name,
+            warehouse,
+            schedule,
+            comment,
+            suspend_after_num_failures,
+            condition,
+            action,
+        })
     }
 
     /// See [DuckDB Docs](https://duckdb.org/docs/sql/statements/create_secret.html) for more details.
@@ -8181,6 +8240,8 @@ impl<'a> Parser<'a> {
             ObjectType::Task
         } else if self.parse_keyword(Keyword::PIPE) {
             ObjectType::Pipe
+        } else if self.parse_keyword(Keyword::ALERT) {
+            ObjectType::Alert
         } else if self.parse_keyword(Keyword::FUNCTION) {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
@@ -8264,9 +8325,11 @@ impl<'a> Parser<'a> {
             ObjectType::Schema
         } else if self.parse_keyword(Keyword::DATABASE) {
             ObjectType::Database
+        } else if self.parse_keyword(Keyword::ALERT) {
+            ObjectType::Alert
         } else {
             return self.expected_ref(
-                "DATABASE, DYNAMIC TABLE, SCHEMA, TABLE or VIEW after UNDROP",
+                "ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, TABLE or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };
@@ -15470,6 +15533,7 @@ impl<'a> Parser<'a> {
                         Keyword::STREAM,
                         Keyword::SEQUENCE,
                         Keyword::PIPE,
+                        Keyword::ALERT,
                         Keyword::USER,
                     ]) {
                         let object_type = match kw {
@@ -15482,6 +15546,7 @@ impl<'a> Parser<'a> {
                             Keyword::STREAM => DescribeObjectType::Stream,
                             Keyword::SEQUENCE => DescribeObjectType::Sequence,
                             Keyword::PIPE => DescribeObjectType::Pipe,
+                            Keyword::ALERT => DescribeObjectType::Alert,
                             Keyword::USER => DescribeObjectType::User,
                             _ => return self.expected("a describe object type", self.peek_token()),
                         };
@@ -17006,6 +17071,8 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
         } else if self.parse_keyword(Keyword::TASKS) {
             Ok(self.parse_show_tasks(terse)?)
+        } else if self.parse_keyword(Keyword::ALERTS) {
+            Ok(self.parse_show_alerts(terse)?)
         } else if self.parse_keyword(Keyword::STREAMS) {
             Ok(self.parse_show_streams(terse)?)
         } else if self.parse_keyword(Keyword::PIPES) {
@@ -17199,6 +17266,14 @@ impl<'a> Parser<'a> {
     fn parse_show_streams(&mut self, terse: bool) -> Result<Statement, ParserError> {
         let show_options = self.parse_show_stmt_options()?;
         Ok(Statement::ShowStreams {
+            terse,
+            show_options,
+        })
+    }
+
+    fn parse_show_alerts(&mut self, terse: bool) -> Result<Statement, ParserError> {
+        let show_options = self.parse_show_stmt_options()?;
+        Ok(Statement::ShowAlerts {
             terse,
             show_options,
         })

@@ -549,6 +549,8 @@ impl Spanned for Statement {
             Statement::AlterAccount { .. } => Span::empty(),
             Statement::DropAccount { .. } => Span::empty(),
             Statement::ShowAccounts { .. } => Span::empty(),
+            Statement::CreateAlert { .. } => Span::empty(),
+            Statement::ShowAlerts { .. } => Span::empty(),
             Statement::CreateTask { .. } => Span::empty(),
             Statement::AlterTask { .. } => Span::empty(),
             Statement::AlterStream { .. } => Span::empty(),

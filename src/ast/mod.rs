@@ -5181,6 +5181,47 @@ pub enum Statement {
         sql_body: Box<Statement>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] ALERT [IF NOT EXISTS] <name>
+    ///   [WAREHOUSE = <warehouse>]
+    ///   [SCHEDULE = '<schedule>']
+    ///   [COMMENT = '<comment>']
+    ///   [SUSPEND_ALERT_AFTER_NUM_FAILURES = <num>]
+    ///   IF (EXISTS (<condition>))
+    ///   THEN <action>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-alert>
+    CreateAlert {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Alert name.
+        name: ObjectName,
+        /// Optional `WAREHOUSE = <ident>` clause (serverless when absent).
+        warehouse: Option<Ident>,
+        /// Optional `SCHEDULE = '<string>'` clause (raw inner string).
+        schedule: Option<String>,
+        /// Optional `COMMENT = '<string>'` clause.
+        comment: Option<String>,
+        /// Optional `SUSPEND_ALERT_AFTER_NUM_FAILURES = <num>` clause.
+        suspend_after_num_failures: Option<u64>,
+        /// The condition statement inside `IF (EXISTS ( … ))`.
+        condition: Box<Statement>,
+        /// The action statement after `THEN`.
+        action: Box<Statement>,
+    },
+    /// ```sql
+    /// SHOW [TERSE] ALERTS [LIKE '<pattern>']
+    ///   [IN { ACCOUNT | DATABASE [<db>] | SCHEMA [<schema>] }] [LIMIT <n>]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-alerts>
+    ShowAlerts {
+        /// `true` when terse output format was requested.
+        terse: bool,
+        /// Additional options for `SHOW` statements.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND }
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-task>
@@ -8168,6 +8209,48 @@ impl fmt::Display for Statement {
                 if let Some(like) = like {
                     write!(f, " LIKE '{}'", value::escape_single_quote_string(like))?;
                 }
+                Ok(())
+            }
+            Statement::CreateAlert {
+                or_replace,
+                if_not_exists,
+                name,
+                warehouse,
+                schedule,
+                comment,
+                suspend_after_num_failures,
+                condition,
+                action,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}ALERT {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(wh) = warehouse {
+                    write!(f, " WAREHOUSE = {wh}")?;
+                }
+                if let Some(s) = schedule {
+                    write!(f, " SCHEDULE = '{s}'")?;
+                }
+                if let Some(n) = suspend_after_num_failures {
+                    write!(f, " SUSPEND_ALERT_AFTER_NUM_FAILURES = {n}")?;
+                }
+                if let Some(c) = comment {
+                    write!(f, " COMMENT = '{c}'")?;
+                }
+                write!(f, " IF (EXISTS ({condition})) THEN {action}")
+            }
+            Statement::ShowAlerts {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}ALERTS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )?;
                 Ok(())
             }
             Statement::CreateTask {
@@ -11730,6 +11813,9 @@ pub enum ObjectType {
     /// A pipe (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-pipe>
     Pipe,
+    /// An alert (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/drop-alert>
+    Alert,
 }
 
 impl fmt::Display for ObjectType {
@@ -11754,6 +11840,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Warehouse => "WAREHOUSE",
             ObjectType::Task => "TASK",
             ObjectType::Pipe => "PIPE",
+            ObjectType::Alert => "ALERT",
         })
     }
 }
@@ -11960,6 +12047,9 @@ pub enum DescribeObjectType {
     Sequence,
     /// `PIPE`
     Pipe,
+    /// `ALERT` (Snowflake)
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-alert>
+    Alert,
     /// `USER` (Snowflake)
     /// <https://docs.snowflake.com/en/sql-reference/sql/desc-user>
     User,
@@ -11980,6 +12070,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Stream => "STREAM",
             DescribeObjectType::Sequence => "SEQUENCE",
             DescribeObjectType::Pipe => "PIPE",
+            DescribeObjectType::Alert => "ALERT",
             DescribeObjectType::User => "USER",
         })
     }
