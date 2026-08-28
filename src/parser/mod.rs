@@ -1230,6 +1230,9 @@ impl<'a> Parser<'a> {
         let token = self.next_token();
 
         let (object_type, object_name) = match token.token {
+            Token::Word(w) if w.keyword == Keyword::ALERT => {
+                (CommentObject::Alert, self.parse_object_name(false)?)
+            }
             Token::Word(w) if w.keyword == Keyword::COLLATION => {
                 (CommentObject::Collation, self.parse_object_name(false)?)
             }

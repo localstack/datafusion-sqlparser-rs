@@ -2574,6 +2574,8 @@ impl fmt::Display for ShowKeysKind {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// Objects that can be targeted by a `COMMENT` statement.
 pub enum CommentObject {
+    /// An alert.
+    Alert,
     /// A collation.
     Collation,
     /// A table column.
@@ -2611,6 +2613,7 @@ pub enum CommentObject {
 impl fmt::Display for CommentObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            CommentObject::Alert => f.write_str("ALERT"),
             CommentObject::Collation => f.write_str("COLLATION"),
             CommentObject::Column => f.write_str("COLUMN"),
             CommentObject::Database => f.write_str("DATABASE"),
@@ -5209,6 +5212,20 @@ pub enum Statement {
         condition: Box<Statement>,
         /// The action statement after `THEN`.
         action: Box<Statement>,
+    },
+    /// ```sql
+    /// ALTER ALERT [IF EXISTS] <name>
+    ///   { RESUME | SUSPEND | SET ... | UNSET ...
+    ///   | MODIFY CONDITION EXISTS (<query>) | MODIFY ACTION <statement> }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-alert>
+    AlterAlert {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Alert name.
+        name: ObjectName,
+        /// The alter operation.
+        operation: AlterAlertOperation,
     },
     /// ```sql
     /// SHOW [TERSE] ALERTS [LIKE '<pattern>']
@@ -8307,6 +8324,17 @@ impl fmt::Display for Statement {
                     write!(f, " IF EXISTS")?;
                 }
                 write!(f, " {name} {action}")
+            }
+            Statement::AlterAlert {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(f, "ALTER ALERT")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {name} {operation}")
             }
             Statement::ExecuteTask { name } => {
                 write!(f, "EXECUTE TASK {name}")
@@ -14770,6 +14798,44 @@ impl fmt::Display for AlterTaskAction {
         match self {
             AlterTaskAction::Resume => write!(f, "RESUME"),
             AlterTaskAction::Suspend => write!(f, "SUSPEND"),
+        }
+    }
+}
+
+/// Operation for [`Statement::AlterAlert`].
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/alter-alert>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterAlertOperation {
+    /// `RESUME`
+    Resume,
+    /// `SUSPEND`
+    Suspend,
+    /// `SET <option> = <value> [ ... ]`
+    Set(KeyValueOptions),
+    /// `UNSET <option> [, ...]`
+    Unset(Vec<Ident>),
+    /// `MODIFY CONDITION EXISTS (<query>)` — the inner query statement.
+    ModifyCondition(Box<Statement>),
+    /// `MODIFY ACTION <statement>`
+    ModifyAction(Box<Statement>),
+}
+
+impl fmt::Display for AlterAlertOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterAlertOperation::Resume => write!(f, "RESUME"),
+            AlterAlertOperation::Suspend => write!(f, "SUSPEND"),
+            AlterAlertOperation::Set(options) => write!(f, "SET {options}"),
+            AlterAlertOperation::Unset(keys) => {
+                write!(f, "UNSET {}", display_comma_separated(keys))
+            }
+            AlterAlertOperation::ModifyCondition(query) => {
+                write!(f, "MODIFY CONDITION EXISTS ({query})")
+            }
+            AlterAlertOperation::ModifyAction(stmt) => write!(f, "MODIFY ACTION {stmt}"),
         }
     }
 }

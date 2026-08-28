@@ -27,6 +27,7 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
+    AlterAlertOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
     AlterDatabaseRoleOperation, AlterNetworkRuleOperation, AlterRoleOperation,
     AlterSnowflakeSecretOperation,
@@ -468,6 +469,22 @@ impl Dialect for SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STAGE]) {
             // ALTER STAGE
             return Some(parse_alter_stage(parser));
+        }
+
+        // ALTER ALERT [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form so it rides the shared object-tag machinery; every other
+        // ALTER ALERT form fails the closure and falls through to
+        // parse_alter_alert below.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::ALERT])?;
+            parse_alter_object_set_tags(p, ObjectType::Alert)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::ALERT]) {
+            // ALTER ALERT (RESUME / SUSPEND / SET / UNSET / MODIFY)
+            return Some(parse_alter_alert(parser));
         }
 
         if parser.parse_keywords(&[
@@ -3853,6 +3870,49 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
         AlterTagOperation::RenameTo { new_name }
     };
     Ok(Statement::AlterTag {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `ALTER ALERT [IF EXISTS] <name> <operation>` (the non-tag forms;
+/// `SET TAG` / `UNSET TAG` are intercepted earlier and routed to the shared
+/// object-tag machinery). Operations: `RESUME`, `SUSPEND`, `SET <options>`,
+/// `UNSET <keys>`, `MODIFY CONDITION EXISTS (<query>)`, `MODIFY ACTION <stmt>`.
+fn parse_alter_alert(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::RESUME) {
+        AlterAlertOperation::Resume
+    } else if parser.parse_keyword(Keyword::SUSPEND) {
+        AlterAlertOperation::Suspend
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterAlertOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterAlertOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+    } else if parser.parse_keyword(Keyword::MODIFY) {
+        if parser.parse_keyword(Keyword::CONDITION) {
+            // `MODIFY CONDITION EXISTS (<query>)` — the `EXISTS ( … )` wrapper is
+            // surface syntax; the inner query is what gets stored (recovered
+            // verbatim from the raw SQL at rewrite time).
+            parser.expect_keyword_is(Keyword::EXISTS)?;
+            parser.expect_token(&Token::LParen)?;
+            let query = Box::new(parser.parse_statement()?);
+            parser.expect_token(&Token::RParen)?;
+            AlterAlertOperation::ModifyCondition(query)
+        } else if parser.parse_keyword(Keyword::ACTION) {
+            AlterAlertOperation::ModifyAction(Box::new(parser.parse_statement()?))
+        } else {
+            return parser.expected("CONDITION or ACTION after MODIFY", parser.peek_token());
+        }
+    } else {
+        return parser.expected(
+            "RESUME, SUSPEND, SET, UNSET, or MODIFY after ALTER ALERT",
+            parser.peek_token(),
+        );
+    };
+    Ok(Statement::AlterAlert {
         if_exists,
         name,
         operation,
