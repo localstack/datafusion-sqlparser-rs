@@ -75,6 +75,7 @@ pub use self::ddl::{
     AlterProcedure, AlterProcedureOperation,
     AlterMaskingPolicyOperation,
     AlterTagOperation,
+    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, AlterView, AlterViewOperation,
     ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
     ColumnPolicyProperty, ConstraintCharacteristics, CreateAggregate, CreateAggregateArgs,
