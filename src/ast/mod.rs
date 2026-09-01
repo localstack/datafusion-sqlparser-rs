@@ -83,6 +83,7 @@ pub use self::ddl::{
     CreateTrigger, CreateView, Deduplicate, DeferrableInitial, DistStyle, DropBehavior,
     DropExtension, DropFunction, DropOperator, DropOperatorClass, DropOperatorFamily,
     DropOperatorSignature, DropPolicy, DropTrigger, ForValues, ForeignDataWrapperRoutineClause,
+    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     FunctionReturnType, GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
     IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder, IndexColumn,
     IndexOption, IndexType, KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes,
