@@ -286,6 +286,7 @@ fn parse_create_function() {
             determinism_specifier: None,
             options: None,
             remote_connection: None,
+            external_params: None,
         }),
     );
 
@@ -463,6 +464,7 @@ fn parse_create_function_parameter_default_values() {
             determinism_specifier: None,
             options: None,
             remote_connection: None,
+            external_params: None,
         }),
     );
 }
