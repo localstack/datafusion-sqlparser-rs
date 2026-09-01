@@ -10122,3 +10122,103 @@ fn parse_sf_alter_security_integration_unset_requires_a_property() {
         "sql parser error: Expected: identifier, found: EOF"
     );
 }
+
+#[test]
+fn parse_sf_create_external_function_clauses() {
+    for sql in [
+        "CREATE EXTERNAL FUNCTION f(x INT) RETURNS INT API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE OR REPLACE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE SECURE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT NOT NULL API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT CALLED ON NULL INPUT API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT RETURNS NULL ON NULL INPUT API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT STRICT API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT VOLATILE API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT IMMUTABLE API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT COMMENT = 'remote function' API_INTEGRATION = api AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api HEADERS = ('x-a' = 'one', 'x-b' = 'two') AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api CONTEXT_HEADERS = (CURRENT_USER, CURRENT_ROLE) AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api MAX_BATCH_ROWS = 100 AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api REQUEST_TRANSLATOR = db.s.req AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api RESPONSE_TRANSLATOR = db.s.res AS 'https://example.com/f'",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+
+    for compression in ["NONE", "GZIP", "DEFLATE", "AUTO"] {
+        snowflake().verified_stmt(&format!(
+            "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api COMPRESSION = {compression} AS 'https://example.com/f'"
+        ));
+    }
+}
+
+#[test]
+fn parse_sf_create_external_function_all_clauses() {
+    let sql = "CREATE OR REPLACE SECURE EXTERNAL FUNCTION db.s.f(x INT, y VARCHAR) RETURNS INT NOT NULL \
+               CALLED ON NULL INPUT IMMUTABLE COMMENT = 'remote function' API_INTEGRATION = db.s.api \
+               HEADERS = ('x-a' = 'one', 'x-b' = 'two') CONTEXT_HEADERS = (CURRENT_USER, CURRENT_ROLE) \
+               MAX_BATCH_ROWS = 100 COMPRESSION = GZIP REQUEST_TRANSLATOR = db.s.req \
+               RESPONSE_TRANSLATOR = db.s.res AS 'https://example.com/f'";
+
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateFunction(function) => {
+            assert!(function.or_replace);
+            assert!(function.secure);
+            assert_eq!(2, function.args.unwrap().len());
+            assert_eq!(Some(FunctionBehavior::Immutable), function.behavior);
+            assert_eq!(
+                Some(FunctionCalledOnNull::CalledOnNullInput),
+                function.called_on_null
+            );
+            let external = function.external_params.unwrap();
+            assert!(external.return_not_null);
+            assert_eq!("db.s.api", external.api_integration.to_string());
+            assert_eq!(2, external.headers.unwrap().len());
+            assert_eq!(2, external.context_headers.unwrap().len());
+            assert_eq!(Some(100), external.max_batch_rows);
+            assert_eq!(Some(ExternalFunctionCompression::Gzip), external.compression);
+            assert_eq!(
+                Some("db.s.req".to_string()),
+                external.request_translator.map(|name| name.to_string())
+            );
+            assert_eq!(
+                Some("db.s.res".to_string()),
+                external.response_translator.map(|name| name.to_string())
+            );
+        }
+        statement => panic!("expected CreateFunction, got {statement:?}"),
+    }
+}
+
+#[test]
+fn parse_sf_create_external_function_requires_api_integration_and_url() {
+    assert_eq!(
+        "sql parser error: Expected: API_INTEGRATION, found: AS",
+        snowflake()
+            .parse_sql_statements(
+                "CREATE EXTERNAL FUNCTION f() RETURNS INT AS 'https://example.com/f'"
+            )
+            .unwrap_err()
+            .to_string()
+    );
+    assert_eq!(
+        "sql parser error: Expected: AS, found: EOF",
+        snowflake()
+            .parse_sql_statements(
+                "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api"
+            )
+            .unwrap_err()
+            .to_string()
+    );
+}
+
+#[test]
+fn parse_sf_create_external_function_does_not_claim_other_external_ddl() {
+    snowflake().verified_stmt(
+        "CREATE EXTERNAL TABLE et (id INT AS (VALUE:id::INT)) LOCATION=@stage/ \
+         FILE_FORMAT=(TYPE=JSON) AUTO_REFRESH=FALSE",
+    );
+    snowflake().verified_stmt(
+        "CREATE EXTERNAL ACCESS INTEGRATION eai ALLOWED_NETWORK_RULES = (network_rule)",
+    );
+}

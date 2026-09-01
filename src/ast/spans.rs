@@ -18,8 +18,9 @@
 use crate::{
     ast::{
         ddl::AlterSchema, query::SelectItemQualifiedWildcardKind, AlterSchemaOperation, AlterTable,
-        ColumnOptions, CreateOperator, CreateOperatorClass, CreateOperatorFamily, CreateView,
-        ExportData, Owner, TypedString,
+        ColumnOptions, CreateFunction, CreateFunctionBody, CreateOperator, CreateOperatorClass,
+        CreateOperatorFamily, CreateView, ExportData, ExternalFunctionHeader,
+        ExternalFunctionParams, Owner, TypedString,
     },
     tokenizer::TokenWithSpan,
 };
@@ -469,7 +470,7 @@ impl Spanned for Statement {
             Statement::Rollback { .. } => Span::empty(),
             Statement::CreateSchema { .. } => Span::empty(),
             Statement::CreateDatabase { .. } => Span::empty(),
-            Statement::CreateFunction { .. } => Span::empty(),
+            Statement::CreateFunction(create_function) => create_function.span(),
             Statement::CreateDomain { .. } => Span::empty(),
             Statement::CreateTrigger { .. } => Span::empty(),
             Statement::DropTrigger { .. } => Span::empty(),
@@ -1230,6 +1231,81 @@ impl Spanned for SqlOption {
             }) => union_spans(core::iter::once(name.span).chain(values.iter().map(|i| i.span)))
                 .union_opt(&value.as_ref().map(|i| i.span)),
         }
+    }
+}
+
+impl Spanned for ExternalFunctionHeader {
+    fn span(&self) -> Span {
+        self.name.span().union(&self.value.span())
+    }
+}
+
+impl Spanned for ExternalFunctionParams {
+    fn span(&self) -> Span {
+        union_spans(
+            iter::once(self.api_integration.span())
+                .chain(
+                    self.headers
+                        .iter()
+                        .flatten()
+                        .map(Spanned::span),
+                )
+                .chain(
+                    self.context_headers
+                        .iter()
+                        .flatten()
+                        .map(|header| header.span),
+                )
+                .chain(
+                    self.request_translator
+                        .iter()
+                        .map(|translator| translator.span()),
+                )
+                .chain(
+                    self.response_translator
+                        .iter()
+                        .map(|translator| translator.span()),
+                ),
+        )
+    }
+}
+
+impl Spanned for CreateFunctionBody {
+    fn span(&self) -> Span {
+        match self {
+            CreateFunctionBody::AsBeforeOptions { body, link_symbol } => {
+                body.span().union_opt(&link_symbol.as_ref().map(Spanned::span))
+            }
+            CreateFunctionBody::AsAfterOptions(body)
+            | CreateFunctionBody::Return(body)
+            | CreateFunctionBody::AsReturnExpr(body) => body.span(),
+            CreateFunctionBody::AsBeginEnd(body) => body.span(),
+            CreateFunctionBody::AsReturnSelect(body) => body.span(),
+        }
+    }
+}
+
+impl Spanned for CreateFunction {
+    fn span(&self) -> Span {
+        union_spans(
+            iter::once(self.name.span())
+                .chain(
+                    self.args
+                        .iter()
+                        .flatten()
+                        .flat_map(|argument| {
+                            [
+                                argument.name.as_ref().map(|name| name.span),
+                                argument.default_expr.as_ref().map(Spanned::span),
+                            ]
+                            .into_iter()
+                            .flatten()
+                        }),
+                )
+                .chain(self.options.iter().flatten().map(Spanned::span))
+                .chain(self.function_body.iter().map(Spanned::span))
+                .chain(self.external_params.iter().map(Spanned::span)),
+        )
     }
 }
 

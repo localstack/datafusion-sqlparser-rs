@@ -4102,6 +4102,101 @@ impl fmt::Display for FunctionReturnType {
     }
 }
 
+/// A `HEADERS` entry in a Snowflake external function definition.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ExternalFunctionHeader {
+    /// Header-name string literal.
+    pub name: ValueWithSpan,
+    /// Header-value string literal.
+    pub value: ValueWithSpan,
+}
+
+impl fmt::Display for ExternalFunctionHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", self.name, self.value)
+    }
+}
+
+/// Compression mode for a Snowflake external function request.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ExternalFunctionCompression {
+    /// No compression.
+    None,
+    /// Gzip compression.
+    Gzip,
+    /// Deflate compression.
+    Deflate,
+    /// Compression selected automatically.
+    Auto,
+}
+
+impl fmt::Display for ExternalFunctionCompression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "NONE"),
+            Self::Gzip => write!(f, "GZIP"),
+            Self::Deflate => write!(f, "DEFLATE"),
+            Self::Auto => write!(f, "AUTO"),
+        }
+    }
+}
+
+/// Snowflake-specific parameters for `CREATE EXTERNAL FUNCTION`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ExternalFunctionParams {
+    /// Whether the return type has a `NOT NULL` annotation.
+    pub return_not_null: bool,
+    /// API integration used to invoke the remote endpoint.
+    pub api_integration: ObjectName,
+    /// Custom HTTP headers.
+    pub headers: Option<Vec<ExternalFunctionHeader>>,
+    /// Context function names forwarded as headers.
+    pub context_headers: Option<Vec<Ident>>,
+    /// Maximum rows per request batch.
+    pub max_batch_rows: Option<u64>,
+    /// Request compression mode.
+    pub compression: Option<ExternalFunctionCompression>,
+    /// Optional request translator function.
+    pub request_translator: Option<ObjectName>,
+    /// Optional response translator function.
+    pub response_translator: Option<ObjectName>,
+}
+
+impl fmt::Display for ExternalFunctionParams {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "API_INTEGRATION = {}", self.api_integration)?;
+        if let Some(headers) = &self.headers {
+            write!(f, " HEADERS = ({})", display_comma_separated(headers))?;
+        }
+        if let Some(context_headers) = &self.context_headers {
+            write!(
+                f,
+                " CONTEXT_HEADERS = ({})",
+                display_comma_separated(context_headers)
+            )?;
+        }
+        if let Some(max_batch_rows) = self.max_batch_rows {
+            write!(f, " MAX_BATCH_ROWS = {max_batch_rows}")?;
+        }
+        if let Some(compression) = &self.compression {
+            write!(f, " COMPRESSION = {compression}")?;
+        }
+        if let Some(request_translator) = &self.request_translator {
+            write!(f, " REQUEST_TRANSLATOR = {request_translator}")?;
+        }
+        if let Some(response_translator) = &self.response_translator {
+            write!(f, " RESPONSE_TRANSLATOR = {response_translator}")?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -4185,16 +4280,23 @@ pub struct CreateFunction {
     /// ```
     /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_a_remote_function)
     pub remote_connection: Option<ObjectName>,
+    /// Snowflake external-function parameters.
+    pub external_params: Option<ExternalFunctionParams>,
 }
 
 impl fmt::Display for CreateFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "CREATE {or_alter}{or_replace}{temp}{secure}{data_metric}FUNCTION {if_not_exists}{name}",
+            "CREATE {or_alter}{or_replace}{temp}{secure}{external}{data_metric}FUNCTION {if_not_exists}{name}",
             name = self.name,
             temp = if self.temporary { "TEMPORARY " } else { "" },
             secure = if self.secure { "SECURE " } else { "" },
+            external = if self.external_params.is_some() {
+                "EXTERNAL "
+            } else {
+                ""
+            },
             data_metric = if self.data_metric { "DATA METRIC " } else { "" },
             or_alter = if self.or_alter { "OR ALTER " } else { "" },
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
@@ -4209,6 +4311,32 @@ impl fmt::Display for CreateFunction {
         }
         if let Some(return_type) = &self.return_type {
             write!(f, " RETURNS {return_type}")?;
+        }
+        if let Some(external) = &self.external_params {
+            if external.return_not_null {
+                write!(f, " NOT NULL")?;
+            }
+            if let Some(called_on_null) = &self.called_on_null {
+                write!(f, " {called_on_null}")?;
+            }
+            if let Some(behavior) = &self.behavior {
+                write!(f, " {behavior}")?;
+            }
+            if let Some(options) = &self.options {
+                for option in options {
+                    write!(f, " {option}")?;
+                }
+            }
+            write!(f, " {external}")?;
+            if let Some(CreateFunctionBody::AsBeforeOptions { body, link_symbol }) =
+                &self.function_body
+            {
+                write!(f, " AS {body}")?;
+                if let Some(link_symbol) = link_symbol {
+                    write!(f, ", {link_symbol}")?;
+                }
+            }
+            return Ok(());
         }
         if let Some(determinism_specifier) = &self.determinism_specifier {
             write!(f, " {determinism_specifier}")?;

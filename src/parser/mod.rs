@@ -6512,6 +6512,7 @@ impl<'a> Parser<'a> {
                 Some(options)
             },
             remote_connection: None,
+            external_params: None,
         })
     }
 
@@ -6586,6 +6587,7 @@ impl<'a> Parser<'a> {
             determinism_specifier: None,
             options: None,
             remote_connection: None,
+            external_params: None,
         })
     }
 
@@ -6668,6 +6670,7 @@ impl<'a> Parser<'a> {
             parallel: None,
             security: None,
             set_params: vec![],
+            external_params: None,
         })
     }
 
@@ -6761,6 +6764,7 @@ impl<'a> Parser<'a> {
             parallel: None,
             security: None,
             set_params: vec![],
+            external_params: None,
         })
     }
 
@@ -6799,7 +6803,7 @@ impl<'a> Parser<'a> {
         Ok((name, args))
     }
 
-    fn parse_function_arg(&mut self) -> Result<OperateFunctionArg, ParserError> {
+    pub(crate) fn parse_function_arg(&mut self) -> Result<OperateFunctionArg, ParserError> {
         let mode = if self.parse_keyword(Keyword::IN) {
             Some(ArgMode::In)
         } else if self.parse_keyword(Keyword::OUT) {

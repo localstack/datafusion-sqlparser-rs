@@ -2336,6 +2336,7 @@ fn test_bigquery_create_function() {
             language: None,
             determinism_specifier: None,
             remote_connection: None,
+            external_params: None,
             called_on_null: None,
             parallel: None,
             security: None,

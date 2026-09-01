@@ -34,11 +34,13 @@ use crate::ast::{
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
-    ContactEntry, CopyIntoSnowflakeKind, CreateTable, CreateTableLikeKind, DollarQuotedString,
-    ExternalAccessAllowedList,
-    Expr, ExternalTablePartitionColumn, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
-    GeneratedAs, Ident, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
-    IdentityPropertyKind, IdentityPropertyOrder, InitializeKind, Insert,
+    ContactEntry, CopyIntoSnowflakeKind, CreateFunction, CreateFunctionBody, CreateTable,
+    CreateTableLikeKind, DollarQuotedString, Expr, ExternalAccessAllowedList,
+    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
+    ExternalTablePartitionColumn, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
+    FunctionBehavior, FunctionCalledOnNull, FunctionReturnType, GeneratedAs, Ident,
+    IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
+    IdentityPropertyOrder, InitializeKind, Insert,
     MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
     MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
     OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
@@ -674,6 +676,18 @@ impl Dialect for SnowflakeDialect {
             // possibly CREATE STAGE
             //[ OR  REPLACE ]
             let or_replace = parser.parse_keywords(&[Keyword::OR, Keyword::REPLACE]);
+
+            // CREATE [OR REPLACE] [SECURE] EXTERNAL FUNCTION
+            if parser.parse_keywords(&[
+                Keyword::SECURE,
+                Keyword::EXTERNAL,
+                Keyword::FUNCTION,
+            ]) {
+                return Some(parse_create_external_function(or_replace, true, parser));
+            }
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::FUNCTION]) {
+                return Some(parse_create_external_function(or_replace, false, parser));
+            }
 
             // CREATE [OR REPLACE] EXTERNAL VOLUME
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
@@ -1792,6 +1806,221 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         table_type: Some(AlterTableType::External),
         end_token: AttachedToken(end_token),
     }))
+}
+
+/// Parse `CREATE [OR REPLACE] [SECURE] EXTERNAL FUNCTION` after its keywords.
+fn parse_create_external_function(
+    or_replace: bool,
+    secure: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    parser.expect_token(&Token::LParen)?;
+    let args = if parser.consume_token(&Token::RParen) {
+        Vec::new()
+    } else {
+        let args = parser.parse_comma_separated(Parser::parse_function_arg)?;
+        parser.expect_token(&Token::RParen)?;
+        args
+    };
+
+    parser.expect_keyword(Keyword::RETURNS)?;
+    let return_type = Some(FunctionReturnType::DataType(parser.parse_data_type()?));
+    let return_not_null = parser.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+
+    let called_on_null = if parser.parse_keywords(&[
+        Keyword::CALLED,
+        Keyword::ON,
+        Keyword::NULL,
+        Keyword::INPUT,
+    ]) {
+        Some(FunctionCalledOnNull::CalledOnNullInput)
+    } else if parser.parse_keywords(&[
+        Keyword::RETURNS,
+        Keyword::NULL,
+        Keyword::ON,
+        Keyword::NULL,
+        Keyword::INPUT,
+    ]) {
+        Some(FunctionCalledOnNull::ReturnsNullOnNullInput)
+    } else if parser.parse_keyword(Keyword::STRICT) {
+        Some(FunctionCalledOnNull::Strict)
+    } else {
+        None
+    };
+
+    let behavior = if parser.parse_keyword(Keyword::VOLATILE) {
+        Some(FunctionBehavior::Volatile)
+    } else if parser.parse_keyword(Keyword::IMMUTABLE) {
+        Some(FunctionBehavior::Immutable)
+    } else {
+        None
+    };
+
+    let options = if consume_external_function_property(parser, "COMMENT") {
+        parser.expect_token(&Token::Eq)?;
+        let comment = parse_single_quoted_string(parser)?;
+        Some(vec![SqlOption::KeyValue {
+            key: Ident::new("COMMENT"),
+            value: Expr::Value(comment),
+        }])
+    } else {
+        None
+    };
+
+    expect_external_function_property(parser, "API_INTEGRATION")?;
+    parser.expect_token(&Token::Eq)?;
+    let api_integration = parser.parse_object_name(false)?;
+
+    let headers = if consume_external_function_property(parser, "HEADERS") {
+        parser.expect_token(&Token::Eq)?;
+        parser.expect_token(&Token::LParen)?;
+        let headers = parser.parse_comma_separated(|parser| {
+            let name = parse_single_quoted_string(parser)?;
+            parser.expect_token(&Token::Eq)?;
+            let value = parse_single_quoted_string(parser)?;
+            Ok(ExternalFunctionHeader { name, value })
+        })?;
+        parser.expect_token(&Token::RParen)?;
+        Some(headers)
+    } else {
+        None
+    };
+
+    let context_headers =
+        if consume_external_function_property(parser, "CONTEXT_HEADERS") {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            let headers = parser.parse_comma_separated(Parser::parse_identifier)?;
+            parser.expect_token(&Token::RParen)?;
+            Some(headers)
+        } else {
+            None
+        };
+
+    let max_batch_rows = if consume_external_function_property(parser, "MAX_BATCH_ROWS") {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_literal_uint()?)
+    } else {
+        None
+    };
+
+    let compression = if consume_external_function_property(parser, "COMPRESSION") {
+        parser.expect_token(&Token::Eq)?;
+        Some(parse_external_function_compression(parser)?)
+    } else {
+        None
+    };
+
+    let request_translator =
+        if consume_external_function_property(parser, "REQUEST_TRANSLATOR") {
+            parser.expect_token(&Token::Eq)?;
+            Some(parser.parse_object_name(false)?)
+        } else {
+            None
+        };
+    let response_translator =
+        if consume_external_function_property(parser, "RESPONSE_TRANSLATOR") {
+            parser.expect_token(&Token::Eq)?;
+            Some(parser.parse_object_name(false)?)
+        } else {
+            None
+        };
+
+    parser.expect_keyword(Keyword::AS)?;
+    let url = parse_single_quoted_string(parser)?;
+
+    Ok(CreateFunction {
+        data_metric: false,
+        or_alter: false,
+        or_replace,
+        temporary: false,
+        secure,
+        if_not_exists: false,
+        name,
+        args: Some(args),
+        return_type,
+        function_body: Some(CreateFunctionBody::AsBeforeOptions {
+            body: Expr::Value(url),
+            link_symbol: None,
+        }),
+        behavior,
+        called_on_null,
+        parallel: None,
+        security: None,
+        set_params: vec![],
+        using: None,
+        language: None,
+        determinism_specifier: None,
+        options,
+        remote_connection: None,
+        external_params: Some(ExternalFunctionParams {
+            return_not_null,
+            api_integration,
+            headers,
+            context_headers,
+            max_batch_rows,
+            compression,
+            request_translator,
+            response_translator,
+        }),
+    }
+    .into())
+}
+
+fn consume_external_function_property(parser: &mut Parser, property: &str) -> bool {
+    if matches!(
+        &parser.peek_token_ref().token,
+        Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(property)
+    ) {
+        parser.next_token();
+        true
+    } else {
+        false
+    }
+}
+
+fn expect_external_function_property(
+    parser: &mut Parser,
+    property: &str,
+) -> Result<(), ParserError> {
+    if consume_external_function_property(parser, property) {
+        Ok(())
+    } else {
+        parser.expected_ref(property, parser.peek_token_ref())
+    }
+}
+
+fn parse_single_quoted_string(parser: &mut Parser) -> Result<ValueWithSpan, ParserError> {
+    let token = parser.next_token();
+    match token.token {
+        Token::SingleQuotedString(value) => Ok(ValueWithSpan {
+            value: Value::SingleQuotedString(value),
+            span: token.span,
+        }),
+        _ => parser.expected("single-quoted string", token),
+    }
+}
+
+fn parse_external_function_compression(
+    parser: &mut Parser,
+) -> Result<ExternalFunctionCompression, ParserError> {
+    let token = parser.next_token();
+    match &token.token {
+        Token::Word(word) if word.value.eq_ignore_ascii_case("NONE") => {
+            Ok(ExternalFunctionCompression::None)
+        }
+        Token::Word(word) if word.value.eq_ignore_ascii_case("GZIP") => {
+            Ok(ExternalFunctionCompression::Gzip)
+        }
+        Token::Word(word) if word.value.eq_ignore_ascii_case("DEFLATE") => {
+            Ok(ExternalFunctionCompression::Deflate)
+        }
+        Token::Word(word) if word.value.eq_ignore_ascii_case("AUTO") => {
+            Ok(ExternalFunctionCompression::Auto)
+        }
+        _ => parser.expected("NONE, GZIP, DEFLATE, or AUTO", token),
+    }
 }
 
 /// Parse a Snowflake `CREATE [OR REPLACE] EXTERNAL TABLE` statement. The
