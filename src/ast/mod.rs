@@ -97,6 +97,7 @@ pub use self::ddl::{
     AlterProcedure, AlterProcedureOperation,
     AlterMaskingPolicyOperation,
     AlterTagOperation,
+    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     ExternalTablePartitionColumn,
     AlterNetworkRuleOperation,
     AlterSnowflakeSecretOperation,
