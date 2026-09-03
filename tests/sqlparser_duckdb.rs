@@ -711,6 +711,7 @@ fn test_duckdb_union_datatype() {
             iceberg: Default::default(),
             snapshot: false,
             dynamic: Default::default(),
+            hybrid: Default::default(),
             name: ObjectName::from(vec!["tbl1".into()]),
             columns: vec![
                 ColumnDef {
