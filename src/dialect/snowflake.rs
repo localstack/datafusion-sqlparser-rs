@@ -792,9 +792,9 @@ impl Dialect for SnowflakeDialect {
                 _ => {}
             }
 
-            // CREATE [OR REPLACE] HYBRID TABLE — the "hybrid" property has no
-            // observable effect here, so the modifier is discarded and the
-            // statement is parsed as an ordinary table.
+            // CREATE [OR REPLACE] HYBRID TABLE — carried into the CreateTable
+            // AST so the create path can persist hybrid-ness; it has no effect
+            // on the emitted DDL.
             let hybrid = parser.parse_keyword(Keyword::HYBRID);
 
             // CREATE [OR REPLACE] [ TEMP | TEMPORARY | VOLATILE ] FILE FORMAT.
@@ -819,7 +819,7 @@ impl Dialect for SnowflakeDialect {
                 return Some(
                     parse_create_table(
                         or_replace, global, temporary, volatile, transient, iceberg, dynamic,
-                        parser,
+                        hybrid, parser,
                     )
                     .map(Into::into),
                 );
@@ -903,10 +903,13 @@ impl Dialect for SnowflakeDialect {
             }
             let terse = parser.parse_keyword(Keyword::TERSE);
             if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLES]) {
-                return Some(parse_show_objects(terse, true, parser));
+                return Some(parse_show_objects(terse, true, false, parser));
+            }
+            if parser.parse_keywords(&[Keyword::HYBRID, Keyword::TABLES]) {
+                return Some(parse_show_objects(terse, false, true, parser));
             }
             if parser.parse_keyword(Keyword::OBJECTS) {
-                return Some(parse_show_objects(terse, false, parser));
+                return Some(parse_show_objects(terse, false, false, parser));
             }
             if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMATS]) {
                 return Some(parse_show_file_formats(terse, parser));
@@ -2271,6 +2274,7 @@ pub fn parse_create_table(
     transient: bool,
     iceberg: bool,
     dynamic: bool,
+    hybrid: bool,
     parser: &mut Parser,
 ) -> Result<CreateTable, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -2285,6 +2289,7 @@ pub fn parse_create_table(
         .iceberg(iceberg)
         .global(global)
         .dynamic(dynamic)
+        .hybrid(hybrid)
         .hive_formats(None);
 
     // Snowflake does not enforce order of the parameters in the statement. The parser needs to
@@ -3466,12 +3471,14 @@ fn parse_column_tags(parser: &mut Parser, with: bool) -> Result<TagsColumnOption
 fn parse_show_objects(
     terse: bool,
     dynamic: bool,
+    hybrid: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowObjects(ShowObjects {
         terse,
         dynamic,
+        hybrid,
         show_options,
     }))
 }

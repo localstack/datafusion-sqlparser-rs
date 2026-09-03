@@ -3333,6 +3333,10 @@ pub struct CreateTable {
     pub external: bool,
     /// `DYNAMIC` clause
     pub dynamic: bool,
+    /// `HYBRID` clause (Snowflake). The hybrid property has no observable
+    /// effect on the emitted DDL; it is carried so the create path can
+    /// persist hybrid-ness in table metadata.
+    pub hybrid: bool,
     /// `GLOBAL` clause
     pub global: Option<bool>,
     /// `IF NOT EXISTS` clause
@@ -3554,7 +3558,7 @@ impl fmt::Display for CreateTable {
         //   `CREATE TABLE t (a INT) AS SELECT a from t2`
         write!(
             f,
-            "CREATE {or_replace}{external}{global}{temporary}{transient}{volatile}{dynamic}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
+            "CREATE {or_replace}{external}{global}{temporary}{transient}{volatile}{dynamic}{hybrid}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             external = if self.external { "EXTERNAL " } else { "" },
             snapshot = if self.snapshot { "SNAPSHOT " } else { "" },
@@ -3574,6 +3578,7 @@ impl fmt::Display for CreateTable {
             // Only for Snowflake
             iceberg = if self.iceberg { "ICEBERG " } else { "" },
             dynamic = if self.dynamic { "DYNAMIC " } else { "" },
+            hybrid = if self.hybrid { "HYBRID " } else { "" },
             name = self.name,
         )?;
         if let Some(partition_of) = &self.partition_of {
