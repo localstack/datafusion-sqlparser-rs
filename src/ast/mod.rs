@@ -7881,6 +7881,7 @@ impl fmt::Display for Statement {
             Statement::ShowObjects(ShowObjects {
                 terse,
                 dynamic,
+                hybrid,
                 show_options,
             }) => {
                 write!(
@@ -7889,6 +7890,8 @@ impl fmt::Display for Statement {
                     terse = if *terse { "TERSE " } else { "" },
                     kind = if *dynamic {
                         "DYNAMIC TABLES"
+                    } else if *hybrid {
+                        "HYBRID TABLES"
                     } else {
                         "OBJECTS"
                     },
@@ -14683,6 +14686,9 @@ pub struct ShowObjects {
     /// Whether this is `SHOW DYNAMIC TABLES` rather than `SHOW OBJECTS`
     /// (Snowflake). Both share the option grammar (`LIKE` / `IN` / …).
     pub dynamic: bool,
+    /// Whether this is `SHOW HYBRID TABLES` rather than `SHOW OBJECTS`
+    /// (Snowflake). Shares the option grammar (`LIKE` / `IN` / …).
+    pub hybrid: bool,
     /// Additional options controlling the SHOW output.
     pub show_options: ShowStatementOptions,
 }
