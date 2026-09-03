@@ -682,6 +682,7 @@ impl Spanned for CreateTable {
             external: _,      // bool
             global: _,        // bool
             dynamic: _,       // bool
+            hybrid: _,        // bool, Snowflake specific
             if_not_exists: _, // bool
             transient: _,     // bool
             volatile: _,      // bool

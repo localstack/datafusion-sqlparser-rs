@@ -7013,6 +7013,7 @@ fn parse_trigger_related_functions() {
             external: false,
             global: None,
             dynamic: false,
+            hybrid: false,
             if_not_exists: false,
             transient: false,
             volatile: false,
