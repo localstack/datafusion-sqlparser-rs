@@ -12358,6 +12358,10 @@ pub enum DescribeObjectType {
     /// `USER` (Snowflake)
     /// <https://docs.snowflake.com/en/sql-reference/sql/desc-user>
     User,
+    /// `TRANSACTION` (Snowflake) — `DESC TRANSACTION <id>`, where the object
+    /// name carries the numeric transaction id rather than an identifier.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/desc-transaction>
+    Transaction,
 }
 
 impl fmt::Display for DescribeObjectType {
@@ -12377,6 +12381,7 @@ impl fmt::Display for DescribeObjectType {
             DescribeObjectType::Pipe => "PIPE",
             DescribeObjectType::Alert => "ALERT",
             DescribeObjectType::User => "USER",
+            DescribeObjectType::Transaction => "TRANSACTION",
         })
     }
 }
