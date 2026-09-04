@@ -1522,6 +1522,8 @@ pub enum TableFactor {
         expr: Expr,
         /// Optional alias for the table function result.
         alias: Option<TableAlias>,
+        /// Optional table sample modifier.
+        sample: Option<TableSampleKind>,
     },
     /// `e.g. LATERAL FLATTEN(<args>)[ AS <alias> ]`
     Function {
@@ -2319,10 +2321,20 @@ impl fmt::Display for TableFactor {
                 }
                 Ok(())
             }
-            TableFactor::TableFunction { expr, alias } => {
+            TableFactor::TableFunction {
+                expr,
+                alias,
+                sample,
+            } => {
                 write!(f, "TABLE({expr})")?;
+                if let Some(TableSampleKind::BeforeTableAlias(sample)) = sample {
+                    write!(f, " {sample}")?;
+                }
                 if let Some(alias) = alias {
                     write!(f, " {alias}")?;
+                }
+                if let Some(TableSampleKind::AfterTableAlias(sample)) = sample {
+                    write!(f, " {sample}")?;
                 }
                 Ok(())
             }
