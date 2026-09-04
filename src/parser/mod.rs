@@ -21014,7 +21014,15 @@ impl<'a> Parser<'a> {
                 content: if allow_empty && parser.peek_token_ref().token == Token::RParen {
                     vec![]
                 } else {
-                    parser.parse_comma_separated(Parser::parse_expr)?
+                    parser.parse_comma_separated(|parser| {
+                        if dialect_of!(parser is SnowflakeDialect)
+                            && parser.peek_keyword(Keyword::DEFAULT)
+                        {
+                            Ok(Expr::Default(parser.next_token().into()))
+                        } else {
+                            parser.parse_expr()
+                        }
+                    })?
                 },
                 closing_token: parser.expect_token(&Token::RParen)?.into(),
             })

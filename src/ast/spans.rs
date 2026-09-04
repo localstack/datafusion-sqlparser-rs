@@ -1740,6 +1740,7 @@ impl Spanned for Expr {
     fn span(&self) -> Span {
         match self {
             Expr::Identifier(ident) => ident.span,
+            Expr::Default(token) => token.0.span,
             Expr::CompoundIdentifier(vec) => union_spans(vec.iter().map(|i| i.span)),
             Expr::CompoundFieldAccess { root, access_chain } => {
                 union_spans(iter::once(root.span()).chain(access_chain.iter().map(|i| i.span())))

@@ -892,6 +892,8 @@ impl fmt::Display for CaseWhen {
 pub enum Expr {
     /// Identifier e.g. table name or column name
     Identifier(Ident),
+    /// The `DEFAULT` keyword in a `VALUES` row.
+    Default(AttachedToken),
     /// Multi-part identifier, e.g. `table_alias.column` or `schema.table.col`
     CompoundIdentifier(Vec<Ident>),
     /// Multi-part expression access.
@@ -1757,6 +1759,7 @@ impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Expr::Identifier(s) => write!(f, "{s}"),
+            Expr::Default(_) => f.write_str("DEFAULT"),
             Expr::Wildcard(_) => f.write_str("*"),
             Expr::QualifiedWildcard(prefix, _) => write!(f, "{prefix}.*"),
             Expr::CompoundIdentifier(s) => write!(f, "{}", display_separated(s, ".")),
