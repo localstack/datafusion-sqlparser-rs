@@ -22621,10 +22621,48 @@ impl<'a> Parser<'a> {
             }),
             Token::Word(word) => {
                 self.next_token();
+                // A dotted identifier value (e.g. `DEFAULT_NAMESPACE = db.schema`)
+                // is a single compound option value: the parts join with `.`,
+                // unquoted parts fold to upper case to match Snowflake's
+                // identifier normalisation while quoted parts keep their case.
+                if self.peek_token_ref().token == Token::Period {
+                    let mut value = key_value_ident_part(&word);
+                    while self.consume_token(&Token::Period) {
+                        let part = self.next_token();
+                        match part.token {
+                            Token::Word(w) => {
+                                value.push('.');
+                                value.push_str(&key_value_ident_part(&w));
+                            }
+                            _ => {
+                                return self.expected_ref(
+                                    "an identifier after '.'",
+                                    self.peek_token_ref(),
+                                )
+                            }
+                        }
+                    }
+                    return Ok(KeyValueOption {
+                        option_name: key.value.clone(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder(value).with_span(peeked_token.span),
+                        ),
+                    });
+                }
+                // A single-part DEFAULT_NAMESPACE value folds to upper case
+                // whether or not it is quoted — Snowflake normalises a one-part
+                // namespace unconditionally (a two-part namespace keeps the case
+                // of its quoted parts, handled above). Other options keep their
+                // bare word verbatim.
+                let single = if key.value.eq_ignore_ascii_case("DEFAULT_NAMESPACE") {
+                    word.value.to_uppercase()
+                } else {
+                    word.value.clone()
+                };
                 Ok(KeyValueOption {
                     option_name: key.value.clone(),
                     option_value: KeyValueOptionKind::Single(
-                        Value::Placeholder(word.value.clone()).with_span(peeked_token.span),
+                        Value::Placeholder(single).with_span(peeked_token.span),
                     ),
                 })
             }
@@ -22664,6 +22702,17 @@ impl<'a> Parser<'a> {
         Ok(ResetStatement {
             reset: Reset::ConfigurationParameter(obj),
         })
+    }
+}
+
+/// Render one identifier part of a dotted key-value option value: an unquoted
+/// word folds to upper case (Snowflake normalises unquoted identifiers), while a
+/// quoted word keeps its case verbatim.
+fn key_value_ident_part(word: &Word) -> String {
+    if word.quote_style.is_some() {
+        word.value.clone()
+    } else {
+        word.value.to_uppercase()
     }
 }
 
