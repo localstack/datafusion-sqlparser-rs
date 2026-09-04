@@ -5021,6 +5021,7 @@ fn test_grant_account_global_privileges() {
         "COMPUTE POOL",
         "DATA EXCHANGE LISTING",
         "DATABASE",
+        "EXTERNAL TABLE",
         "EXTERNAL VOLUME",
         "FAILOVER GROUP",
         "INTEGRATION",
@@ -5078,6 +5079,7 @@ fn test_grant_account_global_privileges() {
         "GRANTS",
         "LISTING AUTO FULFILLMENT",
         "ORGANIZATION SUPPORT CASES",
+        "SHARE TARGET",
         "USER SUPPORT CASES",
         "WAREHOUSES",
     ];
@@ -5132,6 +5134,34 @@ fn test_grant_account_object_privileges() {
             }
         }
     }
+}
+
+#[test]
+fn test_grant_all_or_future_new_kinds() {
+    let kinds = vec![
+        "PIPES",
+        "STREAMS",
+        "DYNAMIC TABLES",
+        "ICEBERG TABLES",
+        "MODELS",
+    ];
+    for k in &kinds {
+        for scope in &["ALL", "FUTURE"] {
+            let sql = format!("GRANT SELECT ON {scope} {k} IN SCHEMA db1.sc1 TO ROLE role1");
+            snowflake_and_generic().verified_stmt(&sql);
+            let sql = format!("GRANT SELECT ON {scope} {k} IN DATABASE db1 TO ROLE role1");
+            snowflake_and_generic().verified_stmt(&sql);
+        }
+    }
+}
+
+#[test]
+fn test_grant_create_class_privilege() {
+    snowflake_and_generic().verified_stmt(
+        "GRANT CREATE SNOWFLAKE.ML.ANOMALY_DETECTION ON SCHEMA db1.sc1 TO ROLE role1",
+    );
+    snowflake_and_generic()
+        .verified_stmt("GRANT CREATE SNOWFLAKE.ML.FORECAST ON SCHEMA db1.sc1 TO ROLE role1");
 }
 
 #[test]

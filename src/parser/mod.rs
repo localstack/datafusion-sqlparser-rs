@@ -19280,6 +19280,11 @@ impl<'a> Parser<'a> {
         ("SEMANTIC VIEWS", &["SEMANTIC", "VIEWS"], "SEMANTIC_VIEW"),
         ("TASKS", &["TASKS"], "TASK"),
         ("ALERTS", &["ALERTS"], "ALERT"),
+        ("PIPES", &["PIPES"], "PIPE"),
+        ("STREAMS", &["STREAMS"], "STREAM"),
+        ("DYNAMIC TABLES", &["DYNAMIC", "TABLES"], "DYNAMIC_TABLE"),
+        ("ICEBERG TABLES", &["ICEBERG", "TABLES"], "ICEBERG_TABLE"),
+        ("MODELS", &["MODELS"], "MODEL"),
     ];
 
     /// `ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]` for the
@@ -19514,6 +19519,8 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::McpServer)
         } else if self.parse_keywords(&[Keyword::DATA, Keyword::EXCHANGE, Keyword::LISTING]) {
             Some(ActionCreateObjectType::DataExchangeListing)
+        } else if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::TABLE]) {
+            Some(ActionCreateObjectType::ExternalTable)
         } else if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
             Some(ActionCreateObjectType::ExternalVolume)
         } else if self.parse_keywords(&[Keyword::FAILOVER, Keyword::GROUP]) {
@@ -19624,6 +19631,8 @@ impl<'a> Parser<'a> {
             Ok(ActionManageType::ListingAutoFulfillment)
         } else if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::SUPPORT, Keyword::CASES]) {
             Ok(ActionManageType::OrganizationSupportCases)
+        } else if self.parse_keywords(&[Keyword::SHARE, Keyword::TARGET]) {
+            Ok(ActionManageType::ShareTarget)
         } else if self.parse_keywords(&[Keyword::USER, Keyword::SUPPORT, Keyword::CASES]) {
             Ok(ActionManageType::UserSupportCases)
         } else if self.parse_keyword(Keyword::GRANTS) {
