@@ -10496,6 +10496,8 @@ pub enum ActionCreateObjectType {
     Database,
     /// A database role object.
     DatabaseRole,
+    /// An external table object.
+    ExternalTable,
     /// An external volume object.
     ExternalVolume,
     /// A failover group object.
@@ -10544,6 +10546,7 @@ impl fmt::Display for ActionCreateObjectType {
             ActionCreateObjectType::Class(name) => write!(f, "{name}"),
             ActionCreateObjectType::Database => write!(f, "DATABASE"),
             ActionCreateObjectType::DatabaseRole => write!(f, "DATABASE ROLE"),
+            ActionCreateObjectType::ExternalTable => write!(f, "EXTERNAL TABLE"),
             ActionCreateObjectType::ExternalVolume => write!(f, "EXTERNAL VOLUME"),
             ActionCreateObjectType::FailoverGroup => write!(f, "FAILOVER GROUP"),
             ActionCreateObjectType::Function => write!(f, "FUNCTION"),
@@ -10655,6 +10658,8 @@ pub enum ActionManageType {
     ListingAutoFulfillment,
     /// Organization support cases management.
     OrganizationSupportCases,
+    /// Share target management.
+    ShareTarget,
     /// User support cases management.
     UserSupportCases,
     /// Warehouses management.
@@ -10669,6 +10674,7 @@ impl fmt::Display for ActionManageType {
             ActionManageType::Grants => write!(f, "GRANTS"),
             ActionManageType::ListingAutoFulfillment => write!(f, "LISTING AUTO FULFILLMENT"),
             ActionManageType::OrganizationSupportCases => write!(f, "ORGANIZATION SUPPORT CASES"),
+            ActionManageType::ShareTarget => write!(f, "SHARE TARGET"),
             ActionManageType::UserSupportCases => write!(f, "USER SUPPORT CASES"),
             ActionManageType::Warehouses => write!(f, "WAREHOUSES"),
         }
