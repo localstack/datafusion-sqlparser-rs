@@ -4337,11 +4337,14 @@ impl<'a> Parser<'a> {
                     } else if self.parse_keywords(&[Keyword::NOT, Keyword::UNKNOWN]) {
                         Ok(Expr::IsNotUnknown(Box::new(expr)))
                     } else if self.parse_keywords(&[Keyword::DISTINCT, Keyword::FROM]) {
-                        let expr2 = self.parse_expr()?;
+                        // The RHS binds at `IS` precedence, so `AND`/`OR`/`NOT`
+                        // stop the operand while tighter operators (arithmetic)
+                        // still bind inside it — matching Snowflake.
+                        let expr2 = self.parse_subexpr(self.dialect.prec_value(Precedence::Is))?;
                         Ok(Expr::IsDistinctFrom(Box::new(expr), Box::new(expr2)))
                     } else if self.parse_keywords(&[Keyword::NOT, Keyword::DISTINCT, Keyword::FROM])
                     {
-                        let expr2 = self.parse_expr()?;
+                        let expr2 = self.parse_subexpr(self.dialect.prec_value(Precedence::Is))?;
                         Ok(Expr::IsNotDistinctFrom(Box::new(expr), Box::new(expr2)))
                     } else if let Ok(is_normalized) = self.parse_unicode_is_normalized(expr) {
                         Ok(is_normalized)

@@ -1881,6 +1881,66 @@ fn snowflake() -> TestedDialects {
 }
 
 #[test]
+fn parse_is_distinct_from_precedence() {
+    // The RHS binds at `IS` precedence: `AND`/`OR`/`NOT` stop the operand,
+    // while tighter arithmetic still binds inside it (matching Snowflake).
+    let one = || Box::new(Expr::value(number("1")));
+    let two = || Box::new(Expr::value(number("2")));
+
+    // `1 IS DISTINCT FROM 2 AND TRUE` => `(1 IS DISTINCT FROM 2) AND TRUE`
+    assert_eq!(
+        snowflake().verified_expr("1 IS DISTINCT FROM 2 AND true"),
+        Expr::BinaryOp {
+            left: Box::new(Expr::IsDistinctFrom(one(), two())),
+            op: BinaryOperator::And,
+            right: Box::new(Expr::value(Value::Boolean(true))),
+        }
+    );
+
+    // `1 IS DISTINCT FROM 2 OR FALSE` => `(1 IS DISTINCT FROM 2) OR FALSE`
+    assert_eq!(
+        snowflake().verified_expr("1 IS DISTINCT FROM 2 OR false"),
+        Expr::BinaryOp {
+            left: Box::new(Expr::IsDistinctFrom(one(), two())),
+            op: BinaryOperator::Or,
+            right: Box::new(Expr::value(Value::Boolean(false))),
+        }
+    );
+
+    // `1 IS NOT DISTINCT FROM 2 AND TRUE` => `(1 IS NOT DISTINCT FROM 2) AND TRUE`
+    assert_eq!(
+        snowflake().verified_expr("1 IS NOT DISTINCT FROM 2 AND true"),
+        Expr::BinaryOp {
+            left: Box::new(Expr::IsNotDistinctFrom(one(), two())),
+            op: BinaryOperator::And,
+            right: Box::new(Expr::value(Value::Boolean(true))),
+        }
+    );
+
+    // `NOT 1 IS DISTINCT FROM 2` => `NOT (1 IS DISTINCT FROM 2)`
+    assert_eq!(
+        snowflake().verified_expr("NOT 1 IS DISTINCT FROM 2"),
+        Expr::UnaryOp {
+            op: UnaryOperator::Not,
+            expr: Box::new(Expr::IsDistinctFrom(one(), two())),
+        }
+    );
+
+    // `1 IS DISTINCT FROM 1 + 1` => arithmetic still binds inside the RHS.
+    assert_eq!(
+        snowflake().verified_expr("1 IS DISTINCT FROM 1 + 1"),
+        Expr::IsDistinctFrom(
+            one(),
+            Box::new(Expr::BinaryOp {
+                left: one(),
+                op: BinaryOperator::Plus,
+                right: one(),
+            }),
+        )
+    );
+}
+
+#[test]
 fn parse_create_sequence_snowflake_options() {
     // Snowflake accepts the `=` assignment form, options in any order, and a
     // trailing ORDER/NOORDER guarantee.
