@@ -1999,6 +1999,9 @@ impl fmt::Display for PivotValueSource {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// An item in the `MEASURES` clause of `MATCH_RECOGNIZE`.
 pub struct Measure {
+    /// Optional `RUNNING` / `FINAL` semantics modifier preceding the
+    /// expression. `None` is the `RUNNING` default.
+    pub semantics: Option<RunningFinal>,
     /// Expression producing the measure value.
     pub expr: Expr,
     /// Alias for the measure column.
@@ -2007,7 +2010,33 @@ pub struct Measure {
 
 impl fmt::Display for Measure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(semantics) = &self.semantics {
+            write!(f, "{semantics} ")?;
+        }
         write!(f, "{} AS {}", self.expr, self.alias)
+    }
+}
+
+/// The `RUNNING` / `FINAL` semantics modifier for a `MATCH_RECOGNIZE`
+/// measure or navigation expression.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/functions/match_recognize#running-vs-final-semantics>.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum RunningFinal {
+    /// `RUNNING`
+    Running,
+    /// `FINAL`
+    Final,
+}
+
+impl fmt::Display for RunningFinal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RunningFinal::Running => write!(f, "RUNNING"),
+            RunningFinal::Final => write!(f, "FINAL"),
+        }
     }
 }
 

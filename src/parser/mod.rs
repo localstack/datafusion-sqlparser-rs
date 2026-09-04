@@ -18343,10 +18343,15 @@ impl<'a> Parser<'a> {
 
         let measures = if self.parse_keyword(Keyword::MEASURES) {
             self.parse_comma_separated(|p| {
+                let semantics = p.parse_running_final();
                 let expr = p.parse_expr()?;
                 let _ = p.parse_keyword(Keyword::AS);
                 let alias = p.parse_identifier()?;
-                Ok(Measure { expr, alias })
+                Ok(Measure {
+                    semantics,
+                    expr,
+                    alias,
+                })
             })?
         } else {
             vec![]
@@ -18429,6 +18434,23 @@ impl<'a> Parser<'a> {
             symbols,
             alias,
         })
+    }
+
+    /// Consume a leading `RUNNING` / `FINAL` semantics modifier if present.
+    /// `RUNNING` is not a reserved keyword, so it is matched by value; both
+    /// only ever precede a `MATCH_RECOGNIZE` measure expression.
+    fn parse_running_final(&mut self) -> Option<RunningFinal> {
+        if let Token::Word(w) = &self.peek_token().token {
+            if w.keyword == Keyword::FINAL {
+                self.next_token();
+                return Some(RunningFinal::Final);
+            }
+            if w.quote_style.is_none() && w.value.eq_ignore_ascii_case("RUNNING") {
+                self.next_token();
+                return Some(RunningFinal::Running);
+            }
+        }
+        None
     }
 
     fn parse_base_pattern(&mut self) -> Result<MatchRecognizePattern, ParserError> {

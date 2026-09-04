@@ -13318,14 +13318,17 @@ fn test_match_recognize() {
                 Measure {
                     expr: call("MATCH_NUMBER", []),
                     alias: Ident::new("match_number"),
+                    semantics: None,
                 },
                 Measure {
                     expr: call("FIRST", [Expr::Identifier(Ident::new("price_date"))]),
                     alias: Ident::new("start_date"),
+                    semantics: None,
                 },
                 Measure {
                     expr: call("LAST", [Expr::Identifier(Ident::new("price_date"))]),
                     alias: Ident::new("end_date"),
+                    semantics: None,
                 },
             ],
             rows_per_match: Some(RowsPerMatch::OneRow),
