@@ -17660,8 +17660,23 @@ impl<'a> Parser<'a> {
             self.expect_token(&Token::LParen)?;
             let expr = self.parse_expr()?;
             self.expect_token(&Token::RParen)?;
+            let mut sample = None;
+            if self.dialect.supports_table_sample_before_alias() {
+                if let Some(parsed_sample) = self.maybe_parse_table_sample()? {
+                    sample = Some(TableSampleKind::BeforeTableAlias(parsed_sample));
+                }
+            }
             let alias = self.maybe_parse_table_alias()?;
-            Ok(TableFactor::TableFunction { expr, alias })
+            if !self.dialect.supports_table_sample_before_alias() {
+                if let Some(parsed_sample) = self.maybe_parse_table_sample()? {
+                    sample = Some(TableSampleKind::AfterTableAlias(parsed_sample));
+                }
+            }
+            Ok(TableFactor::TableFunction {
+                expr,
+                alias,
+                sample,
+            })
         } else if self.consume_token(&Token::LParen) {
             // A left paren introduces either a derived table (i.e., a subquery)
             // or a nested join. It's nearly impossible to determine ahead of

@@ -7025,7 +7025,7 @@ fn parse_table_function() {
     let select = verified_only_select("SELECT * FROM TABLE(FUN('1')) AS a");
 
     match only(select.from).relation {
-        TableFactor::TableFunction { expr, alias } => {
+        TableFactor::TableFunction { expr, alias, .. } => {
             assert_eq!(
                 call(
                     "FUN",

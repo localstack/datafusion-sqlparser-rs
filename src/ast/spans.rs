@@ -2258,7 +2258,7 @@ impl Spanned for TableFactor {
             } => subquery
                 .span()
                 .union_opt(&alias.as_ref().map(|alias| alias.span())),
-            TableFactor::TableFunction { expr, alias } => expr
+            TableFactor::TableFunction { expr, alias, .. } => expr
                 .span()
                 .union_opt(&alias.as_ref().map(|alias| alias.span())),
             TableFactor::UNNEST {
