@@ -15503,6 +15503,24 @@ impl<'a> Parser<'a> {
                             table_type: None,
                         });
                     }
+                    // `DESC TRANSACTION <id>` names a transaction by its numeric
+                    // id, not an identifier. Carry the id verbatim in the object
+                    // name so downstream rewriting can reach the describe UDF.
+                    if self.parse_keyword(Keyword::TRANSACTION) {
+                        let next = self.next_token();
+                        let id = match &next.token {
+                            Token::Number(n, _) => n.clone(),
+                            _ => return self.expected("a transaction id", next),
+                        };
+                        return Ok(Statement::DescribeObject {
+                            describe_alias,
+                            object_type: DescribeObjectType::Transaction,
+                            object_name: ObjectName(vec![ObjectNamePart::Identifier(
+                                Ident::new(id),
+                            )]),
+                            table_type: None,
+                        });
+                    }
                     if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::TABLE]) {
                         let object_name = self.parse_object_name(false)?;
                         return Ok(Statement::DescribeObject {
