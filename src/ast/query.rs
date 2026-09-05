@@ -2172,8 +2172,8 @@ impl fmt::Display for MatchRecognizeSymbol {
 pub enum MatchRecognizePattern {
     /// A named symbol such as `S1` or a virtual symbol such as `^`.
     Symbol(MatchRecognizeSymbol),
-    /// {- symbol -}
-    Exclude(MatchRecognizeSymbol),
+    /// {- pattern -}
+    Exclude(Box<MatchRecognizePattern>),
     /// PERMUTE(symbol_1, ..., symbol_n)
     Permute(Vec<MatchRecognizeSymbol>),
     /// pattern_1 pattern_2 ... pattern_n
@@ -2191,7 +2191,7 @@ impl fmt::Display for MatchRecognizePattern {
         use MatchRecognizePattern::*;
         match self {
             Symbol(symbol) => write!(f, "{symbol}"),
-            Exclude(symbol) => write!(f, "{{- {symbol} -}}"),
+            Exclude(pattern) => write!(f, "{{- {pattern} -}}"),
             Permute(symbols) => write!(f, "PERMUTE({})", display_comma_separated(symbols)),
             Concat(patterns) => write!(f, "{}", display_separated(patterns, " ")),
             Group(pattern) => write!(f, "( {pattern} )"),

@@ -13454,7 +13454,33 @@ fn test_match_recognize_patterns() {
     );
 
     // exclusion
-    check("{- FOO -}", Exclude(Named(Ident::new("FOO"))));
+    check(
+        "{- FOO -}",
+        Exclude(Box::new(Symbol(Named(Ident::new("FOO"))))),
+    );
+
+    // exclusion of a quantified sub-pattern
+    check(
+        "{- FOO+ -}",
+        Exclude(Box::new(Repetition(
+            Box::new(Symbol(Named(Ident::new("FOO")))),
+            OneOrMore,
+        ))),
+    );
+
+    // exclusion directly after a symbol: the `{` opens an exclusion, not a
+    // range quantifier on the preceding symbol.
+    check(
+        "A {- B+ -} C+",
+        Concat(vec![
+            Symbol(Named(Ident::new("A"))),
+            Exclude(Box::new(Repetition(
+                Box::new(Symbol(Named(Ident::new("B")))),
+                OneOrMore,
+            ))),
+            Repetition(Box::new(Symbol(Named(Ident::new("C")))), OneOrMore),
+        ]),
+    );
 
     check(
         "PERMUTE(A, B, C)",
@@ -13522,7 +13548,7 @@ fn test_match_recognize_patterns() {
         "( {- S3 -} S4 )+",
         Repetition(
             Box::new(Group(Box::new(Concat(vec![
-                Exclude(Named(Ident::new("S3"))),
+                Exclude(Box::new(Symbol(Named(Ident::new("S3"))))),
                 Symbol(Named(Ident::new("S4"))),
             ])))),
             OneOrMore,
@@ -13545,7 +13571,7 @@ fn test_match_recognize_patterns() {
                 ),
                 Repetition(
                     Box::new(Group(Box::new(Concat(vec![
-                        Exclude(Named(Ident::new("S3"))),
+                        Exclude(Box::new(Symbol(Named(Ident::new("S3"))))),
                         Symbol(Named(Ident::new("S4"))),
                     ])))),
                     OneOrMore,

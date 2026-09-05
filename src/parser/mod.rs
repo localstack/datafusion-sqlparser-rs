@@ -18461,10 +18461,10 @@ impl<'a> Parser<'a> {
             }
             Token::LBrace => {
                 self.expect_token(&Token::Minus)?;
-                let symbol = self.parse_identifier().map(MatchRecognizeSymbol::Named)?;
+                let pattern = self.parse_pattern()?;
                 self.expect_token(&Token::Minus)?;
                 self.expect_token(&Token::RBrace)?;
-                Ok(MatchRecognizePattern::Exclude(symbol))
+                Ok(MatchRecognizePattern::Exclude(Box::new(pattern)))
             }
             Token::Word(Word {
                 value,
@@ -18500,6 +18500,13 @@ impl<'a> Parser<'a> {
                 Token::Mul => RepetitionQuantifier::ZeroOrMore,
                 Token::Plus => RepetitionQuantifier::OneOrMore,
                 Token::Placeholder(s) if s == "?" => RepetitionQuantifier::AtMostOne,
+                Token::LBrace if matches!(self.peek_token_ref().token, Token::Minus) => {
+                    // `{-` opens an exclusion (`{- pattern -}`), not a range
+                    // quantifier; hand the brace back to the concatenation
+                    // parser so `parse_base_pattern` can consume the exclusion.
+                    self.prev_token();
+                    break;
+                }
                 Token::LBrace => {
                     // quantifier is a range like {n} or {n,} or {,m} or {n,m}
                     let token = self.next_token();
@@ -18549,7 +18556,13 @@ impl<'a> Parser<'a> {
 
     fn parse_concat_pattern(&mut self) -> Result<MatchRecognizePattern, ParserError> {
         let mut patterns = vec![self.parse_repetition_pattern()?];
-        while !matches!(self.peek_token_ref().token, Token::RParen | Token::Pipe) {
+        // `Token::Minus` terminates a concatenation only as the leading half of
+        // a `-}` exclusion closer; a bare `-` is never a valid pattern element,
+        // so stopping here lets `{- <pattern> -}` nest a full sub-pattern.
+        while !matches!(
+            self.peek_token_ref().token,
+            Token::RParen | Token::Pipe | Token::Minus
+        ) {
             patterns.push(self.parse_repetition_pattern()?);
         }
         match <[MatchRecognizePattern; 1]>::try_from(patterns) {
