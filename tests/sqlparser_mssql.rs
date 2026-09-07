@@ -1933,6 +1933,7 @@ fn parse_create_table_with_valid_options() {
             ms_and_generic().verified_stmt(sql),
             Statement::CreateTable(CreateTable {
                 or_replace: false,
+                or_alter: false,
                 temporary: false,
                 external: false,
                 global: None,
@@ -2138,6 +2139,7 @@ fn parse_create_table_with_identity_column() {
             ms_and_generic().verified_stmt(sql),
             Statement::CreateTable(CreateTable {
                 or_replace: false,
+                or_alter: false,
                 temporary: false,
                 external: false,
                 global: None,

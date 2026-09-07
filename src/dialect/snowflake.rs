@@ -674,8 +674,9 @@ impl Dialect for SnowflakeDialect {
 
         if parser.parse_keyword(Keyword::CREATE) {
             // possibly CREATE STAGE
-            //[ OR  REPLACE ]
+            //[ OR  REPLACE ] | [ OR ALTER ]
             let or_replace = parser.parse_keywords(&[Keyword::OR, Keyword::REPLACE]);
+            let or_alter = parser.parse_keywords(&[Keyword::OR, Keyword::ALTER]);
 
             // CREATE [OR REPLACE] [SECURE] EXTERNAL FUNCTION
             if parser.parse_keywords(&[
@@ -818,8 +819,8 @@ impl Dialect for SnowflakeDialect {
             } else if parser.parse_keyword(Keyword::TABLE) {
                 return Some(
                     parse_create_table(
-                        or_replace, global, temporary, volatile, transient, iceberg, dynamic,
-                        hybrid, parser,
+                        or_replace, or_alter, global, temporary, volatile, transient, iceberg,
+                        dynamic, hybrid, parser,
                     )
                     .map(Into::into),
                 );
@@ -838,6 +839,9 @@ impl Dialect for SnowflakeDialect {
                 // `CREATE LOCAL GLOBAL TABLE` still surface as errors.
                 let mut back = 1;
                 if or_replace {
+                    back += 2
+                }
+                if or_alter {
                     back += 2
                 }
                 if temporary || volatile || transient || iceberg {
@@ -2268,6 +2272,7 @@ fn parse_alter_session(parser: &mut Parser, set: bool) -> Result<Statement, Pars
 #[allow(clippy::too_many_arguments)]
 pub fn parse_create_table(
     or_replace: bool,
+    or_alter: bool,
     global: Option<bool>,
     temporary: bool,
     volatile: bool,
@@ -2282,6 +2287,7 @@ pub fn parse_create_table(
 
     let mut builder = CreateTableBuilder::new(table_name)
         .or_replace(or_replace)
+        .or_alter(or_alter)
         .if_not_exists(if_not_exists)
         .temporary(temporary)
         .transient(transient)

@@ -702,6 +702,7 @@ fn test_duckdb_union_datatype() {
     assert_eq!(
         Statement::CreateTable(CreateTable {
             or_replace: Default::default(),
+            or_alter: Default::default(),
             temporary: Default::default(),
             external: Default::default(),
             global: Default::default(),

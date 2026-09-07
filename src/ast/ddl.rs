@@ -3327,6 +3327,9 @@ impl fmt::Display for CreateIndex {
 pub struct CreateTable {
     /// `OR REPLACE` clause
     pub or_replace: bool,
+    /// `OR ALTER` clause (Snowflake `CREATE OR ALTER` alters an existing
+    /// object in place instead of dropping and recreating it).
+    pub or_alter: bool,
     /// `TEMP` or `TEMPORARY` clause
     pub temporary: bool,
     /// `EXTERNAL` clause
@@ -3558,7 +3561,8 @@ impl fmt::Display for CreateTable {
         //   `CREATE TABLE t (a INT) AS SELECT a from t2`
         write!(
             f,
-            "CREATE {or_replace}{external}{global}{temporary}{transient}{volatile}{dynamic}{hybrid}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
+            "CREATE {or_alter}{or_replace}{external}{global}{temporary}{transient}{volatile}{dynamic}{hybrid}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
+            or_alter = if self.or_alter { "OR ALTER " } else { "" },
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             external = if self.external { "EXTERNAL " } else { "" },
             snapshot = if self.snapshot { "SNAPSHOT " } else { "" },

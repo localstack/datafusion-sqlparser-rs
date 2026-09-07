@@ -68,6 +68,8 @@ use crate::parser::ParserError;
 pub struct CreateTableBuilder {
     /// Whether the statement uses `OR REPLACE`.
     pub or_replace: bool,
+    /// Whether the statement uses `OR ALTER`.
+    pub or_alter: bool,
     /// Whether the table is `TEMPORARY`.
     pub temporary: bool,
     /// Whether the table is `EXTERNAL`.
@@ -215,6 +217,7 @@ impl CreateTableBuilder {
     pub fn new(name: ObjectName) -> Self {
         Self {
             or_replace: false,
+            or_alter: false,
             temporary: false,
             external: false,
             global: None,
@@ -290,6 +293,11 @@ impl CreateTableBuilder {
     /// Set `OR REPLACE` for the CREATE TABLE statement.
     pub fn or_replace(mut self, or_replace: bool) -> Self {
         self.or_replace = or_replace;
+        self
+    }
+    /// Set `OR ALTER` for the CREATE TABLE statement.
+    pub fn or_alter(mut self, or_alter: bool) -> Self {
+        self.or_alter = or_alter;
         self
     }
     /// Mark the table as `TEMPORARY`.
@@ -647,6 +655,7 @@ impl CreateTableBuilder {
     pub fn build(self) -> CreateTable {
         CreateTable {
             or_replace: self.or_replace,
+            or_alter: self.or_alter,
             temporary: self.temporary,
             external: self.external,
             global: self.global,
@@ -740,6 +749,7 @@ impl From<CreateTable> for CreateTableBuilder {
     fn from(table: CreateTable) -> Self {
         Self {
             or_replace: table.or_replace,
+            or_alter: table.or_alter,
             temporary: table.temporary,
             external: table.external,
             global: table.global,
