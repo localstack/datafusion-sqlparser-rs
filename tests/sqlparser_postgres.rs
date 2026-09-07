@@ -7696,6 +7696,7 @@ fn parse_trigger_related_functions() {
         create_table,
         CreateTable {
             or_replace: false,
+            or_alter: false,
             temporary: false,
             unlogged: false,
             external: false,

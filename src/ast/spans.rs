@@ -732,6 +732,7 @@ impl Spanned for CreateTable {
     fn span(&self) -> Span {
         let CreateTable {
             or_replace: _,    // bool
+            or_alter: _,      // bool
             temporary: _,     // bool
             unlogged: _,      // bool
             external: _,      // bool
