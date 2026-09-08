@@ -7756,7 +7756,7 @@ fn test_drop_account() {
         } => {
             assert!(!if_exists);
             assert_eq!("acc1", name.to_string());
-            assert_eq!("7", grace_period_in_days.to_string());
+            assert_eq!("7", grace_period_in_days.unwrap().to_string());
         }
         _ => unreachable!(),
     }
@@ -7773,7 +7773,24 @@ fn test_drop_account_if_exists() {
         } => {
             assert!(if_exists);
             assert_eq!("acc1", name.to_string());
-            assert_eq!("30", grace_period_in_days.to_string());
+            assert_eq!("30", grace_period_in_days.unwrap().to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_drop_account_without_grace_period() {
+    let sql = "DROP ACCOUNT acc1";
+    match snowflake().verified_stmt(sql) {
+        Statement::DropAccount {
+            if_exists,
+            name,
+            grace_period_in_days,
+        } => {
+            assert!(!if_exists);
+            assert_eq!("acc1", name.to_string());
+            assert!(grace_period_in_days.is_none());
         }
         _ => unreachable!(),
     }

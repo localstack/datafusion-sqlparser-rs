@@ -5812,9 +5812,12 @@ impl<'a> Parser<'a> {
     fn parse_drop_account(&mut self) -> Result<Statement, ParserError> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_identifier()?;
-        self.expect_keyword(Keyword::GRACE_PERIOD_IN_DAYS)?;
-        self.expect_token(&Token::Eq)?;
-        let grace_period_in_days = self.parse_expr()?;
+        let grace_period_in_days = if self.parse_keyword(Keyword::GRACE_PERIOD_IN_DAYS) {
+            self.expect_token(&Token::Eq)?;
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
         Ok(Statement::DropAccount {
             if_exists,
             name,
