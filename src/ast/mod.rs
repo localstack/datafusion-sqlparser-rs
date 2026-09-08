@@ -5183,7 +5183,7 @@ pub enum Statement {
         operation: AlterAccountOperation,
     },
     /// ```sql
-    /// DROP ACCOUNT [IF EXISTS] <name> GRACE_PERIOD_IN_DAYS = <int>
+    /// DROP ACCOUNT [IF EXISTS] <name> [GRACE_PERIOD_IN_DAYS = <int>]
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/drop-account>
     DropAccount {
@@ -5191,8 +5191,9 @@ pub enum Statement {
         if_exists: bool,
         /// Account name.
         name: Ident,
-        /// `GRACE_PERIOD_IN_DAYS = <int>` value.
-        grace_period_in_days: Expr,
+        /// Optional `GRACE_PERIOD_IN_DAYS = <int>` value. Real Snowflake checks
+        /// account existence before this clause, so it may be absent.
+        grace_period_in_days: Option<Expr>,
     },
     /// ```sql
     /// SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']
@@ -8291,7 +8292,11 @@ impl fmt::Display for Statement {
                 if *if_exists {
                     write!(f, "IF EXISTS ")?;
                 }
-                write!(f, "{name} GRACE_PERIOD_IN_DAYS = {grace_period_in_days}")
+                write!(f, "{name}")?;
+                if let Some(grace_period_in_days) = grace_period_in_days {
+                    write!(f, " GRACE_PERIOD_IN_DAYS = {grace_period_in_days}")?;
+                }
+                Ok(())
             }
             Statement::ShowAccounts { history, like } => {
                 write!(f, "SHOW ACCOUNTS")?;
