@@ -1332,7 +1332,13 @@ fn parse_file_staging_command(kw: Keyword, parser: &mut Parser) -> Result<Statem
     let stage = parse_snowflake_stage_name(parser)?;
     let pattern = if parser.parse_keyword(Keyword::PATTERN) {
         parser.expect_token(&Token::Eq)?;
-        Some(parser.parse_literal_string()?)
+        // `PATTERN = NULL` is accepted and means "no filter", so it carries no
+        // string here — distinct from a literal-string pattern.
+        if parser.parse_keyword(Keyword::NULL) {
+            None
+        } else {
+            Some(parser.parse_literal_string()?)
+        }
     } else {
         None
     };
