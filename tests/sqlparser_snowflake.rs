@@ -3008,6 +3008,32 @@ fn test_copy_into() {
         _ => unreachable!(),
     };
     assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    // A single-quoted internal-stage target (`'@stage/path/'`) is an unload
+    // location too, classified exactly like the quoted `'s3://…'` form.
+    let sql = concat!(
+        "COPY INTO '@my_stage/path/' ",
+        "FROM (SELECT * FROM tbl)"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CopyIntoSnowflake {
+            kind,
+            into,
+            from_obj,
+            from_query,
+            ..
+        } => {
+            assert_eq!(kind, CopyIntoSnowflakeKind::Location);
+            assert_eq!(
+                into,
+                ObjectName::from(vec![Ident::with_quote('\'', "@my_stage/path/")])
+            );
+            assert!(from_query.is_some());
+            assert!(from_obj.is_none());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
 }
 
 #[test]

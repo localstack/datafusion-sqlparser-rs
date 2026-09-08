@@ -2974,8 +2974,11 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
     let kind = match &parser.peek_token_ref().token {
         // Indicates an internal stage
         Token::AtSign => CopyIntoSnowflakeKind::Location,
-        // Indicates an external stage, i.e. s3://, gcs:// or azure://
-        Token::SingleQuotedString(s) if s.contains("://") => CopyIntoSnowflakeKind::Location,
+        // A quoted external stage (`'s3://…'`, `'gcs://…'`, `'azure://…'`) or a
+        // quoted internal stage (`'@stage/path/'`) is an unload location too.
+        Token::SingleQuotedString(s) if s.starts_with('@') || s.contains("://") => {
+            CopyIntoSnowflakeKind::Location
+        }
         _ => CopyIntoSnowflakeKind::Table,
     };
 
