@@ -5147,6 +5147,15 @@ pub enum Statement {
         grace_period_in_days: Option<Expr>,
     },
     /// ```sql
+    /// UNDROP ACCOUNT <name>
+    /// ```
+    /// Snowflake: restore a soft-dropped account within its grace period.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/undrop-account>
+    UndropAccount {
+        /// Account name.
+        name: Ident,
+    },
+    /// ```sql
     /// SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/show-accounts>
@@ -8238,6 +8247,9 @@ impl fmt::Display for Statement {
                     write!(f, " GRACE_PERIOD_IN_DAYS = {grace_period_in_days}")?;
                 }
                 Ok(())
+            }
+            Statement::UndropAccount { name } => {
+                write!(f, "UNDROP ACCOUNT {name}")
             }
             Statement::ShowAccounts { history, like } => {
                 write!(f, "SHOW ACCOUNTS")?;

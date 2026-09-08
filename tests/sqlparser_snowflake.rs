@@ -7797,6 +7797,17 @@ fn test_drop_account_without_grace_period() {
 }
 
 #[test]
+fn test_undrop_account() {
+    let sql = "UNDROP ACCOUNT acc1";
+    match snowflake().verified_stmt(sql) {
+        Statement::UndropAccount { name } => {
+            assert_eq!("acc1", name.to_string());
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn test_show_accounts() {
     let sql = "SHOW ACCOUNTS";
     match snowflake().verified_stmt(sql) {

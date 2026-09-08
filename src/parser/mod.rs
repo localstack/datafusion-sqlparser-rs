@@ -8332,6 +8332,10 @@ impl<'a> Parser<'a> {
     /// downstream with Snowflake's unsupported-feature error rather than a
     /// parse error.
     pub fn parse_undrop(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_keyword(Keyword::ACCOUNT) {
+            let name = self.parse_identifier()?;
+            return Ok(Statement::UndropAccount { name });
+        }
         let object_type = if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
             ObjectType::DynamicTable
         } else if self.parse_keyword(Keyword::TABLE) {
@@ -8346,7 +8350,7 @@ impl<'a> Parser<'a> {
             ObjectType::Alert
         } else {
             return self.expected_ref(
-                "ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, TABLE or VIEW after UNDROP",
+                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, TABLE or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };
