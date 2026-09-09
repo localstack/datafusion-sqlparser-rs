@@ -185,6 +185,11 @@ pub enum SetExpr {
     /// payload SQL is only known at runtime, so the contained statement carries
     /// the dynamic-SQL expression rather than a static query body.
     Execute(Statement),
+    /// `CALL` statement used as the query payload of a Snowflake `RESULTSET`
+    /// declaration or bare assignment (`RESULTSET DEFAULT (CALL p(...))`,
+    /// `r := (CALL p(...))`). The callee's result set becomes the resultset's
+    /// rows.
+    Call(Statement),
 }
 
 impl SetExpr {
@@ -215,6 +220,7 @@ impl fmt::Display for SetExpr {
             SetExpr::Table(t) => t.fmt(f),
             SetExpr::Show(v) => v.fmt(f),
             SetExpr::Execute(v) => v.fmt(f),
+            SetExpr::Call(v) => v.fmt(f),
             SetExpr::SetOperation {
                 left,
                 right,
