@@ -7868,6 +7868,11 @@ fn test_create_task_warehouse_schedule() {
             after,
             when_condition,
             suspend_task_after_num_failures,
+            user_task_timeout_ms,
+            user_task_managed_initial_warehouse_size,
+            error_integration,
+            allow_overlapping_execution,
+            task_auto_retry_attempts,
             comment,
             sql_body,
         } => {
@@ -7879,6 +7884,11 @@ fn test_create_task_warehouse_schedule() {
             assert!(after.is_empty());
             assert!(when_condition.is_none());
             assert!(suspend_task_after_num_failures.is_none());
+            assert!(user_task_timeout_ms.is_none());
+            assert!(user_task_managed_initial_warehouse_size.is_none());
+            assert!(error_integration.is_none());
+            assert!(allow_overlapping_execution.is_none());
+            assert!(task_auto_retry_attempts.is_none());
             assert!(comment.is_none());
             assert_eq!("SELECT 1", sql_body.to_string());
         }
