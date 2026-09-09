@@ -1033,6 +1033,7 @@ define_keywords!(
     SCHEMA,
     SCHEMAS,
     SCOPE,
+    SCOPED,
     SCROLL,
     SEARCH,
     SECOND,
