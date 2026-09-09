@@ -5649,6 +5649,9 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // Snowflake `SCOPED TEMPORARY` — a scope-lifetime temporary; the modifier
+        // is only ever written before TEMP/TEMPORARY and maps to a plain temporary.
+        let scoped = self.parse_one_of_keywords(&[Keyword::SCOPED]).is_some();
         let temporary = self
             .parse_one_of_keywords(&[Keyword::TEMP, Keyword::TEMPORARY])
             .is_some();
@@ -5656,6 +5659,9 @@ impl<'a> Parser<'a> {
         let unlogged = self.peek_keywords(&[Keyword::UNLOGGED, Keyword::TABLE]);
         if unlogged {
             self.expect_keyword(Keyword::UNLOGGED)?;
+        }
+        if scoped && !temporary {
+            return self.expected("TEMPORARY after SCOPED", self.peek_token());
         }
         let persistent = dialect_of!(self is DuckDbDialect)
             && self.parse_one_of_keywords(&[Keyword::PERSISTENT]).is_some();
