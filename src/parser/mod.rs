@@ -5834,6 +5834,11 @@ impl<'a> Parser<'a> {
         let mut after: Vec<ObjectName> = Vec::new();
         let mut when_condition: Option<Expr> = None;
         let mut suspend_task_after_num_failures: Option<u64> = None;
+        let mut user_task_timeout_ms: Option<u64> = None;
+        let mut user_task_managed_initial_warehouse_size: Option<String> = None;
+        let mut error_integration: Option<Ident> = None;
+        let mut allow_overlapping_execution: Option<bool> = None;
+        let mut task_auto_retry_attempts: Option<u64> = None;
         let mut comment: Option<String> = None;
 
         loop {
@@ -5848,6 +5853,11 @@ impl<'a> Parser<'a> {
                     after,
                     when_condition,
                     suspend_task_after_num_failures,
+                    user_task_timeout_ms,
+                    user_task_managed_initial_warehouse_size,
+                    error_integration,
+                    allow_overlapping_execution,
+                    task_auto_retry_attempts,
                     comment,
                     sql_body,
                 });
@@ -5865,6 +5875,21 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES) {
                 self.expect_token(&Token::Eq)?;
                 suspend_task_after_num_failures = Some(self.parse_literal_uint()?);
+            } else if self.parse_keyword(Keyword::USER_TASK_TIMEOUT_MS) {
+                self.expect_token(&Token::Eq)?;
+                user_task_timeout_ms = Some(self.parse_literal_uint()?);
+            } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
+                self.expect_token(&Token::Eq)?;
+                user_task_managed_initial_warehouse_size = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::ERROR_INTEGRATION) {
+                self.expect_token(&Token::Eq)?;
+                error_integration = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::ALLOW_OVERLAPPING_EXECUTION) {
+                self.expect_token(&Token::Eq)?;
+                allow_overlapping_execution = Some(self.parse_boolean_string()?);
+            } else if self.parse_keyword(Keyword::TASK_AUTO_RETRY_ATTEMPTS) {
+                self.expect_token(&Token::Eq)?;
+                task_auto_retry_attempts = Some(self.parse_literal_uint()?);
             } else if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);

@@ -5193,6 +5193,16 @@ pub enum Statement {
         when_condition: Option<Expr>,
         /// Optional `SUSPEND_TASK_AFTER_NUM_FAILURES = <num>` clause.
         suspend_task_after_num_failures: Option<u64>,
+        /// Optional task execution timeout in milliseconds.
+        user_task_timeout_ms: Option<u64>,
+        /// Optional initial size for a serverless task's managed warehouse.
+        user_task_managed_initial_warehouse_size: Option<String>,
+        /// Optional task failure notification integration.
+        error_integration: Option<Ident>,
+        /// Whether task runs may overlap.
+        allow_overlapping_execution: Option<bool>,
+        /// Optional number of automatic retry attempts.
+        task_auto_retry_attempts: Option<u64>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
         /// Body executed by the task.
@@ -8312,6 +8322,11 @@ impl fmt::Display for Statement {
                 after,
                 when_condition,
                 suspend_task_after_num_failures,
+                user_task_timeout_ms,
+                user_task_managed_initial_warehouse_size,
+                error_integration,
+                allow_overlapping_execution,
+                task_auto_retry_attempts,
                 comment,
                 sql_body,
             } => {
@@ -8341,6 +8356,21 @@ impl fmt::Display for Statement {
                 }
                 if let Some(n) = suspend_task_after_num_failures {
                     write!(f, " SUSPEND_TASK_AFTER_NUM_FAILURES = {n}")?;
+                }
+                if let Some(n) = user_task_timeout_ms {
+                    write!(f, " USER_TASK_TIMEOUT_MS = {n}")?;
+                }
+                if let Some(size) = user_task_managed_initial_warehouse_size {
+                    write!(f, " USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'")?;
+                }
+                if let Some(integration) = error_integration {
+                    write!(f, " ERROR_INTEGRATION = {integration}")?;
+                }
+                if let Some(allow) = allow_overlapping_execution {
+                    write!(f, " ALLOW_OVERLAPPING_EXECUTION = {allow}")?;
+                }
+                if let Some(n) = task_auto_retry_attempts {
+                    write!(f, " TASK_AUTO_RETRY_ATTEMPTS = {n}")?;
                 }
                 if let Some(c) = comment {
                     write!(f, " COMMENT = '{c}'")?;
