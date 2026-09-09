@@ -2590,6 +2590,133 @@ fn parse_snowflake_declare_show_payload() {
 }
 
 #[test]
+fn parse_snowflake_declare_call_payload() {
+    // The `CALL` payload embedded in a declaration's parenthesized subquery.
+    fn payload_call(stmt: Statement) -> Statement {
+        match stmt {
+            Statement::Declare { mut stmts } => {
+                assert_eq!(1, stmts.len());
+                let Declare { assignment, .. } = stmts.swap_remove(0);
+                let query = match assignment {
+                    Some(DeclareAssignment::Default(expr))
+                    | Some(DeclareAssignment::DuckAssignment(expr)) => match *expr {
+                        Expr::Subquery(query) => query,
+                        other => panic!("expected subquery payload, got {other:?}"),
+                    },
+                    other => panic!("unexpected declaration payload: {other:?}"),
+                };
+                match *query.body {
+                    SetExpr::Call(call) => call,
+                    other => panic!("expected CALL body, got {other:?}"),
+                }
+            }
+            other => panic!("expected DECLARE, got {other:?}"),
+        }
+    }
+
+    for sql in [
+        "DECLARE res RESULTSET DEFAULT (CALL p())",
+        "DECLARE res RESULTSET := (CALL p(1, 2))",
+    ] {
+        // Round-trips through Display, and the embedded statement is a CALL.
+        let stmt = snowflake().verified_stmt(sql);
+        assert!(matches!(payload_call(stmt), Statement::Call(_)));
+    }
+
+    // Mid-body `LET res RESULTSET := (CALL p())` routes through the same
+    // declaration shape.
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  LET res RESULTSET := (CALL q(1));
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("LET RESULTSET := (CALL ...) should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    let decl = match &begin_stmts[0] {
+        Statement::Declare { stmts } => &stmts[0],
+        other => panic!("expected Declare, got {other:?}"),
+    };
+    assert_eq!(decl.declare_type, Some(DeclareType::ResultSet));
+    match &decl.assignment {
+        Some(DeclareAssignment::DuckAssignment(expr)) => match expr.as_ref() {
+            Expr::Subquery(query) => assert!(matches!(*query.body, SetExpr::Call(_))),
+            other => panic!("expected subquery payload, got {other:?}"),
+        },
+        other => panic!("expected RESULTSET := assignment, got {other:?}"),
+    }
+
+    // Bare assignment `res := (CALL p())` to an already-declared RESULTSET.
+    let sql = r#"CREATE PROCEDURE p() RETURNS VARCHAR LANGUAGE SQL AS $$
+BEGIN
+  res := (CALL q(3));
+  RETURN 'OK';
+END $$"#;
+    let stmts = snowflake()
+        .parse_sql_statements(sql)
+        .expect("bare res := (CALL ...) should parse");
+    let body = match &stmts[0] {
+        Statement::CreateProcedure { body, .. } => body,
+        other => panic!("expected CreateProcedure, got {other:?}"),
+    };
+    let begin_stmts = match body {
+        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        other => panic!("expected BeginEnd body, got {other:?}"),
+    };
+    match &begin_stmts[0] {
+        Statement::Assignment { target, value } => {
+            assert_eq!(target.value, "res");
+            match value {
+                Expr::Subquery(query) => assert!(matches!(*query.body, SetExpr::Call(_))),
+                other => panic!("expected subquery payload, got {other:?}"),
+            }
+        }
+        other => panic!("expected Assignment, got {other:?}"),
+    }
+
+    // The pre-existing SELECT / SHOW / EXECUTE payloads are unaffected.
+    snowflake().verified_stmt("DECLARE res RESULTSET DEFAULT (SELECT price FROM invoices)");
+
+    // Parentheses are required: a bare `CALL` payload is rejected at the `CALL`
+    // keyword (Snowflake's `unexpected 'CALL'`), never parsed as an identifier.
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: CALL".to_owned()),
+        snowflake()
+            .parse_sql_statements("DECLARE res RESULTSET DEFAULT CALL p()")
+            .unwrap_err()
+    );
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: CALL".to_owned()),
+        snowflake()
+            .parse_sql_statements("DECLARE res RESULTSET := CALL p()")
+            .unwrap_err()
+    );
+
+    // `CURSOR FOR (CALL ...)` is rejected at the `CALL` keyword; the CALL
+    // payload is only accepted in the RESULTSET / bare-assignment positions.
+    assert_eq!(
+        ParserError::ParserError("Expected: an expression, found: CALL".to_owned()),
+        snowflake()
+            .parse_sql_statements("DECLARE cur CURSOR FOR (CALL p())")
+            .unwrap_err()
+    );
+
+    // Under a non-Snowflake dialect the parenthesized CALL payload still errors.
+    let generic = TestedDialects::new(vec![Box::new(GenericDialect {})]);
+    assert!(generic
+        .parse_sql_statements("DECLARE res RESULTSET DEFAULT (CALL p())")
+        .is_err());
+}
+
+#[test]
 fn parse_snowflake_declare_exception() {
     for (sql, expected_name, expected_assigned_expr) in [
         (

@@ -451,6 +451,14 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect accepts a parenthesized `CALL` statement as
+    /// the query payload of a `RESULTSET` declaration or bare assignment
+    /// (`res RESULTSET DEFAULT (CALL p(...))`, `res := (CALL p(...))`). Unlike
+    /// `SHOW`, this is not accepted in a `CURSOR FOR` payload.
+    fn supports_call_in_resultset(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the MATCH_RECOGNIZE operation.
     fn supports_match_recognize(&self) -> bool {
         false

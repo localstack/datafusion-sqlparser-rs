@@ -230,6 +230,11 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/resultsets>
+    fn supports_call_in_resultset(&self) -> bool {
+        true
+    }
+
     fn supports_match_recognize(&self) -> bool {
         true
     }

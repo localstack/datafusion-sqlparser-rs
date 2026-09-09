@@ -1104,12 +1104,13 @@ impl<'a> Parser<'a> {
                 && self.peek_nth_token_ref(1).token == Token::Assignment
             {
                 // bare assignment: var := expr
-                // Accepts `(EXECUTE IMMEDIATE …)` / `(SHOW …)` payloads the same
-                // way a RESULTSET declaration initializer does, so a dynamic
-                // query can be assigned to an existing RESULTSET variable.
+                // Accepts `(EXECUTE IMMEDIATE …)` / `(SHOW …)` / `(CALL …)`
+                // payloads the same way a RESULTSET declaration initializer
+                // does, so a dynamic query or procedure call can be assigned to
+                // an existing RESULTSET variable.
                 let target = self.parse_identifier()?;
                 self.expect_token(&Token::Assignment)?;
-                let value = self.parse_snowflake_declaration_payload_expr()?;
+                let value = self.parse_snowflake_declaration_payload_expr(true)?;
                 Statement::Assignment { target, value }
             } else if let Some(kind) = loop_control_keyword(&self.peek_nth_token_ref(0).token) {
                 // Loop-control statements only make sense inside a scripting
@@ -8717,14 +8718,14 @@ impl<'a> Parser<'a> {
                         Some(DeclareType::Cursor),
                         None,
                         Some(DeclareAssignment::For(Box::new(
-                            self.parse_snowflake_declaration_payload_expr()?,
+                            self.parse_snowflake_declaration_payload_expr(false)?,
                         ))),
                         None,
                     ),
                 }
             } else if self.parse_keyword(Keyword::RESULTSET) {
                 let assigned_expr = if self.peek_token_ref().token != Token::SemiColon {
-                    self.parse_snowflake_variable_declaration_expression()?
+                    self.parse_snowflake_variable_declaration_expression(true)?
                 } else {
                     // Nothing more to do. The statement has no further parameters.
                     None
@@ -8743,13 +8744,13 @@ impl<'a> Parser<'a> {
             } else {
                 // Without an explicit keyword, the only valid option is variable declaration.
                 let (assigned_expr, data_type) = if let Some(assigned_expr) =
-                    self.parse_snowflake_variable_declaration_expression()?
+                    self.parse_snowflake_variable_declaration_expression(false)?
                 {
                     (Some(assigned_expr), None)
                 } else if let Token::Word(_) = &self.peek_token_ref().token {
                     let data_type = self.parse_data_type()?;
                     (
-                        self.parse_snowflake_variable_declaration_expression()?,
+                        self.parse_snowflake_variable_declaration_expression(false)?,
                         Some(data_type),
                     )
                 } else {
@@ -8860,18 +8861,19 @@ impl<'a> Parser<'a> {
     /// <https://docs.snowflake.com/en/sql-reference/snowflake-scripting/declare#variable-declaration-syntax>
     pub fn parse_snowflake_variable_declaration_expression(
         &mut self,
+        allow_call: bool,
     ) -> Result<Option<DeclareAssignment>, ParserError> {
         Ok(match &self.peek_token_ref().token {
             Token::Word(w) if w.keyword == Keyword::DEFAULT => {
                 self.next_token(); // Skip `DEFAULT`
                 Some(DeclareAssignment::Default(Box::new(
-                    self.parse_snowflake_declaration_payload_expr()?,
+                    self.parse_snowflake_declaration_payload_expr(allow_call)?,
                 )))
             }
             Token::Assignment => {
                 self.next_token(); // Skip `:=`
                 Some(DeclareAssignment::DuckAssignment(Box::new(
-                    self.parse_snowflake_declaration_payload_expr()?,
+                    self.parse_snowflake_declaration_payload_expr(allow_call)?,
                 )))
             }
             _ => None,
@@ -8880,11 +8882,64 @@ impl<'a> Parser<'a> {
 
     /// Parses the expression payload of a Snowflake `RESULTSET` / `CURSOR`
     /// declaration. Identical to [`Parser::parse_expr`] except that, under a
-    /// dialect that allows it, a parenthesized `SHOW` statement is accepted as
-    /// the query payload and wrapped as an [`Expr::Subquery`] whose body is a
-    /// [`SetExpr::Show`]. The pre-existing `(SELECT ...)` subquery path is left
-    /// untouched.
-    fn parse_snowflake_declaration_payload_expr(&mut self) -> Result<Expr, ParserError> {
+    /// dialect that allows it, a parenthesized `SHOW` / `EXECUTE IMMEDIATE`
+    /// statement is accepted as the query payload and wrapped as an
+    /// [`Expr::Subquery`] whose body is a [`SetExpr::Show`] / [`SetExpr::Execute`].
+    /// When `allow_call` is set, a parenthesized `CALL` is likewise accepted and
+    /// wrapped as a [`SetExpr::Call`] — the `RESULTSET` initializer and
+    /// bare-assignment positions pass `true`, the `CURSOR FOR` position passes
+    /// `false` (Snowflake rejects `CURSOR FOR (CALL ...)`). The pre-existing
+    /// `(SELECT ...)` subquery path is left untouched.
+    fn parse_snowflake_declaration_payload_expr(
+        &mut self,
+        allow_call: bool,
+    ) -> Result<Expr, ParserError> {
+        let is_paren_call = allow_call
+            && self.dialect.supports_call_in_resultset()
+            && self.peek_nth_token_ref(0).token == Token::LParen
+            && matches!(
+                &self.peek_nth_token_ref(1).token,
+                Token::Word(w) if w.keyword == Keyword::CALL
+            );
+        if is_paren_call {
+            self.expect_token(&Token::LParen)?;
+            self.expect_keyword_is(Keyword::CALL)?;
+            let call = self.parse_call()?;
+            self.expect_token(&Token::RParen)?;
+            return Ok(Expr::Subquery(Box::new(Query {
+                with: None,
+                body: Box::new(SetExpr::Call(call)),
+                order_by: None,
+                limit_clause: None,
+                fetch: None,
+                locks: vec![],
+                for_clause: None,
+                settings: None,
+                format_clause: None,
+                pipe_operators: vec![],
+            })));
+        }
+        // Reject a `CALL` payload the accepted arm above did not consume. A bare
+        // (unparenthesized) `CALL` is never a valid payload expression, and a
+        // `(CALL ...)` in a position that forbids the procedure-call payload
+        // (`CURSOR FOR`, or any dialect without `supports_call_in_resultset`) is
+        // likewise invalid. Snowflake rejects both at the `CALL` keyword itself;
+        // the fork would otherwise parse `CALL` as a bare identifier and
+        // misreport the following token. Point the error at the `CALL` keyword.
+        let bare_call =
+            matches!(&self.peek_nth_token_ref(0).token, Token::Word(w) if w.keyword == Keyword::CALL);
+        let paren_call = self.peek_nth_token_ref(0).token == Token::LParen
+            && matches!(
+                &self.peek_nth_token_ref(1).token,
+                Token::Word(w) if w.keyword == Keyword::CALL
+            );
+        if bare_call {
+            return self.expected_ref("an expression", self.peek_nth_token_ref(0));
+        }
+        if paren_call {
+            self.expect_token(&Token::LParen)?;
+            return self.expected_ref("an expression", self.peek_nth_token_ref(0));
+        }
         let is_paren_execute = self.dialect.supports_execute_immediate()
             && self.peek_nth_token_ref(0).token == Token::LParen
             && matches!(
