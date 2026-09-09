@@ -784,6 +784,11 @@ impl Dialect for SnowflakeDialect {
                 false
             };
 
+            // `SCOPED` marks a temporary whose lifetime is the creating scope;
+            // Snowflake only ever writes it as `SCOPED TEMPORARY`, so it must be
+            // followed by TEMP/TEMPORARY and maps to a plain temporary.
+            let scoped = parser.parse_keyword(Keyword::SCOPED);
+
             match parser.parse_one_of_keywords(&[
                 Keyword::TEMP,
                 Keyword::TEMPORARY,
@@ -796,6 +801,10 @@ impl Dialect for SnowflakeDialect {
                 Some(Keyword::TRANSIENT) => transient = true,
                 Some(Keyword::ICEBERG) => iceberg = true,
                 _ => {}
+            }
+
+            if scoped && !temporary {
+                return Some(parser.expected("TEMPORARY after SCOPED", parser.peek_token()));
             }
 
             // CREATE [OR REPLACE] HYBRID TABLE — carried into the CreateTable
@@ -850,6 +859,9 @@ impl Dialect for SnowflakeDialect {
                     back += 2
                 }
                 if temporary || volatile || transient || iceberg {
+                    back += 1
+                }
+                if scoped {
                     back += 1
                 }
                 if hybrid {

@@ -45,6 +45,49 @@ fn test_snowflake_create_table() {
 }
 
 #[test]
+fn parse_sf_create_scoped_temporary() {
+    // Snowpark emits `CREATE SCOPED TEMPORARY …` for its session-scoped temps.
+    // `SCOPED` maps to a plain temporary and drops from the canonical DDL.
+    match snowflake().one_statement_parses_to(
+        "CREATE SCOPED TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE = CSV",
+        "CREATE TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE = CSV",
+    ) {
+        Statement::CreateFileFormat { temporary, .. } => assert!(temporary),
+        _ => unreachable!(),
+    }
+
+    match snowflake().one_statement_parses_to(
+        "CREATE SCOPED TEMPORARY TABLE t (a INT)",
+        "CREATE TEMPORARY TABLE t (a INT)",
+    ) {
+        Statement::CreateTable(CreateTable { temporary, .. }) => assert!(temporary),
+        _ => unreachable!(),
+    }
+
+    match snowflake().one_statement_parses_to(
+        "CREATE SCOPED TEMPORARY VIEW v AS SELECT 1",
+        "CREATE TEMPORARY VIEW v AS SELECT 1",
+    ) {
+        Statement::CreateView(CreateView { temporary, .. }) => assert!(temporary),
+        _ => unreachable!(),
+    }
+
+    // Snowflake has no bare `SCOPED`: it must be followed by TEMP/TEMPORARY.
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE SCOPED TABLE t (a INT)"),
+        Err(ParserError::ParserError(
+            "Expected: TEMPORARY after SCOPED, found: TABLE".to_string()
+        ))
+    );
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE SCOPED VIEW v AS SELECT 1"),
+        Err(ParserError::ParserError(
+            "Expected: TEMPORARY after SCOPED, found: VIEW".to_string()
+        ))
+    );
+}
+
+#[test]
 fn parse_sf_create_secure_view_and_materialized_view() {
     for sql in [
         "CREATE SECURE VIEW v AS SELECT 1",
