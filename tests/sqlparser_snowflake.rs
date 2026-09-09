@@ -7875,6 +7875,7 @@ fn test_create_task_warehouse_schedule() {
             task_auto_retry_attempts,
             comment,
             sql_body,
+            ..
         } => {
             assert!(!or_replace);
             assert!(!if_not_exists);
@@ -10375,4 +10376,66 @@ fn parse_sf_create_external_function_does_not_claim_other_external_ddl() {
     snowflake().verified_stmt(
         "CREATE EXTERNAL ACCESS INTEGRATION eai ALLOWED_NETWORK_RULES = (network_rule)",
     );
+}
+
+/// The `DEFAULT` keyword is preserved as `Expr::Default` when it is the entire
+/// right-hand side of an `UPDATE` / `MERGE … UPDATE` assignment, but stays an
+/// ordinary identifier anywhere it is part of a larger expression.
+#[test]
+fn parse_snowflake_update_set_default() {
+    fn update_values(stmt: &Statement) -> Vec<Expr> {
+        match stmt {
+            Statement::Update(update) => {
+                update.assignments.iter().map(|a| a.value.clone()).collect()
+            }
+            _ => unreachable!("expected UPDATE, got {stmt:?}"),
+        }
+    }
+
+    // Bare DEFAULT as the whole RHS — unqualified, qualified, and mixed with an
+    // ordinary assignment — parses to Expr::Default and round-trips.
+    match snowflake().verified_stmt("UPDATE t SET a = DEFAULT") {
+        stmt @ Statement::Update(_) => {
+            assert!(matches!(update_values(&stmt).as_slice(), [Expr::Default(_)]));
+        }
+        other => unreachable!("expected UPDATE, got {other:?}"),
+    }
+
+    let stmt = snowflake().verified_stmt("UPDATE t SET t.a = DEFAULT");
+    assert!(matches!(update_values(&stmt).as_slice(), [Expr::Default(_)]));
+
+    let stmt = snowflake().verified_stmt("UPDATE t SET a = 1, b = DEFAULT");
+    assert!(matches!(
+        update_values(&stmt).as_slice(),
+        [Expr::Value(_), Expr::Default(_)]
+    ));
+
+    // DEFAULT inside a larger expression stays an identifier so the emulator
+    // still rejects it as an invalid identifier at runtime.
+    let stmt = snowflake().verified_stmt("UPDATE t SET a = DEFAULT || 'x'");
+    assert!(matches!(
+        update_values(&stmt).as_slice(),
+        [Expr::BinaryOp { .. }]
+    ));
+
+    // The same keyword handling reaches MERGE's UPDATE action.
+    let sql = "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = DEFAULT";
+    match snowflake().verified_stmt(sql) {
+        Statement::Merge(Merge { clauses, .. }) => {
+            let action = &clauses[0].action;
+            match action {
+                MergeAction::Update(update) => {
+                    assert!(matches!(
+                        update.assignments.as_slice(),
+                        [Assignment {
+                            value: Expr::Default(_),
+                            ..
+                        }]
+                    ));
+                }
+                other => unreachable!("expected UPDATE action, got {other:?}"),
+            }
+        }
+        other => unreachable!("expected MERGE, got {other:?}"),
+    }
 }

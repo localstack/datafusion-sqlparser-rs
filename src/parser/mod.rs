@@ -20283,8 +20283,29 @@ impl<'a> Parser<'a> {
     pub fn parse_assignment(&mut self) -> Result<Assignment, ParserError> {
         let target = self.parse_assignment_target()?;
         self.expect_token(&Token::Eq)?;
-        let value = self.parse_expr()?;
+        let value = if dialect_of!(self is SnowflakeDialect)
+            && self.peek_keyword(Keyword::DEFAULT)
+            && self.assignment_rhs_ends_after_default()
+        {
+            Expr::Default(self.next_token().into())
+        } else {
+            self.parse_expr()?
+        };
         Ok(Assignment { target, value })
+    }
+
+    /// Returns `true` when the `DEFAULT` keyword the parser is positioned on is
+    /// the entire right-hand side of an assignment, i.e. the token that follows
+    /// it terminates the assignment (a comma, a clause keyword, or end of
+    /// input). This keeps `SET col = DEFAULT || 'x'` — where `DEFAULT` is part
+    /// of a larger expression — parsing as an ordinary identifier so it still
+    /// surfaces Snowflake's `invalid identifier 'DEFAULT'` error.
+    fn assignment_rhs_ends_after_default(&self) -> bool {
+        match &self.peek_nth_token_ref(1).token {
+            Token::Comma | Token::SemiColon | Token::RParen | Token::EOF => true,
+            Token::Word(w) => w.keyword != Keyword::NoKeyword,
+            _ => false,
+        }
     }
 
     /// Parse the left-hand side of an assignment, used in an UPDATE statement
