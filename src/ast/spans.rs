@@ -605,6 +605,8 @@ impl Spanned for Statement {
             Statement::DropSnowflakeSecret { .. } => Span::empty(),
             Statement::DescribeSnowflakeSecret { .. } => Span::empty(),
             Statement::ShowSnowflakeSecrets { .. } => Span::empty(),
+            Statement::CreateSnowflakeIndex { .. } => Span::empty(),
+            Statement::ShowIndexes { .. } => Span::empty(),
             Statement::ShowProcedures { .. } => Span::empty(),
             Statement::ShowConnections { .. } => Span::empty(),
             Statement::ShowShares { .. } => Span::empty(),

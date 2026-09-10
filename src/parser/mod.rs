@@ -8251,6 +8251,7 @@ impl<'a> Parser<'a> {
             ObjectType::DynamicTable
         } else if self.parse_keyword(Keyword::TABLE)
             || self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE])
+            || self.parse_keywords(&[Keyword::HYBRID, Keyword::TABLE])
         {
             ObjectType::Table
         } else if self.parse_keyword(Keyword::COLLATION) {

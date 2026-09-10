@@ -759,6 +759,16 @@ impl Dialect for SnowflakeDialect {
                 return Some(parse_create_secret(or_replace, parser));
             }
 
+            // CREATE OR REPLACE INDEX (secondary index on a hybrid table).
+            // Only the `OR REPLACE` form is intercepted here: the generic
+            // `parse_create` rejects `OR REPLACE` before its INDEX branch, and no
+            // other dialect accepts `OR REPLACE INDEX`, so a narrow Snowflake node
+            // is safe. Plain `CREATE INDEX` falls through to the generic
+            // `CreateIndex` node, preserving cross-dialect parse parity.
+            if or_replace && parser.parse_keyword(Keyword::INDEX) {
+                return Some(parse_create_snowflake_index(or_replace, parser));
+            }
+
             // LOCAL | GLOBAL
             let global = match parser.parse_one_of_keywords(&[Keyword::LOCAL, Keyword::GLOBAL]) {
                 Some(Keyword::LOCAL) => Some(false),
@@ -947,6 +957,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::SEQUENCES) {
                 return Some(parse_show_sequences(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::INDEXES) {
+                return Some(parse_show_indexes(terse, parser));
             }
             if parser.parse_keyword(Keyword::PRIMARY) {
                 return Some(parse_show_keys(ShowKeysKind::Primary, terse, parser));
@@ -4800,6 +4813,42 @@ fn parse_describe_secret(parser: &mut Parser) -> Result<Statement, ParserError> 
 fn parse_show_secrets(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowSnowflakeSecrets { show_options })
+}
+
+/// Parse `CREATE [OR REPLACE] INDEX [IF NOT EXISTS] <name> ON <table>
+/// ( <col> [, ...] ) [ INCLUDE ( <col> [, ...] ) ]`.
+fn parse_create_snowflake_index(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_identifier()?;
+    parser.expect_keyword(Keyword::ON)?;
+    let table_name = parser.parse_object_name(false)?;
+    let columns = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
+    let include = if parser.parse_keyword(Keyword::INCLUDE) {
+        parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?
+    } else {
+        vec![]
+    };
+    Ok(Statement::CreateSnowflakeIndex {
+        or_replace,
+        if_not_exists,
+        name,
+        table_name,
+        columns,
+        include,
+    })
+}
+
+/// Parse `SHOW [TERSE] INDEXES [LIKE '<pattern>'] [IN <scope>]
+/// [STARTS WITH ...] [LIMIT ...]`.
+fn parse_show_indexes(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowIndexes {
+        terse,
+        show_options,
+    })
 }
 
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`

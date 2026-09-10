@@ -5839,6 +5839,39 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] INDEX [IF NOT EXISTS] <name>
+    ///   ON <table> ( <col> [, ...] ) [ INCLUDE ( <col> [, ...] ) ]
+    /// ```
+    /// A Snowflake secondary index on a hybrid table. Deliberately narrower than
+    /// the PG-flavoured [`Statement::CreateIndex`], which carries clauses
+    /// (`USING`, `CONCURRENTLY`, `WITH`, predicate, …) that Snowflake has no use
+    /// for.
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-index>
+    CreateSnowflakeIndex {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Index name (table-scoped, unqualified).
+        name: Ident,
+        /// The table the index is defined on.
+        table_name: ObjectName,
+        /// The indexed key columns.
+        columns: Vec<Ident>,
+        /// The `INCLUDE (...)` payload columns (empty when absent).
+        include: Vec<Ident>,
+    },
+    /// ```sql
+    /// SHOW [TERSE] INDEXES [ LIKE '<pattern>' ] [ IN <scope> ]
+    ///   [ STARTS WITH '<s>' ] [ LIMIT <n> [ FROM '<s>' ] ]
+    /// ```
+    ShowIndexes {
+        /// Whether to show terse output.
+        terse: bool,
+        /// Options controlling the SHOW output (`LIKE` / `IN` / `LIMIT` / ...).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
@@ -8937,6 +8970,36 @@ impl fmt::Display for Statement {
             }
             Statement::ShowSnowflakeSecrets { show_options } => {
                 write!(f, "SHOW SECRETS{show_options}")
+            }
+            Statement::CreateSnowflakeIndex {
+                or_replace,
+                if_not_exists,
+                name,
+                table_name,
+                columns,
+                include,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}INDEX {if_not_exists}{name} ON {table_name} ({columns})",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    columns = display_comma_separated(columns),
+                )?;
+                if !include.is_empty() {
+                    write!(f, " INCLUDE ({})", display_comma_separated(include))?;
+                }
+                Ok(())
+            }
+            Statement::ShowIndexes {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}INDEXES{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
             }
             Statement::ShowProcedures { show_options } => {
                 write!(f, "SHOW PROCEDURES{show_options}")?;
