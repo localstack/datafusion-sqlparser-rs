@@ -3633,6 +3633,8 @@ pub struct LockClause {
     pub of: Option<ObjectName>,
     /// Optional non-blocking behavior (`NOWAIT` / `SKIP LOCKED`).
     pub nonblock: Option<NonBlock>,
+    /// Optional Snowflake bounded wait, in seconds.
+    pub wait_seconds: Option<u64>,
 }
 
 impl fmt::Display for LockClause {
@@ -3643,6 +3645,9 @@ impl fmt::Display for LockClause {
         }
         if let Some(ref nb) = self.nonblock {
             write!(f, " {nb}")?;
+        }
+        if let Some(seconds) = self.wait_seconds {
+            write!(f, " WAIT {seconds}")?;
         }
         Ok(())
     }

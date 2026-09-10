@@ -1267,6 +1267,7 @@ define_keywords!(
     VOLATILE,
     VOLUME,
     VOLUMES,
+    WAIT,
     WAITFOR,
     WAREHOUSE,
     WAREHOUSES,
