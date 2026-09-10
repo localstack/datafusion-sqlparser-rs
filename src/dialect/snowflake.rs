@@ -29,8 +29,8 @@ use crate::ast::helpers::stmt_data_loading::{
 use crate::ast::{
     AlterAlertOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterDatabaseRoleOperation, AlterNetworkRuleOperation, AlterRoleOperation,
-    AlterSnowflakeSecretOperation,
+    AlterDatabaseRoleOperation, AlterNetworkRuleOperation, AlterPasswordPolicyOperation,
+    AlterRoleOperation, AlterSnowflakeSecretOperation,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -509,6 +509,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_masking_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::PASSWORD, Keyword::POLICY]) {
+            // ALTER PASSWORD POLICY
+            return Some(parse_alter_password_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::NETWORK, Keyword::RULE]) {
             // ALTER NETWORK RULE
             return Some(parse_alter_network_rule(parser));
@@ -603,6 +608,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_masking_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::PASSWORD, Keyword::POLICY]) {
+            // DROP PASSWORD POLICY
+            return Some(parse_drop_password_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::NETWORK, Keyword::RULE]) {
             // DROP NETWORK RULE
             return Some(parse_drop_network_rule(parser));
@@ -664,6 +674,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
                 // DESC[RIBE] MASKING POLICY
                 return Some(parse_describe_masking_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICY]) {
+                // DESC[RIBE] PASSWORD POLICY
+                return Some(parse_describe_password_policy(parser));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 // DESC[RIBE] NETWORK RULE
@@ -747,6 +761,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] MASKING POLICY
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICY]) {
                 return Some(parse_create_masking_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] PASSWORD POLICY
+            if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICY]) {
+                return Some(parse_create_password_policy(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] NETWORK RULE
@@ -978,6 +997,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::MASKING, Keyword::POLICIES]) {
                 return Some(parse_show_masking_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICIES]) {
+                return Some(parse_show_password_policies(parser));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
@@ -4629,6 +4651,67 @@ fn parse_describe_masking_policy(parser: &mut Parser) -> Result<Statement, Parse
 fn parse_show_masking_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowMaskingPolicies { show_options })
+}
+
+/// Parse `CREATE [OR REPLACE] PASSWORD POLICY [IF NOT EXISTS] <name>
+///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]`. Properties are a
+/// space-separated `KEY = VALUE` bag (ADR 094 §1).
+fn parse_create_password_policy(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreatePasswordPolicy {
+        or_replace,
+        if_not_exists,
+        name,
+        options,
+    })
+}
+
+/// Parse `ALTER PASSWORD POLICY [IF EXISTS] <name>
+///   { SET <prop> = <v> [, ...] | UNSET <prop> [, ...] | RENAME TO <name> }`.
+/// `SET` / `UNSET` are comma-separated for this kind (ADR 094 §1).
+fn parse_alter_password_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterPasswordPolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterPasswordPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterPasswordPolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+    } else {
+        return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterPasswordPolicy {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP PASSWORD POLICY [IF EXISTS] <name>`
+fn parse_drop_password_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropPasswordPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] PASSWORD POLICY <name>`
+fn parse_describe_password_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribePasswordPolicy { name })
+}
+
+/// Parse `SHOW PASSWORD POLICIES [LIKE '<pattern>'] [IN <scope>]`
+fn parse_show_password_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowPasswordPolicies { show_options })
 }
 
 /// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when

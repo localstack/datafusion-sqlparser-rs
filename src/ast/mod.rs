@@ -66,8 +66,9 @@ pub use self::ddl::{
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
     AlterIndexOperation, AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator,
     AlterOperatorClass, AlterOperatorClassOperation, AlterOperatorFamily,
-    AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy, AlterPolicyOperation,
-    AlterProcedure, AlterProcedureOperation, AlterSchema, AlterSchemaOperation,
+    AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPasswordPolicyOperation,
+    AlterPolicy, AlterPolicyOperation, AlterProcedure, AlterProcedureOperation, AlterSchema,
+    AlterSchemaOperation,
     AlterSnowflakeSecretOperation, AlterTable, AlterTableAlgorithm, AlterTableLock,
     AlterTableOperation, AlterTableType, AlterTagOperation, AlterType, AlterTypeAddValue,
     AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
@@ -5724,6 +5725,57 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] PASSWORD POLICY [IF NOT EXISTS] <name>
+    ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-password-policy>
+    CreatePasswordPolicy {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Space-separated property bag (includes `COMMENT`).
+        options: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER PASSWORD POLICY [IF EXISTS] <name>
+    ///   { SET <prop> = <v> [, ...] | UNSET <prop> [, ...] | RENAME TO <name> }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-password-policy>
+    AlterPasswordPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterPasswordPolicyOperation,
+    },
+    /// ```sql
+    /// DROP PASSWORD POLICY [IF EXISTS] <name>
+    /// ```
+    DropPasswordPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] PASSWORD POLICY <name>
+    /// ```
+    DescribePasswordPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW PASSWORD POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    ShowPasswordPolicies {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
     ///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
     ///   [ COMMENT = '<comment>' ]
@@ -8865,6 +8917,47 @@ impl fmt::Display for Statement {
             }
             Statement::ShowMaskingPolicies { show_options } => {
                 write!(f, "SHOW MASKING POLICIES{show_options}")
+            }
+            Statement::CreatePasswordPolicy {
+                or_replace,
+                if_not_exists,
+                name,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}PASSWORD POLICY {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterPasswordPolicy {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER PASSWORD POLICY {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropPasswordPolicy { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP PASSWORD POLICY {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribePasswordPolicy { name } => {
+                write!(f, "DESCRIBE PASSWORD POLICY {name}")
+            }
+            Statement::ShowPasswordPolicies { show_options } => {
+                write!(f, "SHOW PASSWORD POLICIES{show_options}")
             }
             Statement::CreateNetworkRule {
                 or_replace,
