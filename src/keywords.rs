@@ -570,6 +570,7 @@ define_keywords!(
     INCREMENTAL,
     INDEX,
     INDEXED,
+    INDEXES,
     INDICATOR,
     INHERIT,
     INHERITS,
