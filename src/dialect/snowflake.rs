@@ -872,6 +872,10 @@ impl Dialect for SnowflakeDialect {
                 }
             }
         }
+        if parser.parse_keywords(&[Keyword::COPY, Keyword::FILES, Keyword::INTO]) {
+            // COPY FILES INTO @dst FROM @src — stage-to-stage file copy.
+            return Some(parse_copy_files_into(parser));
+        }
         if parser.parse_keywords(&[Keyword::COPY, Keyword::INTO]) {
             // COPY INTO
             return Some(parse_copy_into(parser));
@@ -3208,6 +3212,119 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         validation_mode,
         partition,
     })
+}
+
+/// Parses `COPY FILES INTO @dst[/path] FROM @src[/path]
+/// [ FILES = ('f' [, …]) ] [ PATTERN = '<regex>' ]
+/// [ DETAILED_OUTPUT = { TRUE | FALSE } ]` — the stage-to-stage file copy.
+///
+/// Both the target and the source must be `@`-prefixed stage locations; a bare
+/// identifier target is a syntax error (matching Snowflake). `DETAILED_OUTPUT`
+/// and any other option ride in `copy_options` as key/value pairs, keeping the
+/// boolean-vs-string distinction (`TRUE` vs `'TRUE'`) so the transform layer can
+/// reject a mistyped `DETAILED_OUTPUT` value.
+pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let into = parse_at_stage_name(parser)?;
+    parser.expect_keyword_is(Keyword::FROM)?;
+    let from_stage = parse_at_stage_name(parser)?;
+
+    let mut files: Vec<ValueWithSpan> = vec![];
+    let mut pattern = None;
+    let mut copy_options = Vec::new();
+
+    loop {
+        if parser.parse_keyword(Keyword::FILES) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            while parser.peek_token_ref().token != Token::RParen {
+                let next_token = parser.next_token();
+                match next_token.token {
+                    Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                        parser.prev_token();
+                        files.push(parser.parse_value()?);
+                    }
+                    _ => parser.expected("file token", next_token)?,
+                };
+                if !parser.consume_token(&Token::Comma) {
+                    break;
+                }
+            }
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::PATTERN) {
+            parser.expect_token(&Token::Eq)?;
+            let next_token = parser.next_token();
+            pattern = Some(match next_token.token {
+                Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                    parser.prev_token();
+                    parser.parse_value()?
+                }
+                _ => parser.expected("pattern", next_token)?,
+            });
+        } else {
+            match parser.next_token().token {
+                // Leave the statement terminator for the caller (a `BEGIN … END`
+                // body consumes its own `;`).
+                Token::SemiColon => {
+                    parser.prev_token();
+                    break;
+                }
+                Token::EOF => break,
+                Token::Comma => continue,
+                Token::Word(key) => copy_options.push(parser.parse_key_value_option(&key, false)?),
+                _ => {
+                    return parser
+                        .expected_ref("a COPY FILES option, ; or EOF", parser.peek_token_ref())
+                }
+            }
+        }
+    }
+
+    Ok(Statement::CopyIntoSnowflake {
+        kind: CopyIntoSnowflakeKind::Files,
+        into,
+        into_columns: None,
+        from_obj: Some(from_stage),
+        from_obj_alias: None,
+        from_obj_args: None,
+        stage_params: StageParamsObject {
+            url: None,
+            encryption: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+            endpoint: None,
+            storage_integration: None,
+            credentials: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+        },
+        from_transformations: None,
+        from_query: None,
+        files: if files.is_empty() { None } else { Some(files) },
+        pattern,
+        file_format: KeyValueOptions {
+            options: vec![],
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        copy_options: KeyValueOptions {
+            options: copy_options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        },
+        validation_mode: None,
+        partition: None,
+    })
+}
+
+/// Parse a stage location that must begin with `@`. Unlike
+/// [`parse_snowflake_stage_name`], a bare identifier (no leading `@`) is
+/// rejected as a syntax error at the offending token — `COPY FILES` accepts only
+/// stage references on both sides.
+fn parse_at_stage_name(parser: &mut Parser) -> Result<ObjectName, ParserError> {
+    match &parser.peek_token_ref().token {
+        Token::AtSign | Token::Placeholder(_) => parse_snowflake_stage_name(parser),
+        _ => parser.expected_ref("a stage location starting with '@'", parser.peek_token_ref()),
+    }
 }
 
 fn parse_select_items_for_data_load(

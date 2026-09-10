@@ -9352,7 +9352,11 @@ impl fmt::Display for Statement {
                 validation_mode,
                 partition,
             } => {
-                write!(f, "COPY INTO {into}")?;
+                let verb = match kind {
+                    CopyIntoSnowflakeKind::Files => "COPY FILES INTO",
+                    CopyIntoSnowflakeKind::Table | CopyIntoSnowflakeKind::Location => "COPY INTO",
+                };
+                write!(f, "{verb} {into}")?;
                 if let Some(into_columns) = into_columns {
                     write!(f, " ({})", display_comma_separated(into_columns))?;
                 }
@@ -9405,7 +9409,9 @@ impl fmt::Display for Statement {
                         CopyIntoSnowflakeKind::Table => {
                             write!(f, " COPY_OPTIONS=({copy_options})")?
                         }
-                        CopyIntoSnowflakeKind::Location => write!(f, " {copy_options}")?,
+                        CopyIntoSnowflakeKind::Location | CopyIntoSnowflakeKind::Files => {
+                            write!(f, " {copy_options}")?
+                        }
                     }
                 }
                 if let Some(validation_mode) = validation_mode {
@@ -15562,6 +15568,10 @@ pub enum CopyIntoSnowflakeKind {
     /// Unloads data from a table or query to external files
     /// See: <https://docs.snowflake.com/en/sql-reference/sql/copy-into-location>
     Location,
+    /// Copies files between stages without loading them.
+    /// `COPY FILES INTO @dst FROM @src`.
+    /// See: <https://docs.snowflake.com/en/sql-reference/sql/copy-files>
+    Files,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
