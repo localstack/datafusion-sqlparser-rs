@@ -21133,10 +21133,16 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        let wait_seconds = if nonblock.is_none() && self.parse_keyword(Keyword::WAIT) {
+            Some(self.parse_literal_uint()?)
+        } else {
+            None
+        };
         Ok(LockClause {
             lock_type,
             of,
             nonblock,
+            wait_seconds,
         })
     }
 
