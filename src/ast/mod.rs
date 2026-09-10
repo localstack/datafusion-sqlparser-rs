@@ -14869,7 +14869,7 @@ impl fmt::Display for AlterAccountOperation {
 /// Action for [`Statement::AlterTask`].
 ///
 /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-task>.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTaskAction {
@@ -14877,6 +14877,10 @@ pub enum AlterTaskAction {
     Resume,
     /// `SUSPEND`
     Suspend,
+    /// `ADD AFTER <task> [, <task> ...]`
+    AddAfter(Vec<ObjectName>),
+    /// `REMOVE AFTER <task> [, <task> ...]`
+    RemoveAfter(Vec<ObjectName>),
 }
 
 impl fmt::Display for AlterTaskAction {
@@ -14884,6 +14888,16 @@ impl fmt::Display for AlterTaskAction {
         match self {
             AlterTaskAction::Resume => write!(f, "RESUME"),
             AlterTaskAction::Suspend => write!(f, "SUSPEND"),
+            AlterTaskAction::AddAfter(tasks) => write!(
+                f,
+                "ADD AFTER {}",
+                display_comma_separated(tasks)
+            ),
+            AlterTaskAction::RemoveAfter(tasks) => write!(
+                f,
+                "REMOVE AFTER {}",
+                display_comma_separated(tasks)
+            ),
         }
     }
 }

@@ -8173,6 +8173,29 @@ fn test_alter_task_resume() {
         }
         _ => unreachable!(),
     }
+
+    for (sql, expected) in [
+        (
+            "ALTER TASK foo ADD AFTER root, db.schema.other",
+            AlterTaskAction::AddAfter(vec![
+                ObjectName::from(vec![Ident::new("root")]),
+                ObjectName::from(vec![
+                    Ident::new("db"),
+                    Ident::new("schema"),
+                    Ident::new("other"),
+                ]),
+            ]),
+        ),
+        (
+            "ALTER TASK foo REMOVE AFTER root",
+            AlterTaskAction::RemoveAfter(vec![ObjectName::from(vec![Ident::new("root")])]),
+        ),
+    ] {
+        match snowflake().verified_stmt(sql) {
+            Statement::AlterTask { action, .. } => assert_eq!(expected, action),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[test]

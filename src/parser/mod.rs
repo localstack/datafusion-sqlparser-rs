@@ -12379,7 +12379,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::AlterAccount { name, operation })
     }
 
-    /// Parse `ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND }`.
+    /// Parse `ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND | { ADD | REMOVE } AFTER ... }`.
     pub fn parse_alter_task(&mut self) -> Result<Statement, ParserError> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
@@ -12387,8 +12387,21 @@ impl<'a> Parser<'a> {
             AlterTaskAction::Resume
         } else if self.parse_keyword(Keyword::SUSPEND) {
             AlterTaskAction::Suspend
+        } else if self.parse_keyword(Keyword::ADD) {
+            self.expect_keyword(Keyword::AFTER)?;
+            AlterTaskAction::AddAfter(
+                self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+            )
+        } else if self.parse_keyword(Keyword::REMOVE) {
+            self.expect_keyword(Keyword::AFTER)?;
+            AlterTaskAction::RemoveAfter(
+                self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+            )
         } else {
-            return self.expected("RESUME or SUSPEND after ALTER TASK", self.peek_token());
+            return self.expected(
+                "RESUME, SUSPEND, ADD AFTER, or REMOVE AFTER after ALTER TASK",
+                self.peek_token(),
+            );
         };
         Ok(Statement::AlterTask {
             if_exists,
