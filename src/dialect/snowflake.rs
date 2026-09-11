@@ -45,7 +45,7 @@ use crate::ast::{
     MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
     MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
     OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
-    ShowKeysKind, ShowObjects, SqlOption, Statement, StorageLifecyclePolicy,
+    ShowKeysKind, ShowObjects, ShowPolicyEntity, SqlOption, Statement, StorageLifecyclePolicy,
     StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
     WrappedCollection,
 };
@@ -4755,10 +4755,31 @@ fn parse_describe_password_policy(parser: &mut Parser) -> Result<Statement, Pars
     Ok(Statement::DescribePasswordPolicy { name })
 }
 
-/// Parse `SHOW PASSWORD POLICIES [LIKE '<pattern>'] [IN <scope>]`
+/// Parse the optional `ON { ACCOUNT | USER <name> }` entity scope that follows
+/// the SHOW options on the entity-scoped `SHOW <kind> POLICIES` form.
+fn maybe_parse_show_policy_on_entity(
+    parser: &mut Parser,
+) -> Result<Option<ShowPolicyEntity>, ParserError> {
+    if !parser.parse_keyword(Keyword::ON) {
+        return Ok(None);
+    }
+    if parser.parse_keyword(Keyword::ACCOUNT) {
+        Ok(Some(ShowPolicyEntity::Account))
+    } else if parser.parse_keyword(Keyword::USER) {
+        Ok(Some(ShowPolicyEntity::User(parser.parse_object_name(false)?)))
+    } else {
+        parser.expected_ref("ACCOUNT or USER", parser.peek_token_ref())
+    }
+}
+
+/// Parse `SHOW PASSWORD POLICIES [LIKE '<pattern>'] [IN <scope> | ON <entity>]`
 fn parse_show_password_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
-    Ok(Statement::ShowPasswordPolicies { show_options })
+    let on_entity = maybe_parse_show_policy_on_entity(parser)?;
+    Ok(Statement::ShowPasswordPolicies {
+        show_options,
+        on_entity,
+    })
 }
 
 /// Parse `CREATE [OR REPLACE] SESSION POLICY [IF NOT EXISTS] <name>
@@ -4861,10 +4882,14 @@ fn parse_describe_session_policy(parser: &mut Parser) -> Result<Statement, Parse
     Ok(Statement::DescribeSessionPolicy { name })
 }
 
-/// Parse `SHOW SESSION POLICIES [LIKE '<pattern>'] [IN <scope>]`
+/// Parse `SHOW SESSION POLICIES [LIKE '<pattern>'] [IN <scope> | ON <entity>]`
 fn parse_show_session_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
-    Ok(Statement::ShowSessionPolicies { show_options })
+    let on_entity = maybe_parse_show_policy_on_entity(parser)?;
+    Ok(Statement::ShowSessionPolicies {
+        show_options,
+        on_entity,
+    })
 }
 
 /// Parse `DROP AUTHENTICATION POLICY [IF EXISTS] <name>`
@@ -4880,10 +4905,14 @@ fn parse_describe_authentication_policy(parser: &mut Parser) -> Result<Statement
     Ok(Statement::DescribeAuthenticationPolicy { name })
 }
 
-/// Parse `SHOW AUTHENTICATION POLICIES [LIKE '<pattern>'] [IN <scope>]`
+/// Parse `SHOW AUTHENTICATION POLICIES [LIKE '<pattern>'] [IN <scope> | ON <entity>]`
 fn parse_show_authentication_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
-    Ok(Statement::ShowAuthenticationPolicies { show_options })
+    let on_entity = maybe_parse_show_policy_on_entity(parser)?;
+    Ok(Statement::ShowAuthenticationPolicies {
+        show_options,
+        on_entity,
+    })
 }
 
 /// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when
