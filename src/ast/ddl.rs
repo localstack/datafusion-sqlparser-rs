@@ -1541,6 +1541,36 @@ impl fmt::Display for AlterPasswordPolicyOperation {
     }
 }
 
+/// An operation on a session policy in an `ALTER SESSION POLICY` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterSessionPolicyOperation {
+    /// `SET <prop> = <value> [ <prop> = <value> ...]` (space-separated).
+    Set(KeyValueOptions),
+    /// `UNSET <prop> [, <prop> ...]` (comma-separated property names).
+    Unset(Vec<Ident>),
+    /// `RENAME TO <name>`
+    RenameTo {
+        /// The new policy name.
+        new_name: ObjectName,
+    },
+}
+
+impl fmt::Display for AlterSessionPolicyOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterSessionPolicyOperation::Set(options) => write!(f, "SET {options}"),
+            AlterSessionPolicyOperation::Unset(props) => {
+                write!(f, "UNSET {}", display_comma_separated(props))
+            }
+            AlterSessionPolicyOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+        }
+    }
+}
+
 /// An operation on a network rule in an `ALTER NETWORK RULE` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
