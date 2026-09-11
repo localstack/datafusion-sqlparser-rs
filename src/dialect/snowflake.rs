@@ -29,8 +29,9 @@ use crate::ast::helpers::stmt_data_loading::{
 use crate::ast::{
     AlterAlertOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
-    AlterDatabaseRoleOperation, AlterNetworkRuleOperation, AlterPasswordPolicyOperation,
-    AlterRoleOperation, AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
+    AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
+    AlterPasswordPolicyOperation, AlterRoleOperation, AlterSessionPolicyOperation,
+    AlterSnowflakeSecretOperation,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -521,6 +522,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_session_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::AUTHENTICATION, Keyword::POLICY]) {
+            // ALTER AUTHENTICATION POLICY
+            return Some(parse_alter_authentication_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::NETWORK, Keyword::RULE]) {
             // ALTER NETWORK RULE
             return Some(parse_alter_network_rule(parser));
@@ -625,6 +631,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_session_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::AUTHENTICATION, Keyword::POLICY]) {
+            // DROP AUTHENTICATION POLICY
+            return Some(parse_drop_authentication_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::NETWORK, Keyword::RULE]) {
             // DROP NETWORK RULE
             return Some(parse_drop_network_rule(parser));
@@ -694,6 +705,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICY]) {
                 // DESC[RIBE] SESSION POLICY
                 return Some(parse_describe_session_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
+                // DESC[RIBE] AUTHENTICATION POLICY
+                return Some(parse_describe_authentication_policy(parser));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 // DESC[RIBE] NETWORK RULE
@@ -787,6 +802,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] SESSION POLICY
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICY]) {
                 return Some(parse_create_session_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] AUTHENTICATION POLICY
+            if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
+                return Some(parse_create_authentication_policy(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] NETWORK RULE
@@ -1024,6 +1044,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICIES]) {
                 return Some(parse_show_session_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICIES]) {
+                return Some(parse_show_authentication_policies(parser));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
@@ -4756,6 +4779,25 @@ fn parse_create_session_policy(
     })
 }
 
+/// Parse `CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
+///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]`. Properties are a
+/// space-separated, possibly nested `KEY = VALUE` bag (ADR 094 §1); the vendored
+/// `parse_key_value_options` already recurses into `( ... )` groups.
+fn parse_create_authentication_policy(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateAuthenticationPolicy {
+        or_replace,
+        if_not_exists,
+        name,
+        options,
+    })
+}
+
 /// Parse `ALTER SESSION POLICY [IF EXISTS] <name>
 ///   { SET <prop> = <v> [ ...] | UNSET <prop> [, ...] | RENAME TO <name> }`.
 /// `SET` is space-separated for this kind, `UNSET` comma-separated (ADR 094 §1).
@@ -4780,6 +4822,32 @@ fn parse_alter_session_policy(parser: &mut Parser) -> Result<Statement, ParserEr
     })
 }
 
+/// Parse `ALTER AUTHENTICATION POLICY [IF EXISTS] <name>
+///   { SET <prop> = <v> ... | UNSET <prop> [, ...] | RENAME TO <name> }`.
+/// `SET` is space-separated for this kind, `UNSET` comma-separated (ADR 094 §1).
+fn parse_alter_authentication_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterAuthenticationPolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterAuthenticationPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterAuthenticationPolicyOperation::Unset(
+            parser.parse_comma_separated(Parser::parse_identifier)?,
+        )
+    } else {
+        return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterAuthenticationPolicy {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
 /// Parse `DROP SESSION POLICY [IF EXISTS] <name>`
 fn parse_drop_session_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -4797,6 +4865,25 @@ fn parse_describe_session_policy(parser: &mut Parser) -> Result<Statement, Parse
 fn parse_show_session_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
     Ok(Statement::ShowSessionPolicies { show_options })
+}
+
+/// Parse `DROP AUTHENTICATION POLICY [IF EXISTS] <name>`
+fn parse_drop_authentication_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropAuthenticationPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] AUTHENTICATION POLICY <name>`
+fn parse_describe_authentication_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeAuthenticationPolicy { name })
+}
+
+/// Parse `SHOW AUTHENTICATION POLICIES [LIKE '<pattern>'] [IN <scope>]`
+fn parse_show_authentication_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowAuthenticationPolicies { show_options })
 }
 
 /// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when
