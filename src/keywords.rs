@@ -975,6 +975,7 @@ define_keywords!(
     RESULTSET,
     RESUME,
     RETAIN,
+    RETENTION,
     RETURN,
     RETURNING,
     RETURNS,
