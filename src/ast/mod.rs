@@ -15094,11 +15094,30 @@ pub enum AlterAccountOperation {
         /// New account name.
         new_name: Ident,
     },
+    /// `SET { AUTHENTICATION | PASSWORD | SESSION } POLICY <policy_name>`
+    SetPolicy {
+        /// The kind of policy being attached to the account.
+        policy_kind: UserPolicyKind,
+        /// The identifier of the policy to attach.
+        policy: Ident,
+    },
+    /// `UNSET { AUTHENTICATION | PASSWORD | SESSION } POLICY`
+    UnsetPolicy {
+        /// The kind of policy being detached from the account.
+        policy_kind: UserPolicyKind,
+    },
 }
 
 impl fmt::Display for AlterAccountOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterAccountOperation::SetPolicy {
+                policy_kind,
+                policy,
+            } => write!(f, "SET {policy_kind} POLICY {policy}"),
+            AlterAccountOperation::UnsetPolicy { policy_kind } => {
+                write!(f, "UNSET {policy_kind} POLICY")
+            }
             AlterAccountOperation::Set { params } => {
                 write!(f, "SET ")?;
                 for (i, p) in params.iter().enumerate() {

@@ -7916,6 +7916,42 @@ fn test_alter_account_rename_to() {
 }
 
 #[test]
+fn test_alter_account_set_unset_policy() {
+    let sql = "ALTER ACCOUNT SET AUTHENTICATION POLICY p1";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { name, operation } => {
+            assert!(name.is_none());
+            match operation {
+                AlterAccountOperation::SetPolicy {
+                    policy_kind,
+                    policy,
+                } => {
+                    assert_eq!(policy_kind, UserPolicyKind::Authentication);
+                    assert_eq!("p1", policy.to_string());
+                }
+                _ => unreachable!(),
+            }
+        }
+        _ => unreachable!(),
+    }
+    snowflake().verified_stmt("ALTER ACCOUNT SET PASSWORD POLICY p1");
+    snowflake().verified_stmt("ALTER ACCOUNT SET SESSION POLICY p1");
+
+    let sql = "ALTER ACCOUNT UNSET SESSION POLICY";
+    match snowflake().verified_stmt(sql) {
+        Statement::AlterAccount { operation, .. } => match operation {
+            AlterAccountOperation::UnsetPolicy { policy_kind } => {
+                assert_eq!(policy_kind, UserPolicyKind::Session);
+            }
+            _ => unreachable!(),
+        },
+        _ => unreachable!(),
+    }
+    snowflake().verified_stmt("ALTER ACCOUNT UNSET PASSWORD POLICY");
+    snowflake().verified_stmt("ALTER ACCOUNT UNSET AUTHENTICATION POLICY");
+}
+
+#[test]
 fn test_drop_account() {
     let sql = "DROP ACCOUNT acc1 GRACE_PERIOD_IN_DAYS = 7";
     match snowflake().verified_stmt(sql) {

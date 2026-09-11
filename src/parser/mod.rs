@@ -12399,6 +12399,14 @@ impl<'a> Parser<'a> {
         let operation = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_identifier()?;
             AlterAccountOperation::RenameTo { new_name }
+        } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
+            let policy = self.parse_identifier()?;
+            AlterAccountOperation::SetPolicy {
+                policy_kind,
+                policy,
+            }
+        } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
+            AlterAccountOperation::UnsetPolicy { policy_kind }
         } else if self.parse_keyword(Keyword::SET) {
             let params = self.parse_comma_separated(|p| {
                 let name = p.parse_identifier()?;
@@ -12419,6 +12427,22 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Statement::AlterAccount { name, operation })
+    }
+
+    /// Try to parse a `<lead> { AUTHENTICATION | PASSWORD | SESSION } POLICY`
+    /// clause (where `<lead>` is `SET` or `UNSET`), returning the policy kind and
+    /// consuming the three keywords. Uses `parse_keywords` (all-or-nothing) so a
+    /// non-match — e.g. `SET <param> = …` — leaves the token stream untouched.
+    fn maybe_parse_policy_kind_clause(&mut self, lead: Keyword) -> Option<UserPolicyKind> {
+        if self.parse_keywords(&[lead, Keyword::AUTHENTICATION, Keyword::POLICY]) {
+            Some(UserPolicyKind::Authentication)
+        } else if self.parse_keywords(&[lead, Keyword::PASSWORD, Keyword::POLICY]) {
+            Some(UserPolicyKind::Password)
+        } else if self.parse_keywords(&[lead, Keyword::SESSION, Keyword::POLICY]) {
+            Some(UserPolicyKind::Session)
+        } else {
+            None
+        }
     }
 
     /// Parse `ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND | { ADD | REMOVE } AFTER ... }`.
