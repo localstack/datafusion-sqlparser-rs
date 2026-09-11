@@ -5903,11 +5903,15 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
-    /// SHOW PASSWORD POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// SHOW PASSWORD POLICIES [ LIKE '<pattern>' ]
+    ///   [ IN <scope> | ON { ACCOUNT | USER <name> } ]
     /// ```
     ShowPasswordPolicies {
         /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
         show_options: ShowStatementOptions,
+        /// `ON { ACCOUNT | USER <name> }` entity scope (mutually exclusive with
+        /// `IN <scope>`); `None` for the plain catalog form.
+        on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
     /// CREATE [OR REPLACE] SESSION POLICY [IF NOT EXISTS] <name>
@@ -5954,11 +5958,15 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
-    /// SHOW SESSION POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// SHOW SESSION POLICIES [ LIKE '<pattern>' ]
+    ///   [ IN <scope> | ON { ACCOUNT | USER <name> } ]
     /// ```
     ShowSessionPolicies {
         /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
         show_options: ShowStatementOptions,
+        /// `ON { ACCOUNT | USER <name> }` entity scope (mutually exclusive with
+        /// `IN <scope>`); `None` for the plain catalog form.
+        on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
     /// CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
@@ -6007,11 +6015,15 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
-    /// SHOW AUTHENTICATION POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// SHOW AUTHENTICATION POLICIES [ LIKE '<pattern>' ]
+    ///   [ IN <scope> | ON { ACCOUNT | USER <name> } ]
     /// ```
     ShowAuthenticationPolicies {
         /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
         show_options: ShowStatementOptions,
+        /// `ON { ACCOUNT | USER <name> }` entity scope (mutually exclusive with
+        /// `IN <scope>`); `None` for the plain catalog form.
+        on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
     /// CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
@@ -9204,8 +9216,15 @@ impl fmt::Display for Statement {
             Statement::DescribePasswordPolicy { name } => {
                 write!(f, "DESCRIBE PASSWORD POLICY {name}")
             }
-            Statement::ShowPasswordPolicies { show_options } => {
-                write!(f, "SHOW PASSWORD POLICIES{show_options}")
+            Statement::ShowPasswordPolicies {
+                show_options,
+                on_entity,
+            } => {
+                write!(f, "SHOW PASSWORD POLICIES{show_options}")?;
+                if let Some(entity) = on_entity {
+                    write!(f, " ON {entity}")?;
+                }
+                Ok(())
             }
             Statement::CreateSessionPolicy {
                 or_replace,
@@ -9245,8 +9264,15 @@ impl fmt::Display for Statement {
             Statement::DescribeSessionPolicy { name } => {
                 write!(f, "DESCRIBE SESSION POLICY {name}")
             }
-            Statement::ShowSessionPolicies { show_options } => {
-                write!(f, "SHOW SESSION POLICIES{show_options}")
+            Statement::ShowSessionPolicies {
+                show_options,
+                on_entity,
+            } => {
+                write!(f, "SHOW SESSION POLICIES{show_options}")?;
+                if let Some(entity) = on_entity {
+                    write!(f, " ON {entity}")?;
+                }
+                Ok(())
             }
             Statement::CreateAuthenticationPolicy {
                 or_replace,
@@ -9286,8 +9312,15 @@ impl fmt::Display for Statement {
             Statement::DescribeAuthenticationPolicy { name } => {
                 write!(f, "DESCRIBE AUTHENTICATION POLICY {name}")
             }
-            Statement::ShowAuthenticationPolicies { show_options } => {
-                write!(f, "SHOW AUTHENTICATION POLICIES{show_options}")
+            Statement::ShowAuthenticationPolicies {
+                show_options,
+                on_entity,
+            } => {
+                write!(f, "SHOW AUTHENTICATION POLICIES{show_options}")?;
+                if let Some(entity) = on_entity {
+                    write!(f, " ON {entity}")?;
+                }
+                Ok(())
             }
             Statement::CreateNetworkRule {
                 or_replace,
@@ -15074,6 +15107,28 @@ impl fmt::Display for ShowStatementInParentType {
             ShowStatementInParentType::Schema => write!(f, "SCHEMA"),
             ShowStatementInParentType::Table => write!(f, "TABLE"),
             ShowStatementInParentType::View => write!(f, "VIEW"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// Entity scope for the `SHOW <kind> POLICIES ... ON { ACCOUNT | USER <name> }`
+/// form, which reads a policy's attachment to an entity rather than the policy
+/// catalog.
+pub enum ShowPolicyEntity {
+    /// `ON ACCOUNT`.
+    Account,
+    /// `ON USER <name>`.
+    User(ObjectName),
+}
+
+impl fmt::Display for ShowPolicyEntity {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ShowPolicyEntity::Account => write!(f, "ACCOUNT"),
+            ShowPolicyEntity::User(name) => write!(f, "USER {name}"),
         }
     }
 }
