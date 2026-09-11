@@ -393,6 +393,7 @@ define_keywords!(
     DOY,
     DROP,
     DRY,
+    DRY_RUN,
     DUO,
     DUPLICATE,
     DYNAMIC,
