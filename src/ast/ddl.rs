@@ -1557,6 +1557,22 @@ pub enum AlterSessionPolicyOperation {
     },
 }
 
+/// An operation on a backup policy in an `ALTER BACKUP POLICY` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterBackupPolicyOperation {
+    /// `SET <prop> = <value> [, <prop> = <value> ...]` (comma-separated).
+    Set(KeyValueOptions),
+    /// `UNSET <prop> [, <prop> ...]` (comma-separated property names).
+    Unset(Vec<Ident>),
+    /// `RENAME TO <name>`
+    RenameTo {
+        /// The new policy name.
+        new_name: ObjectName,
+    },
+}
+
 /// An operation on an authentication policy in an `ALTER AUTHENTICATION POLICY`
 /// statement. `SET` is space-separated for this kind and its property bag may
 /// nest (`CLIENT_POLICY = (GO_DRIVER = (MINIMUM_VERSION = '1.14.1'))`).
@@ -1597,6 +1613,20 @@ impl fmt::Display for AlterAuthenticationPolicyOperation {
                 write!(f, "UNSET {}", display_comma_separated(props))
             }
             AlterAuthenticationPolicyOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+        }
+    }
+}
+
+impl fmt::Display for AlterBackupPolicyOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterBackupPolicyOperation::Set(options) => write!(f, "SET {options}"),
+            AlterBackupPolicyOperation::Unset(props) => {
+                write!(f, "UNSET {}", display_comma_separated(props))
+            }
+            AlterBackupPolicyOperation::RenameTo { new_name } => {
                 write!(f, "RENAME TO {new_name}")
             }
         }

@@ -27,7 +27,7 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterAlertOperation,
+    AlterAlertOperation, AlterBackupPolicyOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSessionPolicyOperation,
@@ -527,6 +527,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_authentication_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::BACKUP, Keyword::POLICY]) {
+            // ALTER BACKUP POLICY
+            return Some(parse_alter_backup_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::NETWORK, Keyword::RULE]) {
             // ALTER NETWORK RULE
             return Some(parse_alter_network_rule(parser));
@@ -636,6 +641,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_authentication_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::BACKUP, Keyword::POLICY]) {
+            // DROP BACKUP POLICY
+            return Some(parse_drop_backup_policy(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::NETWORK, Keyword::RULE]) {
             // DROP NETWORK RULE
             return Some(parse_drop_network_rule(parser));
@@ -709,6 +719,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
                 // DESC[RIBE] AUTHENTICATION POLICY
                 return Some(parse_describe_authentication_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICY]) {
+                // DESC[RIBE] BACKUP POLICY
+                return Some(parse_describe_backup_policy(parser));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 // DESC[RIBE] NETWORK RULE
@@ -807,6 +821,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] AUTHENTICATION POLICY
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
                 return Some(parse_create_authentication_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE | OR ALTER] BACKUP POLICY
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICY]) {
+                return Some(parse_create_backup_policy(or_replace, or_alter, parser));
             }
 
             // CREATE [OR REPLACE] NETWORK RULE
@@ -1047,6 +1066,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICIES]) {
                 return Some(parse_show_authentication_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICIES]) {
+                return Some(parse_show_backup_policies(parser));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
@@ -4805,6 +4827,29 @@ fn parse_create_session_policy(
     })
 }
 
+/// Parse `CREATE [ OR REPLACE | OR ALTER ] BACKUP POLICY [IF NOT EXISTS] <name>
+///   [ WITH RETENTION LOCK ] [ <property> = <value> ... ] [ COMMENT = '<c>' ]`.
+/// Properties are a space-separated `KEY = VALUE` bag (ADR 094 §1).
+fn parse_create_backup_policy(
+    or_replace: bool,
+    or_alter: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let with_retention_lock =
+        parser.parse_keywords(&[Keyword::WITH, Keyword::RETENTION, Keyword::LOCK]);
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::CreateBackupPolicy {
+        or_replace,
+        or_alter,
+        if_not_exists,
+        with_retention_lock,
+        name,
+        options,
+    })
+}
+
 /// Parse `CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
 ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]`. Properties are a
 /// space-separated, possibly nested `KEY = VALUE` bag (ADR 094 §1); the vendored
@@ -4918,6 +4963,43 @@ fn parse_show_authentication_policies(parser: &mut Parser) -> Result<Statement, 
         show_options,
         on_entity,
     })
+}
+
+/// Parse `ALTER BACKUP POLICY <name>
+///   { SET <prop> = <v> [, ...] | UNSET <prop> [, ...] | RENAME TO <name> }`.
+fn parse_alter_backup_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterBackupPolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterBackupPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterBackupPolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+    } else {
+        return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterBackupPolicy { name, operation })
+}
+
+/// Parse `DROP BACKUP POLICY [IF EXISTS] <name>`
+fn parse_drop_backup_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropBackupPolicy { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] BACKUP POLICY <name>`
+fn parse_describe_backup_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeBackupPolicy { name })
+}
+
+/// Parse `SHOW BACKUP POLICIES [LIKE '<pattern>'] [IN <scope>]`
+fn parse_show_backup_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowBackupPolicies { show_options })
 }
 
 /// Consume the identifier-shaped option name `VALUE_LIST` (not a keyword) when

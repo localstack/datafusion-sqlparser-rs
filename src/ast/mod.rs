@@ -63,7 +63,8 @@ pub use self::dcl::{
 };
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
-    AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
+    AlterBackupPolicyOperation, AlterFunction, AlterFunctionAction, AlterFunctionKind,
+    AlterFunctionOperation,
     AlterIndexOperation, AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator,
     AlterOperatorClass, AlterOperatorClassOperation, AlterOperatorFamily,
     AlterAuthenticationPolicyOperation, AlterOperatorFamilyOperation, AlterOperatorOperation,
@@ -5837,6 +5838,60 @@ pub enum Statement {
         on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
+    /// CREATE [ OR REPLACE | OR ALTER ] BACKUP POLICY [IF NOT EXISTS] <name>
+    ///   [ WITH RETENTION LOCK ] [ <property> = <value> ... ] [ COMMENT = '<c>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-backup-policy>
+    CreateBackupPolicy {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `OR ALTER` flag (full-definition-replace semantics).
+        or_alter: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// `WITH RETENTION LOCK` flag.
+        with_retention_lock: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Space-separated property bag (`SCHEDULE`, `EXPIRE_AFTER_DAYS`,
+        /// `COMMENT`).
+        options: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER BACKUP POLICY <name>
+    ///   { SET <prop> = <v> [, ...] | UNSET <prop> [, ...] | RENAME TO <name> }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-backup-policy>
+    AlterBackupPolicy {
+        /// Policy name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterBackupPolicyOperation,
+    },
+    /// ```sql
+    /// DROP BACKUP POLICY [IF EXISTS] <name>
+    /// ```
+    DropBackupPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] BACKUP POLICY <name>
+    /// ```
+    DescribeBackupPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW BACKUP POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    ShowBackupPolicies {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
     ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
     /// ```
@@ -9101,6 +9156,31 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateBackupPolicy {
+                or_replace,
+                or_alter,
+                if_not_exists,
+                with_retention_lock,
+                name,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}{or_alter}BACKUP POLICY {if_not_exists}{name}{retention}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    retention = if *with_retention_lock {
+                        " WITH RETENTION LOCK"
+                    } else {
+                        ""
+                    },
+                )?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
             Statement::AlterSessionPolicy {
                 if_exists,
                 name,
@@ -9179,6 +9259,22 @@ impl fmt::Display for Statement {
                     write!(f, " ON {entity}")?;
                 }
                 Ok(())
+            }
+            Statement::AlterBackupPolicy { name, operation } => {
+                write!(f, "ALTER BACKUP POLICY {name} {operation}")
+            }
+            Statement::DropBackupPolicy { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP BACKUP POLICY {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeBackupPolicy { name } => {
+                write!(f, "DESCRIBE BACKUP POLICY {name}")
+            }
+            Statement::ShowBackupPolicies { show_options } => {
+                write!(f, "SHOW BACKUP POLICIES{show_options}")
             }
             Statement::CreateNetworkRule {
                 or_replace,
