@@ -18224,11 +18224,15 @@ impl<'a> Parser<'a> {
         self.expect_keyword_is(Keyword::USING)?;
         let using = self.parse_identifier()?;
         self.expect_keywords(&[Keyword::INCREMENT, Keyword::BY])?;
-        let increment = if self.peek_keyword(Keyword::INTERVAL) {
-            self.parse_expr()?
-        } else {
-            Expr::Value(self.parse_number_value()?)
-        };
+        let mut increment_token_offset = 0;
+        while self.peek_nth_token(increment_token_offset).token == Token::LParen {
+            increment_token_offset += 1;
+        }
+        let increment_token = self.peek_nth_token(increment_token_offset);
+        if increment_token.token == Token::Plus {
+            return self.expected("RESAMPLE increment", increment_token);
+        }
+        let increment = self.parse_expr()?;
 
         let partition_by = if self.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
             self.parse_comma_separated(Parser::parse_identifier)?
