@@ -17891,6 +17891,11 @@ impl<'a> Parser<'a> {
                         )),
                     }
                 }
+                if self.dialect.supports_resample_table_factor()
+                    && self.parse_keyword(Keyword::RESAMPLE)
+                {
+                    table = self.parse_resample_table_factor(table)?;
+                }
                 return Ok(table);
             }
 
@@ -17959,6 +17964,14 @@ impl<'a> Parser<'a> {
                             // to the table name: `(mytable) AS alias` ->
                             // `(mytable AS alias)`
                             alias.replace(outer_alias);
+                        }
+                        TableFactor::Resample(resample) => {
+                            if let Some(inner_alias) = &resample.alias {
+                                return Err(ParserError::ParserError(format!(
+                                    "duplicate alias {inner_alias}"
+                                )));
+                            }
+                            resample.alias.replace(outer_alias);
                         }
                     };
                 }
@@ -18162,6 +18175,12 @@ impl<'a> Parser<'a> {
                 table = self.parse_match_recognize(table)?;
             }
 
+            if self.dialect.supports_resample_table_factor()
+                && self.parse_keyword(Keyword::RESAMPLE)
+            {
+                table = self.parse_resample_table_factor(table)?;
+            }
+
             Ok(table)
         }
     }
@@ -18195,6 +18214,58 @@ impl<'a> Parser<'a> {
             sample: None,
             index_hints: vec![],
         })
+    }
+
+    fn parse_resample_table_factor(
+        &mut self,
+        table: TableFactor,
+    ) -> Result<TableFactor, ParserError> {
+        self.expect_token(&Token::LParen)?;
+        self.expect_keyword_is(Keyword::USING)?;
+        let using = self.parse_identifier()?;
+        self.expect_keywords(&[Keyword::INCREMENT, Keyword::BY])?;
+        let increment = if self.peek_keyword(Keyword::INTERVAL) {
+            self.parse_expr()?
+        } else {
+            Expr::Value(self.parse_number_value()?)
+        };
+
+        let partition_by = if self.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
+            self.parse_comma_separated(Parser::parse_identifier)?
+        } else {
+            Vec::new()
+        };
+        let metadata_columns = if self.parse_keyword(Keyword::METADATA_COLUMNS) {
+            self.parse_comma_separated(Parser::parse_resample_metadata_column)?
+        } else {
+            Vec::new()
+        };
+
+        self.expect_token(&Token::RParen)?;
+        let alias = self.maybe_parse_table_alias()?;
+        Ok(TableFactor::Resample(Box::new(Resample {
+            table: Box::new(table),
+            using,
+            increment,
+            partition_by,
+            metadata_columns,
+            alias,
+        })))
+    }
+
+    fn parse_resample_metadata_column(&mut self) -> Result<ResampleMetadataColumn, ParserError> {
+        let kind = match self.expect_one_of_keywords(&[
+            Keyword::IS_GENERATED,
+            Keyword::BUCKET_START,
+        ])? {
+            Keyword::IS_GENERATED => ResampleMetadataColumnKind::IsGenerated,
+            Keyword::BUCKET_START => ResampleMetadataColumnKind::BucketStart,
+            _ => unreachable!(),
+        };
+        self.expect_token(&Token::LParen)?;
+        self.expect_token(&Token::RParen)?;
+        let alias = self.parse_optional_alias(&[])?;
+        Ok(ResampleMetadataColumn { kind, alias })
     }
 
     fn maybe_parse_table_sample(&mut self) -> Result<Option<Box<TableSample>>, ParserError> {

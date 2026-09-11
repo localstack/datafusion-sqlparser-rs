@@ -1317,6 +1317,7 @@ impl Dialect for SnowflakeDialect {
             | Keyword::CONNECT
             | Keyword::SAMPLE
             | Keyword::TABLESAMPLE
+            | Keyword::RESAMPLE
             | Keyword::FROM => false,
 
             // Any other word is considered an alias
@@ -1391,6 +1392,10 @@ impl Dialect for SnowflakeDialect {
     }
 
     fn supports_semantic_view_table_factor(&self) -> bool {
+        true
+    }
+
+    fn supports_resample_table_factor(&self) -> bool {
         true
     }
 

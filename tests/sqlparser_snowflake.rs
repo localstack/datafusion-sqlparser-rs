@@ -10668,3 +10668,27 @@ fn parse_snowflake_update_set_default() {
         other => unreachable!("expected MERGE, got {other:?}"),
     }
 }
+
+#[test]
+fn parse_snowflake_resample_table_factor() {
+    for sql in [
+        "SELECT * FROM measurements RESAMPLE(USING observed_at INCREMENT BY INTERVAL '5 minutes')",
+        "SELECT * FROM measurements RESAMPLE(USING sequence INCREMENT BY 10 PARTITION BY site, sensor)",
+        "SELECT * FROM (SELECT observed_at, value FROM measurements) source RESAMPLE(USING observed_at INCREMENT BY 0.5 PARTITION BY value METADATA_COLUMNS BUCKET_START()) sampled",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+    snowflake().one_statement_parses_to(
+        "SELECT * FROM measurements RESAMPLE(USING observed_at INCREMENT BY INTERVAL '1 hour' METADATA_COLUMNS IS_GENERATED() AS generated, BUCKET_START() bucket) AS sampled",
+        "SELECT * FROM measurements RESAMPLE(USING observed_at INCREMENT BY INTERVAL '1 hour' METADATA_COLUMNS IS_GENERATED() AS generated, BUCKET_START() AS bucket) AS sampled",
+    );
+}
+
+#[test]
+fn parse_resample_is_snowflake_only() {
+    assert!(Parser::parse_sql(
+        &GenericDialect {},
+        "SELECT * FROM measurements RESAMPLE(USING observed_at INCREMENT BY 10)"
+    )
+    .is_err());
+}

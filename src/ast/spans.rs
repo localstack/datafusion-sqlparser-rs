@@ -2342,7 +2342,15 @@ impl Spanned for TableFactor {
                     .chain(core::iter::once(value.span()))
                     .chain(core::iter::once(name.span))
                     .chain(columns.iter().map(|ilist| ilist.span()))
-                    .chain(alias.as_ref().map(|alias| alias.span())),
+                .chain(alias.as_ref().map(|alias| alias.span())),
+            ),
+            TableFactor::Resample(resample) => union_spans(
+                core::iter::once(resample.table.span())
+                    .chain(core::iter::once(resample.using.span))
+                    .chain(core::iter::once(resample.increment.span()))
+                    .chain(resample.partition_by.iter().map(|i| i.span))
+                    .chain(resample.metadata_columns.iter().filter_map(|i| i.alias.as_ref().map(|a| a.span)))
+                    .chain(resample.alias.as_ref().map(|i| i.span())),
             ),
             TableFactor::MatchRecognize {
                 table,
