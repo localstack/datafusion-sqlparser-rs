@@ -76,6 +76,7 @@ pub use self::ddl::{
     ConstraintCharacteristics, CreateCollation, CreateCollationDefinition, CreateConnector,
     CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     AlterPasswordPolicyOperation,
+    AlterSessionPolicyOperation,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
     DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
@@ -5802,6 +5803,57 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] SESSION POLICY [IF NOT EXISTS] <name>
+    ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-session-policy>
+    CreateSessionPolicy {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Space-separated property bag (includes `COMMENT`).
+        options: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER SESSION POLICY [IF EXISTS] <name>
+    ///   { SET <prop> = <v> [ ...] | UNSET <prop> [, ...] | RENAME TO <name> }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-session-policy>
+    AlterSessionPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterSessionPolicyOperation,
+    },
+    /// ```sql
+    /// DROP SESSION POLICY [IF EXISTS] <name>
+    /// ```
+    DropSessionPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] SESSION POLICY <name>
+    /// ```
+    DescribeSessionPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW SESSION POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    ShowSessionPolicies {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
     ///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
     ///   [ COMMENT = '<comment>' ]
@@ -8985,6 +9037,47 @@ impl fmt::Display for Statement {
             }
             Statement::ShowPasswordPolicies { show_options } => {
                 write!(f, "SHOW PASSWORD POLICIES{show_options}")
+            }
+            Statement::CreateSessionPolicy {
+                or_replace,
+                if_not_exists,
+                name,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}SESSION POLICY {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterSessionPolicy {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER SESSION POLICY {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropSessionPolicy { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP SESSION POLICY {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeSessionPolicy { name } => {
+                write!(f, "DESCRIBE SESSION POLICY {name}")
+            }
+            Statement::ShowSessionPolicies { show_options } => {
+                write!(f, "SHOW SESSION POLICIES{show_options}")
             }
             Statement::CreateNetworkRule {
                 or_replace,
