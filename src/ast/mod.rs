@@ -3888,6 +3888,17 @@ impl fmt::Display for ExternalAccessAllowedList {
     }
 }
 
+/// A variable passed to `EXECUTE IMMEDIATE FROM ... USING`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ExecuteImmediateVariable {
+    /// Template variable name.
+    pub name: Ident,
+    /// Template variable value.
+    pub value: Expr,
+}
+
 /// A top-level statement (SELECT, INSERT, CREATE, etc.)
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -6505,6 +6516,15 @@ pub enum Statement {
         /// MSSQL: <https://learn.microsoft.com/en-us/sql/t-sql/language-elements/execute-transact-sql?view=sql-server-ver17#default>
         default: bool,
     },
+    /// Snowflake `EXECUTE IMMEDIATE FROM <stage-file>`.
+    ExecuteImmediateFrom {
+        /// Stage reference or quoted relative path.
+        location: String,
+        /// Template variables supplied by `USING`.
+        using: Vec<ExecuteImmediateVariable>,
+        /// Whether to return the source without executing it.
+        dry_run: Option<bool>,
+    },
     /// ```sql
     /// PREPARE name [ ( data_type [, ...] ) ] AS statement
     /// ```
@@ -8263,6 +8283,27 @@ impl fmt::Display for Statement {
                 }
                 if *default {
                     write!(f, " DEFAULT")?;
+                }
+                Ok(())
+            }
+            Statement::ExecuteImmediateFrom {
+                location,
+                using,
+                dry_run,
+            } => {
+                write!(f, "EXECUTE IMMEDIATE FROM {location}")?;
+                if !using.is_empty() {
+                    write!(f, " USING (")?;
+                    for (index, variable) in using.iter().enumerate() {
+                        if index != 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{} => {}", variable.name, variable.value)?;
+                    }
+                    write!(f, ")")?;
+                }
+                if let Some(dry_run) = dry_run {
+                    write!(f, " DRY_RUN = {}", if *dry_run { "TRUE" } else { "FALSE" })?;
                 }
                 Ok(())
             }

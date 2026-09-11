@@ -1208,7 +1208,7 @@ impl Dialect for SnowflakeDialect {
         if matches!(kw, Keyword::INTERVAL) {
             false
         } else {
-            RESERVED_FOR_IDENTIFIER.contains(&kw)
+            matches!(kw, Keyword::FROM) || RESERVED_FOR_IDENTIFIER.contains(&kw)
         }
     }
 

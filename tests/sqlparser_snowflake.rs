@@ -10692,3 +10692,29 @@ fn parse_resample_is_snowflake_only() {
     )
     .is_err());
 }
+
+#[test]
+fn parse_execute_immediate_from_stage() {
+    for sql in [
+        "EXECUTE IMMEDIATE FROM @stage/path/file.sql",
+        "EXECUTE IMMEDIATE FROM @~/file.sql DRY_RUN = TRUE",
+        "EXECUTE IMMEDIATE FROM @%table/file.sql USING (k => 'value') DRY_RUN = FALSE",
+        "EXECUTE IMMEDIATE FROM @stage/using/file.sql",
+        "EXECUTE IMMEDIATE FROM @stage/dry_run/file.sql",
+        "EXECUTE IMMEDIATE FROM @stage/using(foo)/file.sql",
+        "EXECUTE IMMEDIATE FROM @stage/dry_run=true/file.sql",
+        "EXECUTE IMMEDIATE FROM './relative.sql'",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+#[test]
+fn reject_from_as_expression_operand() {
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, "SELECT 1 + FROM t")
+            .unwrap_err()
+            .to_string(),
+        "sql parser error: Expected an expression, found: FROM at Line: 1, Column: 12"
+    );
+}

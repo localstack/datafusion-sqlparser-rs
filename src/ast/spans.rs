@@ -485,6 +485,7 @@ impl Spanned for Statement {
             Statement::Revoke { .. } => Span::empty(),
             Statement::Deallocate { .. } => Span::empty(),
             Statement::Execute { .. } => Span::empty(),
+            Statement::ExecuteImmediateFrom { .. } => Span::empty(),
             Statement::Prepare { .. } => Span::empty(),
             Statement::Kill { .. } => Span::empty(),
             Statement::ExplainTable { .. } => Span::empty(),

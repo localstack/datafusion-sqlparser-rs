@@ -2145,7 +2145,7 @@ impl<'a> Parser<'a> {
 
         self.advance_token();
         let next_token_index = self.get_current_index();
-        let next_token = self.get_current_token();
+        let next_token = self.get_current_token().clone();
         let span = next_token.span;
         let expr = match &next_token.token {
             Token::Word(w) => {
@@ -2163,6 +2163,15 @@ impl<'a> Parser<'a> {
                     Ok(Some(expr)) => Ok(expr),
 
                     // No expression prefix associated with this word
+                    Ok(None)
+                        if dialect_is!(dialect is SnowflakeDialect)
+                            && self.dialect.is_reserved_for_identifier(w.keyword) =>
+                    {
+                        parser_err!(
+                            format!("Expected an expression, found: {next_token}"),
+                            next_token.span.start
+                        )
+                    }
                     Ok(None) => Ok(self.parse_expr_prefix_by_unreserved_word(&w, span)?),
 
                     // If parsing of the word as a special expression failed, we are facing two options:
@@ -21691,6 +21700,48 @@ impl<'a> Parser<'a> {
         let immediate =
             self.dialect.supports_execute_immediate() && self.parse_keyword(Keyword::IMMEDIATE);
 
+        if immediate && self.parse_keyword(Keyword::FROM) {
+            let location = if let Token::SingleQuotedString(value) = self.peek_token_ref().token.clone() {
+                self.next_token();
+                format!("'{value}'")
+            } else {
+                self.expect_token(&Token::AtSign)?;
+                let mut location = String::from("@");
+                while !matches!(self.peek_token_ref().token, Token::EOF | Token::SemiColon)
+                    && !self.peek_execute_immediate_using_clause()
+                    && !self.peek_execute_immediate_dry_run_clause()
+                {
+                    location.push_str(&self.next_token().token.to_string());
+                }
+                location
+            };
+            let using = if self.parse_keyword(Keyword::USING) {
+                self.expect_token(&Token::LParen)?;
+                let values = self.parse_comma_separated(|parser| {
+                    let name = parser.parse_identifier()?;
+                    parser.expect_token(&Token::RArrow)?;
+                    Ok(ExecuteImmediateVariable { name, value: parser.parse_expr()? })
+                })?;
+                self.expect_token(&Token::RParen)?;
+                values
+            } else {
+                vec![]
+            };
+            let dry_run = if self.parse_keyword(Keyword::DRY_RUN) {
+                self.expect_token(&Token::Eq)?;
+                if self.parse_keyword(Keyword::TRUE) {
+                    Some(true)
+                } else if self.parse_keyword(Keyword::FALSE) {
+                    Some(false)
+                } else {
+                    return self.expected("TRUE or FALSE", self.peek_token());
+                }
+            } else {
+                None
+            };
+            return Ok(Statement::ExecuteImmediateFrom { location, using, dry_run });
+        }
+
         // When `EXEC` is immediately followed by `(`, the content is a dynamic-SQL
         // expression — e.g. `EXEC (@sql)`, `EXEC ('SELECT ...')`, or
         // `EXEC ('SELECT ... FROM ' + @tbl + ' WHERE ...')`.
@@ -21744,6 +21795,54 @@ impl<'a> Parser<'a> {
             output,
             default,
         })
+    }
+
+    fn peek_execute_immediate_dry_run_clause(&self) -> bool {
+        self.peek_keyword(Keyword::DRY_RUN)
+            && self.peek_nth_token_ref(1).token == Token::Eq
+            && matches!(
+                &self.peek_nth_token_ref(2).token,
+                Token::Word(word) if matches!(word.keyword, Keyword::TRUE | Keyword::FALSE)
+            )
+            && matches!(self.peek_nth_token_ref(3).token, Token::EOF | Token::SemiColon)
+    }
+
+    fn peek_execute_immediate_using_clause(&self) -> bool {
+        if !self.peek_keyword(Keyword::USING) || self.peek_nth_token_ref(1).token != Token::LParen {
+            return false;
+        }
+
+        let mut depth = 1;
+        let mut offset = 2;
+        while depth > 0 {
+            match self.peek_nth_token_ref(offset).token {
+                Token::LParen => depth += 1,
+                Token::RParen => depth -= 1,
+                Token::EOF | Token::SemiColon => return false,
+                _ => {}
+            }
+            offset += 1;
+        }
+
+        if matches!(self.peek_nth_token_ref(offset).token, Token::EOF | Token::SemiColon) {
+            return true;
+        }
+
+        matches!(
+            (
+                &self.peek_nth_token_ref(offset).token,
+                &self.peek_nth_token_ref(offset + 1).token,
+                &self.peek_nth_token_ref(offset + 2).token,
+                &self.peek_nth_token_ref(offset + 3).token,
+            ),
+            (
+                Token::Word(word),
+                Token::Eq,
+                Token::Word(value),
+                Token::EOF | Token::SemiColon,
+            ) if word.keyword == Keyword::DRY_RUN
+                && matches!(value.keyword, Keyword::TRUE | Keyword::FALSE)
+        )
     }
 
     /// Parse a SQL `PREPARE` statement
