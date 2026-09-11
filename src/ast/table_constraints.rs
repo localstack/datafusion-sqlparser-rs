@@ -390,6 +390,9 @@ pub struct IndexConstraint {
     pub index_type: Option<IndexType>,
     /// Referred column identifier list.
     pub columns: Vec<IndexColumn>,
+    /// Snowflake `INCLUDE (<col>, ...)` non-key columns carried alongside a
+    /// hybrid-table secondary index. Empty for the MySQL index form.
+    pub include: Vec<IndexColumn>,
     /// Optional index options such as `USING`; see [`IndexOption`].
     /// Options applied to the index (e.g., `COMMENT`, `WITH` options).
     pub index_options: Vec<IndexOption>,
@@ -405,6 +408,9 @@ impl fmt::Display for IndexConstraint {
             write!(f, " USING {index_type}")?;
         }
         write!(f, " ({})", display_comma_separated(&self.columns))?;
+        if !self.include.is_empty() {
+            write!(f, " INCLUDE ({})", display_comma_separated(&self.include))?;
+        }
         if !self.index_options.is_empty() {
             write!(f, " {}", display_comma_separated(&self.index_options))?;
         }
@@ -422,7 +428,8 @@ impl crate::ast::Spanned for IndexConstraint {
             self.name
                 .iter()
                 .map(|i| i.span)
-                .chain(self.columns.iter().map(|i| i.span())),
+                .chain(self.columns.iter().map(|i| i.span()))
+                .chain(self.include.iter().map(|i| i.span())),
         )
     }
 }
