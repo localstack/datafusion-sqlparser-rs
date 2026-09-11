@@ -77,6 +77,7 @@ pub use self::ddl::{
     CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     AlterPasswordPolicyOperation,
     AlterSessionPolicyOperation,
+    AlterAuthenticationPolicyOperation,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
     DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
@@ -5854,6 +5855,59 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
+    ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
+    /// ```
+    /// The property bag may nest (`CLIENT_POLICY = (GO_DRIVER =
+    /// (MINIMUM_VERSION = '1.14.1'))`) and is space-separated.
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-authentication-policy>
+    CreateAuthenticationPolicy {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Space-separated (possibly nested) property bag (includes `COMMENT`).
+        options: KeyValueOptions,
+    },
+    /// ```sql
+    /// ALTER AUTHENTICATION POLICY [IF EXISTS] <name>
+    ///   { SET <prop> = <v> ... | UNSET <prop> [, ...] | RENAME TO <name> }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-authentication-policy>
+    AlterAuthenticationPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterAuthenticationPolicyOperation,
+    },
+    /// ```sql
+    /// DROP AUTHENTICATION POLICY [IF EXISTS] <name>
+    /// ```
+    DropAuthenticationPolicy {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] AUTHENTICATION POLICY <name>
+    /// ```
+    DescribeAuthenticationPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW AUTHENTICATION POLICIES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    ShowAuthenticationPolicies {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] NETWORK RULE [IF NOT EXISTS] <name>
     ///   [ TYPE = <t> ] [ MODE = <m> ] [ VALUE_LIST = ( '<v>' [, ...] ) ]
     ///   [ COMMENT = '<comment>' ]
@@ -9078,6 +9132,47 @@ impl fmt::Display for Statement {
             }
             Statement::ShowSessionPolicies { show_options } => {
                 write!(f, "SHOW SESSION POLICIES{show_options}")
+            }
+            Statement::CreateAuthenticationPolicy {
+                or_replace,
+                if_not_exists,
+                name,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}AUTHENTICATION POLICY {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterAuthenticationPolicy {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER AUTHENTICATION POLICY {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropAuthenticationPolicy { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP AUTHENTICATION POLICY {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeAuthenticationPolicy { name } => {
+                write!(f, "DESCRIBE AUTHENTICATION POLICY {name}")
+            }
+            Statement::ShowAuthenticationPolicies { show_options } => {
+                write!(f, "SHOW AUTHENTICATION POLICIES{show_options}")
             }
             Statement::CreateNetworkRule {
                 or_replace,
