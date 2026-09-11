@@ -12134,7 +12134,48 @@ impl<'a> Parser<'a> {
                         name,
                         index_type,
                         columns,
+                        include: vec![],
                         index_options,
+                    }
+                    .into(),
+                ))
+            }
+            // Snowflake inline secondary index (hybrid tables):
+            // `index <name>(<col>, ...) [ include (<col>, ...) ]`. Unlike the
+            // MySQL form there is no USING clause or index options, but an
+            // optional INCLUDE list of non-key columns. INDEX is not reserved in
+            // Snowflake, so `INDEX <type>` (e.g. `INDEX NUMBER(38,0)`,
+            // `INDEX TEXT`) is a column literally named INDEX — distinguished
+            // here by requiring a non-keyword index name immediately followed by
+            // `(`; anything else is rewound and parsed as a column.
+            Token::Word(w)
+                if w.keyword == Keyword::INDEX
+                    && dialect_of!(self is SnowflakeDialect)
+                    && name.is_none() =>
+            {
+                let looks_like_index = matches!(
+                    self.peek_token_ref().token,
+                    Token::Word(ref nw) if nw.keyword == Keyword::NoKeyword
+                ) && self.peek_nth_token_ref(1).token == Token::LParen;
+                if !looks_like_index {
+                    self.prev_token();
+                    return Ok(None);
+                }
+                let name = self.parse_optional_ident()?;
+                let columns = self.parse_parenthesized_index_column_list()?;
+                let include = if self.parse_keyword(Keyword::INCLUDE) {
+                    self.parse_parenthesized_index_column_list()?
+                } else {
+                    vec![]
+                };
+                Ok(Some(
+                    IndexConstraint {
+                        display_as_key: false,
+                        name,
+                        index_type: None,
+                        columns,
+                        include,
+                        index_options: vec![],
                     }
                     .into(),
                 ))
@@ -25989,6 +26030,7 @@ mod tests {
                 name: None,
                 index_type: None,
                 columns: vec![mk_expected_col("c1")],
+                include: vec![],
                 index_options: vec![],
             }
             .into()
@@ -26002,6 +26044,7 @@ mod tests {
                 name: None,
                 index_type: None,
                 columns: vec![mk_expected_col("c1")],
+                include: vec![],
                 index_options: vec![],
             }
             .into()
@@ -26015,6 +26058,7 @@ mod tests {
                 name: Some(Ident::with_quote('\'', "index")),
                 index_type: None,
                 columns: vec![mk_expected_col("c1"), mk_expected_col("c2")],
+                include: vec![],
                 index_options: vec![],
             })
         );
@@ -26027,6 +26071,7 @@ mod tests {
                 name: None,
                 index_type: Some(IndexType::BTree),
                 columns: vec![mk_expected_col("c1")],
+                include: vec![],
                 index_options: vec![],
             }
             .into()
@@ -26040,6 +26085,7 @@ mod tests {
                 name: None,
                 index_type: Some(IndexType::Hash),
                 columns: vec![mk_expected_col("c1")],
+                include: vec![],
                 index_options: vec![],
             }
             .into()
@@ -26053,6 +26099,7 @@ mod tests {
                 name: Some(Ident::new("idx_name")),
                 index_type: Some(IndexType::BTree),
                 columns: vec![mk_expected_col("c1")],
+                include: vec![],
                 index_options: vec![],
             }
             .into()
@@ -26066,6 +26113,7 @@ mod tests {
                 name: Some(Ident::new("idx_name")),
                 index_type: Some(IndexType::Hash),
                 columns: vec![mk_expected_col("c1")],
+                include: vec![],
                 index_options: vec![],
             }
             .into()
