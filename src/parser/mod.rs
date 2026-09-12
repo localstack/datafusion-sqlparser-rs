@@ -364,6 +364,8 @@ pub struct Parser<'a> {
     /// every level, taking 2^N time. Maps the arm's start to where a parsed
     /// query lacked its `)`.
     failed_in_subquery_positions: BTreeMap<usize, Option<usize>>,
+    match_recognize_definition: bool,
+    match_recognize_semantics: Option<RunningFinal>,
 }
 
 /// Copy marker for a [`ParserError`] cached by the `parse_prefix` failure
@@ -406,6 +408,8 @@ impl<'a> Parser<'a> {
             state: ParserState::Normal,
             dialect,
             recursion_counter: RecursionCounter::new(DEFAULT_REMAINING_DEPTH),
+            match_recognize_definition: false,
+            match_recognize_semantics: None,
             options: ParserOptions::new().with_trailing_commas(dialect.supports_trailing_commas()),
             failed_prefix_positions: BTreeMap::new(),
             failed_reserved_word_prefix_positions: BTreeMap::new(),
@@ -2119,6 +2123,21 @@ impl<'a> Parser<'a> {
 
     /// Parse an expression prefix.
     pub fn parse_prefix(&mut self) -> Result<Expr, ParserError> {
+        if self.match_recognize_definition {
+            if self.parse_keyword(Keyword::FINAL) {
+                self.match_recognize_semantics = Some(RunningFinal::Final);
+                return self.parse_prefix();
+            }
+            if matches!(
+                &self.peek_token_ref().token,
+                Token::Word(w)
+                    if w.quote_style.is_none() && w.value.eq_ignore_ascii_case("RUNNING")
+            ) {
+                self.next_token();
+                self.match_recognize_semantics = Some(RunningFinal::Running);
+                return self.parse_prefix();
+            }
+        }
         // allow the dialect to override prefix parsing
         if let Some(prefix) = self.dialect.parse_prefix(self) {
             return prefix;
@@ -19383,8 +19402,16 @@ impl<'a> Parser<'a> {
         let symbols = self.parse_comma_separated(|p| {
             let symbol = p.parse_identifier()?;
             p.expect_keyword_is(Keyword::AS)?;
+            p.match_recognize_definition = true;
+            p.match_recognize_semantics = None;
             let definition = p.parse_expr()?;
-            Ok(SymbolDefinition { symbol, definition })
+            p.match_recognize_definition = false;
+            let semantics = p.match_recognize_semantics.take();
+            Ok(SymbolDefinition {
+                symbol,
+                semantics,
+                definition,
+            })
         })?;
 
         self.expect_token(&Token::RParen)?;
