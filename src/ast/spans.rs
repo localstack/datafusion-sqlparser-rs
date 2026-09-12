@@ -2600,7 +2600,11 @@ impl Spanned for MatchRecognizePattern {
 
 impl Spanned for SymbolDefinition {
     fn span(&self) -> Span {
-        let SymbolDefinition { symbol, definition } = self;
+        let SymbolDefinition {
+            symbol,
+            semantics: _,
+            definition,
+        } = self;
 
         symbol.span.union(&definition.span())
     }
