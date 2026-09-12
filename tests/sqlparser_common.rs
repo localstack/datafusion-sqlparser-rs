@@ -13349,6 +13349,7 @@ fn test_match_recognize() {
             symbols: vec![
                 SymbolDefinition {
                     symbol: Ident::new("row_with_price_decrease"),
+                    semantics: None,
                     definition: Expr::BinaryOp {
                         left: Box::new(Expr::Identifier(Ident::new("price"))),
                         op: BinaryOperator::Lt,
@@ -13357,6 +13358,7 @@ fn test_match_recognize() {
                 },
                 SymbolDefinition {
                     symbol: Ident::new("row_with_price_increase"),
+                    semantics: None,
                     definition: Expr::BinaryOp {
                         left: Box::new(Expr::Identifier(Ident::new("price"))),
                         op: BinaryOperator::Gt,

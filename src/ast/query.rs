@@ -2198,13 +2198,19 @@ impl fmt::Display for EmptyMatchesMode {
 pub struct SymbolDefinition {
     /// The symbol identifier.
     pub symbol: Ident,
+    /// Optional `RUNNING` / `FINAL` semantics modifier.
+    pub semantics: Option<RunningFinal>,
     /// The expression defining the symbol.
     pub definition: Expr,
 }
 
 impl fmt::Display for SymbolDefinition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} AS {}", self.symbol, self.definition)
+        write!(f, "{} AS ", self.symbol)?;
+        if let Some(semantics) = self.semantics {
+            write!(f, "{semantics} ")?;
+        }
+        write!(f, "{}", self.definition)
     }
 }
 
