@@ -21728,19 +21728,26 @@ impl<'a> Parser<'a> {
             self.dialect.supports_execute_immediate() && self.parse_keyword(Keyword::IMMEDIATE);
 
         if immediate && self.parse_keyword(Keyword::FROM) {
-            let location = if let Token::SingleQuotedString(value) = self.peek_token_ref().token.clone() {
-                self.next_token();
-                format!("'{value}'")
-            } else {
-                self.expect_token(&Token::AtSign)?;
-                let mut location = String::from("@");
-                while !matches!(self.peek_token_ref().token, Token::EOF | Token::SemiColon)
-                    && !self.peek_execute_immediate_using_clause()
-                    && !self.peek_execute_immediate_dry_run_clause()
-                {
-                    location.push_str(&self.next_token().token.to_string());
+            let location = match self.peek_token_ref().token.clone() {
+                Token::SingleQuotedString(value) => {
+                    self.next_token();
+                    format!("'{value}'")
                 }
-                location
+                Token::DollarQuotedString(value) => {
+                    self.next_token();
+                    value.to_string()
+                }
+                _ => {
+                    self.expect_token(&Token::AtSign)?;
+                    let mut location = String::from("@");
+                    while !matches!(self.peek_token_ref().token, Token::EOF | Token::SemiColon)
+                        && !self.peek_execute_immediate_using_clause()
+                        && !self.peek_execute_immediate_dry_run_clause()
+                    {
+                        location.push_str(&self.next_token().token.to_string());
+                    }
+                    location
+                }
             };
             let using = if self.parse_keyword(Keyword::USING) {
                 self.expect_token(&Token::LParen)?;
