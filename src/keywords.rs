@@ -1161,6 +1161,7 @@ define_keywords!(
     STRUCT,
     STYPE,
     SUBMULTISET,
+    SUBPATH,
     SUBSCRIPT,
     SUBSCRIPTION,
     SUBSTR,
