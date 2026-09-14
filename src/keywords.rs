@@ -1110,6 +1110,7 @@ define_keywords!(
     STRING,
     STRUCT,
     SUBMULTISET,
+    SUBPATH,
     SUBSCRIPT,
     SUBSTR,
     SUBSTRING,
