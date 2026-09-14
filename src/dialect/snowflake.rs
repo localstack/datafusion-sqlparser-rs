@@ -929,7 +929,7 @@ impl Dialect for SnowflakeDialect {
 
             if parser.parse_keyword(Keyword::STAGE) {
                 // OK - this is CREATE STAGE statement
-                return Some(parse_create_stage(or_replace, temporary, parser));
+                return Some(parse_create_stage(or_replace, or_alter, temporary, parser));
             } else if parser.parse_keyword(Keyword::TABLE) {
                 return Some(
                     parse_create_table(
@@ -2888,6 +2888,7 @@ pub fn parse_storage_serialization_policy(
 
 pub fn parse_create_stage(
     or_replace: bool,
+    or_alter: bool,
     temporary: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
@@ -2915,6 +2916,7 @@ pub fn parse_create_stage(
 
     Ok(Statement::CreateStage {
         or_replace,
+        or_alter,
         temporary,
         if_not_exists,
         name,
