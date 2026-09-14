@@ -9221,6 +9221,53 @@ fn test_alter_stage_rename_if_exists_cross_schema() {
 }
 
 #[test]
+fn test_alter_stage_refresh() {
+    match snowflake().verified_stmt("ALTER STAGE s REFRESH") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("s", name.to_string());
+            assert!(!if_exists);
+            match operation {
+                AlterStageOperation::Refresh { subpath } => assert_eq!(None, subpath),
+                other => panic!("expected Refresh, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_refresh_subpath_if_exists() {
+    match snowflake().verified_stmt("ALTER STAGE IF EXISTS s REFRESH SUBPATH = 'data'") {
+        Statement::AlterStage {
+            name,
+            if_exists,
+            operation,
+        } => {
+            assert_eq!("s", name.to_string());
+            assert!(if_exists);
+            match operation {
+                AlterStageOperation::Refresh { subpath } => {
+                    assert_eq!(Some("data".to_string()), subpath);
+                }
+                other => panic!("expected Refresh, got {other:?}"),
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_alter_stage_refresh_bare_path_rejected() {
+    // A bare quoted path after REFRESH (no `SUBPATH =`) is a syntax error —
+    // only the keyword form is accepted.
+    assert!(snowflake().parse_sql_statements("ALTER STAGE s REFRESH 'data'").is_err());
+}
+
+#[test]
 fn test_alter_stage_set_stage_params() {
     let sql = concat!(
         "ALTER STAGE my_ext_stage SET ",

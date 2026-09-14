@@ -3010,6 +3010,14 @@ fn parse_alter_stage(parser: &mut Parser) -> Result<Statement, ParserError> {
 
     let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
         AlterStageOperation::RenameTo(parser.parse_object_name(false)?)
+    } else if parser.parse_keyword(Keyword::REFRESH) {
+        let subpath = if parser.parse_keyword(Keyword::SUBPATH) {
+            parser.expect_token(&Token::Eq)?;
+            Some(parser.parse_literal_string()?)
+        } else {
+            None
+        };
+        AlterStageOperation::Refresh { subpath }
     } else if parser.parse_keyword(Keyword::SET) {
         let StageProperties {
             stage_params,
@@ -3027,7 +3035,7 @@ fn parse_alter_stage(parser: &mut Parser) -> Result<Statement, ParserError> {
         }
     } else {
         return parser.expected(
-            "SET or RENAME TO after ALTER STAGE <name>",
+            "SET, RENAME TO, or REFRESH after ALTER STAGE <name>",
             parser.peek_token(),
         );
     };

@@ -15218,6 +15218,12 @@ pub enum AlterStageOperation {
         /// Optional `COMMENT` value.
         comment: Option<String>,
     },
+    /// `REFRESH [ SUBPATH = '<relative-path>' ]` — refresh the stage's
+    /// directory table from the current file listing.
+    Refresh {
+        /// Optional `SUBPATH = '<string>'` clause scoping the refresh.
+        subpath: Option<String>,
+    },
 }
 
 impl fmt::Display for AlterStageOperation {
@@ -15225,6 +15231,13 @@ impl fmt::Display for AlterStageOperation {
         match self {
             AlterStageOperation::RenameTo(name) => {
                 write!(f, "RENAME TO {name}")
+            }
+            AlterStageOperation::Refresh { subpath } => {
+                f.write_str("REFRESH")?;
+                if let Some(subpath) = subpath {
+                    write!(f, " SUBPATH = '{subpath}'")?;
+                }
+                Ok(())
             }
             AlterStageOperation::Set {
                 stage_params,

@@ -13710,6 +13710,27 @@ impl<'a> Parser<'a> {
                 //    be followed immediately by a word/number, ie.
                 //    without any whitespace in between
                 let next_token = self.next_token_no_skip().unwrap_or(&EOF_TOKEN).clone();
+                // Snowflake user (`@~`) and table (`@%name`) stage references can
+                // appear in expression position (e.g. a `DIRECTORY(@~)` argument),
+                // where they read as `@`-prefixed placeholders like a named stage.
+                if matches!(tok, Token::AtSign) {
+                    match next_token.token {
+                        Token::Tilde => {
+                            return Ok(Value::Placeholder("@~".to_string())
+                                .with_span(Span::new(span.start, next_token.span.end)));
+                        }
+                        Token::Mod => {
+                            let name_token =
+                                self.next_token_no_skip().unwrap_or(&EOF_TOKEN).clone();
+                            return match name_token.token {
+                                Token::Word(w) => Ok(Value::Placeholder(format!("@%{}", w.value))
+                                    .with_span(Span::new(span.start, name_token.span.end))),
+                                _ => self.expected("placeholder", name_token),
+                            };
+                        }
+                        _ => {}
+                    }
+                }
                 let ident = match next_token.token {
                     Token::Word(w) => Ok(w.into_ident(next_token.span)),
                     Token::Number(w, false) => Ok(Ident::with_span(next_token.span, w)),
