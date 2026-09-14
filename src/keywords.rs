@@ -690,6 +690,7 @@ define_keywords!(
     MESSAGE,
     METADATA,
     METADATA_COLUMNS,
+    METADATA_FILE_PATH,
     METHOD,
     METRIC,
     METRICS,

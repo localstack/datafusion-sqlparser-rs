@@ -2584,6 +2584,16 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder.base_location = Some(parser.parse_literal_string()?);
                 }
+                Keyword::METADATA_FILE_PATH => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.metadata_file_path = Some(parser.parse_literal_string()?);
+                }
+                Keyword::REPLACE_INVALID_CHARACTERS => {
+                    parser.expect_token(&Token::Eq)?;
+                    // Accepted for object-store Iceberg tables; the read path
+                    // does not act on it, so the parsed value is not retained.
+                    let _ = parser.parse_boolean_string()?;
+                }
                 Keyword::CATALOG_SYNC => {
                     parser.expect_token(&Token::Eq)?;
                     builder.catalog_sync = Some(parser.parse_literal_string()?);
@@ -2711,6 +2721,7 @@ pub fn parse_create_table(
     if iceberg
         && builder.base_location.is_none()
         && builder.catalog_table_name.is_none()
+        && builder.metadata_file_path.is_none()
         && !external_catalog
     {
         return Err(ParserError::ParserError(
@@ -5354,17 +5365,20 @@ fn parse_catalog_source(parser: &mut Parser) -> Result<CatalogSource, ParserErro
         "SNOWFLAKE" => CatalogSource::Snowflake,
         "GLUE" => CatalogSource::Glue,
         "POLARIS" => CatalogSource::Polaris,
+        "OBJECT_STORE" => CatalogSource::ObjectStore,
         _ => CatalogSource::Other(ident.value),
     })
 }
 
-/// Parse a `TABLE_FORMAT` identifier. Only `ICEBERG` is currently supported.
+/// Parse a `TABLE_FORMAT` identifier (`ICEBERG` or `DELTA`).
 fn parse_catalog_table_format(parser: &mut Parser) -> Result<CatalogTableFormat, ParserError> {
     let ident = parser.parse_identifier()?;
     if ident.value.eq_ignore_ascii_case("ICEBERG") {
         Ok(CatalogTableFormat::Iceberg)
+    } else if ident.value.eq_ignore_ascii_case("DELTA") {
+        Ok(CatalogTableFormat::Delta)
     } else {
-        parser.expected("ICEBERG", parser.peek_token())
+        parser.expected("ICEBERG or DELTA", parser.peek_token())
     }
 }
 

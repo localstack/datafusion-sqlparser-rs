@@ -15630,6 +15630,9 @@ pub enum CatalogSource {
     Glue,
     /// `POLARIS`
     Polaris,
+    /// `OBJECT_STORE` — catalog-less Iceberg/Delta files read straight from an
+    /// external volume's object storage.
+    ObjectStore,
     /// Forward-compatible: any other identifier.
     Other(String),
 }
@@ -15641,6 +15644,7 @@ impl fmt::Display for CatalogSource {
             CatalogSource::Snowflake => f.write_str("SNOWFLAKE"),
             CatalogSource::Glue => f.write_str("GLUE"),
             CatalogSource::Polaris => f.write_str("POLARIS"),
+            CatalogSource::ObjectStore => f.write_str("OBJECT_STORE"),
             CatalogSource::Other(s) => f.write_str(s),
         }
     }
@@ -15653,12 +15657,15 @@ impl fmt::Display for CatalogSource {
 pub enum CatalogTableFormat {
     /// `ICEBERG`
     Iceberg,
+    /// `DELTA`
+    Delta,
 }
 
 impl fmt::Display for CatalogTableFormat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CatalogTableFormat::Iceberg => f.write_str("ICEBERG"),
+            CatalogTableFormat::Delta => f.write_str("DELTA"),
         }
     }
 }

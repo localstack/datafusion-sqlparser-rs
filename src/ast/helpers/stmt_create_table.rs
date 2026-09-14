@@ -168,6 +168,8 @@ pub struct CreateTableBuilder {
     pub catalog: Option<String>,
     /// Optional externally-managed catalog table name.
     pub catalog_table_name: Option<String>,
+    /// Optional object-store metadata-file path for catalog-less Iceberg tables.
+    pub metadata_file_path: Option<String>,
     /// Optional auto-refresh flag for externally-managed Iceberg tables.
     pub auto_refresh: Option<bool>,
     /// Optional catalog synchronization option.
@@ -267,6 +269,7 @@ impl CreateTableBuilder {
             external_volume: None,
             catalog: None,
             catalog_table_name: None,
+            metadata_file_path: None,
             auto_refresh: None,
             catalog_sync: None,
             storage_serialization_policy: None,
@@ -705,6 +708,7 @@ impl CreateTableBuilder {
             external_volume: self.external_volume,
             catalog: self.catalog,
             catalog_table_name: self.catalog_table_name,
+            metadata_file_path: self.metadata_file_path,
             auto_refresh: self.auto_refresh,
             catalog_sync: self.catalog_sync,
             storage_serialization_policy: self.storage_serialization_policy,
@@ -799,6 +803,7 @@ impl From<CreateTable> for CreateTableBuilder {
             external_volume: table.external_volume,
             catalog: table.catalog,
             catalog_table_name: table.catalog_table_name,
+            metadata_file_path: table.metadata_file_path,
             auto_refresh: table.auto_refresh,
             catalog_sync: table.catalog_sync,
             storage_serialization_policy: table.storage_serialization_policy,

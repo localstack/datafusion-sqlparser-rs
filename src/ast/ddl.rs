@@ -3592,6 +3592,11 @@ pub struct CreateTable {
     /// Snowflake "CATALOG_TABLE_NAME" clause for externally-managed Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub catalog_table_name: Option<String>,
+    /// Snowflake "METADATA_FILE_PATH" clause for Iceberg tables backed by
+    /// Iceberg files in object storage (catalog-less), relative to the external
+    /// volume's active storage location.
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table-iceberg-files>
+    pub metadata_file_path: Option<String>,
     /// Snowflake "AUTO_REFRESH" clause for externally-managed Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub auto_refresh: Option<bool>,
@@ -3904,6 +3909,10 @@ impl fmt::Display for CreateTable {
 
         if let Some(catalog_table_name) = self.catalog_table_name.as_ref() {
             write!(f, " CATALOG_TABLE_NAME='{catalog_table_name}'")?;
+        }
+
+        if let Some(metadata_file_path) = self.metadata_file_path.as_ref() {
+            write!(f, " METADATA_FILE_PATH='{metadata_file_path}'")?;
         }
 
         if let Some(auto_refresh) = self.auto_refresh {
