@@ -27,7 +27,7 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterAlertOperation, AlterBackupPolicyOperation,
+    AlterAlertOperation, AlterBackupPolicyOperation, AlterColumnOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSessionPolicyOperation,
@@ -1491,44 +1491,51 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
     // Use parse_object_name(true) to support IDENTIFIER() function
     let table_name = parser.parse_object_name(true)?;
 
-    let operation = if parser.parse_keyword(Keyword::REFRESH) {
-        AlterTableOperation::Refresh { subpath: None }
-    } else if parser.parse_keyword(Keyword::SUSPEND) {
-        AlterTableOperation::Suspend
-    } else if parser.parse_keyword(Keyword::RESUME) {
-        AlterTableOperation::Resume
-    } else if parser.parse_keyword(Keyword::RENAME) {
-        parser.expect_keyword_is(Keyword::TO)?;
-        let new_name = parser.parse_object_name(false)?;
-        AlterTableOperation::RenameTable {
-            table_name: RenameTableNameKind::To(new_name),
-        }
-    } else if parser.parse_keyword(Keyword::SWAP) {
-        parser.expect_keyword_is(Keyword::WITH)?;
-        AlterTableOperation::SwapWith {
-            table_name: parser.parse_object_name(false)?,
-        }
-    } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
-        parser.expect_token(&Token::LParen)?;
-        let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
-        parser.expect_token(&Token::RParen)?;
-        AlterTableOperation::ClusterBy { exprs }
-    } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
-        AlterTableOperation::DropClusteringKey
-    } else if parser.parse_keyword(Keyword::SET) {
-        AlterTableOperation::SetOptionsParens {
-            options: parse_alter_dynamic_table_properties(parser, false)?,
-        }
-    } else if parser.parse_keyword(Keyword::UNSET) {
-        AlterTableOperation::SetOptionsParens {
-            options: parse_alter_dynamic_table_properties(parser, true)?,
-        }
+    let operations = if parser.peek_keyword(Keyword::ALTER)
+        || parser.peek_keyword(Keyword::MODIFY)
+    {
+        parse_alter_dynamic_table_column_comments(parser)?
     } else {
-        return parser.expected_ref(
-            "REFRESH, SUSPEND, RESUME, RENAME, SWAP, SET, UNSET, CLUSTER BY, \
-             or DROP CLUSTERING KEY after ALTER DYNAMIC TABLE",
-            parser.peek_token_ref(),
-        );
+        let operation = if parser.parse_keyword(Keyword::REFRESH) {
+            AlterTableOperation::Refresh { subpath: None }
+        } else if parser.parse_keyword(Keyword::SUSPEND) {
+            AlterTableOperation::Suspend
+        } else if parser.parse_keyword(Keyword::RESUME) {
+            AlterTableOperation::Resume
+        } else if parser.parse_keyword(Keyword::RENAME) {
+            parser.expect_keyword_is(Keyword::TO)?;
+            let new_name = parser.parse_object_name(false)?;
+            AlterTableOperation::RenameTable {
+                table_name: RenameTableNameKind::To(new_name),
+            }
+        } else if parser.parse_keyword(Keyword::SWAP) {
+            parser.expect_keyword_is(Keyword::WITH)?;
+            AlterTableOperation::SwapWith {
+                table_name: parser.parse_object_name(false)?,
+            }
+        } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
+            parser.expect_token(&Token::LParen)?;
+            let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
+            parser.expect_token(&Token::RParen)?;
+            AlterTableOperation::ClusterBy { exprs }
+        } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
+            AlterTableOperation::DropClusteringKey
+        } else if parser.parse_keyword(Keyword::SET) {
+            AlterTableOperation::SetOptionsParens {
+                options: parse_alter_dynamic_table_properties(parser, false)?,
+            }
+        } else if parser.parse_keyword(Keyword::UNSET) {
+            AlterTableOperation::SetOptionsParens {
+                options: parse_alter_dynamic_table_properties(parser, true)?,
+            }
+        } else {
+            return parser.expected_ref(
+                "REFRESH, SUSPEND, RESUME, RENAME, SWAP, SET, UNSET, CLUSTER BY, \
+                 or DROP CLUSTERING KEY after ALTER DYNAMIC TABLE",
+                parser.peek_token_ref(),
+            );
+        };
+        vec![operation]
     };
 
     let end_token = if parser.peek_token_ref().token == Token::SemiColon {
@@ -1541,12 +1548,37 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         name: table_name,
         if_exists,
         only: false,
-        operations: vec![operation],
+        operations,
         location: None,
         on_cluster: None,
         table_type: Some(AlterTableType::Dynamic),
         end_token: AttachedToken(end_token),
     }))
+}
+
+fn parse_alter_dynamic_table_column_comments(
+    parser: &mut Parser,
+) -> Result<Vec<AlterTableOperation>, ParserError> {
+    let _ = parser.next_token(); // ALTER | MODIFY
+    let parenthesized = parser.consume_token(&Token::LParen);
+    let operations = parser.parse_comma_separated(|parser| {
+        let _ = parser.parse_keyword(Keyword::COLUMN);
+        let column_name = parser.parse_identifier()?;
+        let op = if parser.parse_keyword(Keyword::COMMENT) {
+            AlterColumnOperation::Comment {
+                comment: parser.parse_literal_string()?,
+            }
+        } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+            AlterColumnOperation::UnsetComment
+        } else {
+            return parser.expected_ref("COMMENT or UNSET COMMENT", parser.peek_token_ref());
+        };
+        Ok(AlterTableOperation::AlterColumn { column_name, op })
+    })?;
+    if parenthesized {
+        parser.expect_token(&Token::RParen)?;
+    }
+    Ok(operations)
 }
 
 /// Parse the property list of `ALTER DYNAMIC TABLE … SET/UNSET`. Properties are
