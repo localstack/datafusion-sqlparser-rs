@@ -1470,6 +1470,11 @@ pub enum AlterColumnOperation {
         comment: String,
     },
 
+    /// `UNSET COMMENT`
+    ///
+    /// Snowflake: clear the column comment.
+    UnsetComment,
+
     /// `ADD GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY [ ( sequence_options ) ]`
     ///
     /// Note: this is a PostgreSQL-specific operation.
@@ -1807,6 +1812,7 @@ impl fmt::Display for AlterColumnOperation {
             AlterColumnOperation::Comment { comment } => {
                 write!(f, "COMMENT '{}'", escape_single_quote_string(comment))
             }
+            AlterColumnOperation::UnsetComment => write!(f, "UNSET COMMENT"),
             AlterColumnOperation::AddGenerated {
                 generated_as,
                 sequence_options,
