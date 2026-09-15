@@ -1614,7 +1614,7 @@ fn parse_alter_dynamic_table_property(
         _ => return parser.expected("a dynamic table property name", key_token),
     };
 
-    if key == "IMMUTABLE" {
+    if matches!(key.as_str(), "FROZEN" | "IMMUTABLE") {
         parser.expect_keyword_is(Keyword::WHERE)?;
         let value = if unset {
             Value::Null
@@ -1636,7 +1636,7 @@ fn parse_alter_dynamic_table_property(
             "COMMENT" | "INITIALIZATION_WAREHOUSE" | "SCHEDULER"
         ) {
             return parser.expected(
-                "COMMENT, INITIALIZATION_WAREHOUSE, SCHEDULER, or IMMUTABLE WHERE after UNSET",
+                "COMMENT, INITIALIZATION_WAREHOUSE, SCHEDULER, FROZEN WHERE, or IMMUTABLE WHERE after UNSET",
                 key_token,
             );
         }
