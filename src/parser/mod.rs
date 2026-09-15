@@ -18050,6 +18050,11 @@ impl<'a> Parser<'a> {
             // where there are no parentheses around the VALUES clause.
             let values = SetExpr::Values(self.parse_values(false, false)?);
             let alias = self.maybe_parse_table_alias()?;
+            // A `VALUES` list can itself be sampled (`... VALUES (…) SAMPLE (p)`),
+            // with the clause following the alias as on any other factor.
+            let sample = self
+                .maybe_parse_table_sample()?
+                .map(TableSampleKind::AfterTableAlias);
             Ok(TableFactor::Derived {
                 lateral: false,
                 subquery: Box::new(Query {
@@ -18065,7 +18070,7 @@ impl<'a> Parser<'a> {
                     pipe_operators: vec![],
                 }),
                 alias,
-                sample: None,
+                sample,
             })
         } else if dialect_of!(self is BigQueryDialect | PostgreSqlDialect | GenericDialect)
             && self.parse_keyword(Keyword::UNNEST)
