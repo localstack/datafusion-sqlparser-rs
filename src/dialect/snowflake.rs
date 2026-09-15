@@ -1503,6 +1503,11 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         AlterTableOperation::RenameTable {
             table_name: RenameTableNameKind::To(new_name),
         }
+    } else if parser.parse_keyword(Keyword::SWAP) {
+        parser.expect_keyword_is(Keyword::WITH)?;
+        AlterTableOperation::SwapWith {
+            table_name: parser.parse_object_name(false)?,
+        }
     } else if parser.parse_keywords(&[Keyword::CLUSTER, Keyword::BY]) {
         parser.expect_token(&Token::LParen)?;
         let exprs = parser.parse_comma_separated(|p| p.parse_expr())?;
@@ -1520,7 +1525,7 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         }
     } else {
         return parser.expected_ref(
-            "REFRESH, SUSPEND, RESUME, RENAME, SET, UNSET, CLUSTER BY, \
+            "REFRESH, SUSPEND, RESUME, RENAME, SWAP, SET, UNSET, CLUSTER BY, \
              or DROP CLUSTERING KEY after ALTER DYNAMIC TABLE",
             parser.peek_token_ref(),
         );
