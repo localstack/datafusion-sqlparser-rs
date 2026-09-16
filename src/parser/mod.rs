@@ -5722,14 +5722,19 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        // Optional `APPEND_ONLY = { TRUE | FALSE }`, which must follow the
-        // `{ AT | BEFORE }` clause per Snowflake's grammar.
-        let append_only = if self.parse_keyword(Keyword::APPEND_ONLY) {
+        // Accept the property value loosely. The Snowflake-facing parser layer
+        // validates its domain and duplicate occurrences before dispatch.
+        let mut append_only = None;
+        while self.parse_keyword(Keyword::APPEND_ONLY) {
             self.expect_token(&Token::Eq)?;
-            Some(self.parse_boolean_string()?)
-        } else {
-            None
-        };
+            let value = self.next_token();
+            append_only = Some(matches!(
+                value.token,
+                Token::Word(ref word)
+                    if word.quote_style.is_none()
+                        && word.value.eq_ignore_ascii_case("TRUE")
+            ));
+        }
         Ok(Statement::CreateStream {
             or_replace,
             if_not_exists,

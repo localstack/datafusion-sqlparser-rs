@@ -5094,9 +5094,8 @@ pub enum Statement {
         /// how [`crate::ast::TableVersion::Function`] keeps a table-version
         /// clause. Absent for a plain `ON {TABLE|VIEW} <source>`.
         at_before: Option<Expr>,
-        /// The optional `APPEND_ONLY = { TRUE | FALSE }` property, following the
-        /// `{ AT | BEFORE }` clause. `None` when the option is omitted (which
-        /// Snowflake treats as `FALSE`).
+        /// The validated `APPEND_ONLY` property, following the `{ AT | BEFORE }`
+        /// clause. `None` when omitted (which Snowflake treats as `FALSE`).
         append_only: Option<bool>,
     },
     /// ```sql
