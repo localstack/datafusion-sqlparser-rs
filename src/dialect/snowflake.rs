@@ -1607,20 +1607,31 @@ fn parse_alter_dynamic_table_column_comments(
 ) -> Result<Vec<AlterTableOperation>, ParserError> {
     let _ = parser.next_token(); // ALTER | MODIFY
     let parenthesized = parser.consume_token(&Token::LParen);
-    let operations = parser.parse_comma_separated(|parser| {
+    let mut operations = Vec::new();
+    loop {
         let _ = parser.parse_keyword(Keyword::COLUMN);
         let column_name = parser.parse_identifier()?;
         let op = if parser.parse_keyword(Keyword::COMMENT) {
-            AlterColumnOperation::Comment {
-                comment: parser.parse_literal_string()?,
-            }
+            let token = parser.next_token();
+            let comment = match token.token {
+                Token::SingleQuotedString(value) => value,
+                Token::DollarQuotedString(value) => value.value,
+                _ => return parser.expected("string literal", token),
+            };
+            AlterColumnOperation::Comment { comment }
         } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
             AlterColumnOperation::UnsetComment
         } else {
-            return parser.expected_ref("COMMENT or UNSET COMMENT", parser.peek_token_ref());
+            return parser.expected_ref(
+                "COMMENT or UNSET COMMENT after column name",
+                parser.peek_token_ref(),
+            );
         };
-        Ok(AlterTableOperation::AlterColumn { column_name, op })
-    })?;
+        operations.push(AlterTableOperation::AlterColumn { column_name, op });
+        if !parser.consume_token(&Token::Comma) {
+            break;
+        }
+    }
     if parenthesized {
         parser.expect_token(&Token::RParen)?;
     }
