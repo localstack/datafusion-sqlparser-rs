@@ -2817,6 +2817,7 @@ impl Spanned for AlterTable {
     fn span(&self) -> Span {
         union_spans(
             core::iter::once(self.name.span())
+                .chain(self.additional_names.iter().map(Spanned::span))
                 .chain(self.operations.iter().map(|i| i.span()))
                 .chain(self.on_cluster.iter().map(|i| i.span))
                 .chain(core::iter::once(self.end_token.0.span)),

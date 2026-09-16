@@ -2898,15 +2898,19 @@ fn parse_alter_table_add_column() {
     match mysql().verified_stmt("ALTER TABLE tab ADD COLUMN b INT FIRST") {
         Statement::AlterTable(AlterTable {
             name,
+            additional_names,
             if_exists,
             only,
             operations,
             table_type,
+            copy_session,
             location: _,
             on_cluster: _,
             end_token: _,
         }) => {
             assert_eq!(name.to_string(), "tab");
+            assert!(additional_names.is_empty());
+            assert!(!copy_session);
             assert!(!if_exists);
             assert_eq!(table_type, None);
             assert!(!only);

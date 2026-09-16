@@ -5498,6 +5498,8 @@ pub struct AlterTable {
     /// Table name
     #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
     pub name: ObjectName,
+    /// Additional targets in a multi-table dynamic-table refresh.
+    pub additional_names: Vec<ObjectName>,
     /// Whether `IF EXISTS` was specified for the `ALTER TABLE`.
     pub if_exists: bool,
     /// Whether the `ONLY` keyword was used (restrict scope to the named table).
@@ -5512,6 +5514,8 @@ pub struct AlterTable {
     pub on_cluster: Option<Ident>,
     /// Table type: None for regular tables, Some(AlterTableType) for Iceberg or Dynamic tables
     pub table_type: Option<AlterTableType>,
+    /// Whether a dynamic-table refresh carries COPY SESSION.
+    pub copy_session: bool,
     /// Token that represents the end of the statement (semicolon or EOF)
     pub end_token: AttachedToken,
 }
@@ -5532,11 +5536,18 @@ impl fmt::Display for AlterTable {
         if self.only {
             write!(f, "ONLY ")?;
         }
-        write!(f, "{} ", self.name)?;
+        write!(f, "{}", self.name)?;
+        for name in &self.additional_names {
+            write!(f, ", {name}")?;
+        }
+        write!(f, " ")?;
         if let Some(cluster) = &self.on_cluster {
             write!(f, "ON CLUSTER {cluster} ")?;
         }
         write!(f, "{}", display_comma_separated(&self.operations))?;
+        if self.copy_session {
+            write!(f, " COPY SESSION")?;
+        }
         if let Some(loc) = &self.location {
             write!(f, " {loc}")?
         }

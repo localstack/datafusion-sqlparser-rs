@@ -1490,6 +1490,10 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     // Use parse_object_name(true) to support IDENTIFIER() function
     let table_name = parser.parse_object_name(true)?;
+    let mut additional_names = Vec::new();
+    while parser.consume_token(&Token::Comma) {
+        additional_names.push(parser.parse_object_name(true)?);
+    }
 
     let operations = if parser.peek_keyword(Keyword::ALTER)
         || parser.peek_keyword(Keyword::MODIFY)
@@ -1542,6 +1546,16 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         vec![operation]
     };
 
+    let copy_session = if matches!(
+        operations.as_slice(),
+        [AlterTableOperation::Refresh { .. }]
+    ) && parser.parse_keyword(Keyword::COPY)
+    {
+        parser.expect_keyword_is(Keyword::SESSION)?;
+        true
+    } else {
+        false
+    };
     let end_token = if parser.peek_token_ref().token == Token::SemiColon {
         parser.peek_token_ref().clone()
     } else {
@@ -1550,12 +1564,14 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
 
     Ok(Statement::AlterTable(AlterTable {
         name: table_name,
+        additional_names,
         if_exists,
         only: false,
         operations,
         location: None,
         on_cluster: None,
         table_type: Some(AlterTableType::Dynamic),
+        copy_session,
         end_token: AttachedToken(end_token),
     }))
 }
@@ -1852,12 +1868,14 @@ fn parse_alter_materialized_view(parser: &mut Parser) -> Result<Statement, Parse
 
     Ok(Statement::AlterTable(AlterTable {
         name,
+        additional_names: vec![],
         if_exists,
         only: false,
         operations: vec![operation],
         location: None,
         on_cluster: None,
         table_type: Some(AlterTableType::MaterializedView),
+        copy_session: false,
         end_token: AttachedToken(end_token),
     }))
 }
@@ -1982,12 +2000,14 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
 
     Ok(Statement::AlterTable(AlterTable {
         name: table_name,
+        additional_names: vec![],
         if_exists,
         only: false,
         operations: vec![operation],
         location: None,
         on_cluster: None,
         table_type: Some(AlterTableType::External),
+        copy_session: false,
         end_token: AttachedToken(end_token),
     }))
 }
