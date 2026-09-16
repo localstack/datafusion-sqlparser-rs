@@ -1688,7 +1688,14 @@ fn parse_alter_dynamic_table_property(
         }
         if !matches!(
             key.as_str(),
-            "COMMENT" | "DCM" | "INITIALIZATION_WAREHOUSE" | "SCHEDULER"
+            "COMMENT"
+                | "DCM"
+                | "INITIALIZATION_WAREHOUSE"
+                | "SCHEDULER"
+                | "DATA_RETENTION_TIME_IN_DAYS"
+                | "MAX_DATA_EXTENSION_TIME_IN_DAYS"
+                | "DEFAULT_DDL_COLLATION"
+                | "LOG_LEVEL"
         ) {
             return parser.expected(
                 "COMMENT, DCM PROJECT, INITIALIZATION_WAREHOUSE, SCHEDULER, FROZEN WHERE, or IMMUTABLE WHERE after UNSET",
@@ -1703,14 +1710,41 @@ fn parse_alter_dynamic_table_property(
 
     if !matches!(
         key.as_str(),
-        "TARGET_LAG" | "WAREHOUSE" | "INITIALIZATION_WAREHOUSE" | "COMMENT" | "SCHEDULER"
+        "TARGET_LAG"
+            | "WAREHOUSE"
+            | "INITIALIZATION_WAREHOUSE"
+            | "COMMENT"
+            | "SCHEDULER"
+            | "DATA_RETENTION_TIME_IN_DAYS"
+            | "MAX_DATA_EXTENSION_TIME_IN_DAYS"
+            | "DEFAULT_DDL_COLLATION"
+            | "LOG_LEVEL"
     ) {
         return parser.expected("a dynamic table property name", key_token);
     }
     parser.expect_token(&Token::Eq)?;
     let value_token = parser.next_token();
     let value = match &value_token.token {
-        Token::SingleQuotedString(s) => s.clone(),
+        Token::Minus => {
+            let number_token = parser.next_token();
+            let Token::Number(value, long) = &number_token.token else {
+                return parser.expected("a numeric property value", number_token);
+            };
+            Expr::Value(Value::Number(format!("-{value}"), *long).into())
+        }
+        Token::SingleQuotedString(s) => Expr::Value(Value::SingleQuotedString(s.clone()).into()),
+        Token::Number(value, long) => {
+            Expr::Value(Value::Number(value.clone(), *long).into())
+        }
+        Token::Word(w) if w.quote_style.is_none() && w.keyword == Keyword::TRUE => {
+            Expr::Value(Value::Boolean(true).into())
+        }
+        Token::Word(w) if w.quote_style.is_none() && w.keyword == Keyword::FALSE => {
+            Expr::Value(Value::Boolean(false).into())
+        }
+        Token::Word(w) if w.quote_style.is_none() && w.keyword == Keyword::NULL => {
+            Expr::Value(Value::Null.into())
+        }
         // WAREHOUSE / INITIALIZATION_WAREHOUSE keep the user's verbatim
         // spelling; other keyword values (bare DOWNSTREAM) are uppercased.
         Token::Word(w)
@@ -1718,14 +1752,16 @@ fn parse_alter_dynamic_table_property(
                 && key != "WAREHOUSE"
                 && key != "INITIALIZATION_WAREHOUSE" =>
         {
-            w.value.to_uppercase()
+            Expr::Value(Value::SingleQuotedString(w.value.to_uppercase()).into())
         }
-        Token::Word(w) if w.quote_style.is_none() => w.value.clone(),
+        Token::Word(w) if w.quote_style.is_none() => {
+            Expr::Value(Value::SingleQuotedString(w.value.clone()).into())
+        }
         _ => return parser.expected("a property value", value_token),
     };
     Ok(SqlOption::KeyValue {
         key: Ident::new(key),
-        value: Expr::Value(Value::SingleQuotedString(value).into()),
+        value,
     })
 }
 
