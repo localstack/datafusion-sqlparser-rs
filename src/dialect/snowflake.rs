@@ -31,8 +31,10 @@ use crate::ast::{
     AlterAlertOperation, AlterBackupPolicyOperation, AlterColumnOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
-    AlterPasswordPolicyOperation, AlterRoleOperation, AlterSessionPolicyOperation,
-    AlterSnowflakeSecretOperation,
+    AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
+    AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
+    CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr,
+    SemanticViewRelationship, SemanticViewTable,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -517,6 +519,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_alter_password_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::SEMANTIC, Keyword::VIEW]) {
+            // ALTER SEMANTIC VIEW
+            return Some(parse_alter_semantic_view(parser));
+        }
+
         // Must precede the bare `ALTER SESSION` arm below, which would otherwise
         // consume `ALTER SESSION` and mis-parse `POLICY` as a SET/UNSET target.
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SESSION, Keyword::POLICY]) {
@@ -633,6 +640,11 @@ impl Dialect for SnowflakeDialect {
             return Some(parse_drop_password_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::SEMANTIC, Keyword::VIEW]) {
+            // DROP SEMANTIC VIEW
+            return Some(parse_drop_semantic_view(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::SESSION, Keyword::POLICY]) {
             // DROP SESSION POLICY
             return Some(parse_drop_session_policy(parser));
@@ -713,6 +725,10 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICY]) {
                 // DESC[RIBE] PASSWORD POLICY
                 return Some(parse_describe_password_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SEMANTIC, Keyword::VIEW]) {
+                // DESC[RIBE] SEMANTIC VIEW
+                return Some(parse_describe_semantic_view(parser));
             }
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICY]) {
                 // DESC[RIBE] SESSION POLICY
@@ -813,6 +829,11 @@ impl Dialect for SnowflakeDialect {
             // CREATE [OR REPLACE] PASSWORD POLICY
             if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICY]) {
                 return Some(parse_create_password_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] SEMANTIC VIEW
+            if parser.parse_keywords(&[Keyword::SEMANTIC, Keyword::VIEW]) {
+                return Some(parse_create_semantic_view(or_replace, parser));
             }
 
             // CREATE [OR REPLACE] SESSION POLICY
@@ -1062,6 +1083,9 @@ impl Dialect for SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICIES]) {
                 return Some(parse_show_password_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::SEMANTIC, Keyword::VIEWS]) {
+                return Some(parse_show_semantic_views(terse, parser));
             }
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICIES]) {
                 return Some(parse_show_session_policies(parser));
@@ -4970,6 +4994,295 @@ fn parse_show_password_policies(parser: &mut Parser) -> Result<Statement, Parser
     Ok(Statement::ShowPasswordPolicies {
         show_options,
         on_entity,
+    })
+}
+
+/// Reduce an object name to a single identifier, erroring on qualified names.
+/// Used for semantic-view aliases and relationship table references, which are
+/// always simple identifiers.
+fn semantic_view_ident(name: ObjectName) -> Result<Ident, ParserError> {
+    match name.0.as_slice() {
+        [ObjectNamePart::Identifier(ident)] => Ok(ident.clone()),
+        _ => Err(ParserError::ParserError(format!(
+            "expected a single identifier, found {name}"
+        ))),
+    }
+}
+
+/// Parse a parenthesized, comma-separated list using `f` for each element.
+fn parse_semantic_view_paren_list<T, F>(
+    parser: &mut Parser,
+    f: F,
+) -> Result<Vec<T>, ParserError>
+where
+    F: FnMut(&mut Parser) -> Result<T, ParserError>,
+{
+    parser.expect_token(&Token::LParen)?;
+    let items = parser.parse_comma_separated(f)?;
+    parser.expect_token(&Token::RParen)?;
+    Ok(items)
+}
+
+/// Parse `[=] ( 'synonym' [ , ... ] )` following `WITH SYNONYMS`.
+fn parse_semantic_view_synonyms(parser: &mut Parser) -> Result<Vec<String>, ParserError> {
+    let _ = parser.consume_token(&Token::Eq);
+    parse_semantic_view_paren_list(parser, |p| p.parse_literal_string())
+}
+
+/// Parse a single `<tag_name> = '<tag_value>'` entry.
+fn parse_semantic_view_tag(parser: &mut Parser) -> Result<Tag, ParserError> {
+    let key = parser.parse_object_name(false)?;
+    parser.expect_token(&Token::Eq)?;
+    let value = parser.parse_literal_string()?;
+    Ok(Tag::new(key, value))
+}
+
+/// Parse `( <tag_name> = '<value>' [ , ... ] )` following `[WITH] TAG`.
+fn parse_semantic_view_tag_list(parser: &mut Parser) -> Result<Vec<Tag>, ParserError> {
+    parse_semantic_view_paren_list(parser, parse_semantic_view_tag)
+}
+
+/// Parse a logical table element in the `TABLES ( ... )` clause.
+fn parse_semantic_view_table(parser: &mut Parser) -> Result<SemanticViewTable, ParserError> {
+    let first = parser.parse_object_name(false)?;
+    let (alias, name) = if parser.parse_keyword(Keyword::AS) {
+        (Some(semantic_view_ident(first)?), parser.parse_object_name(false)?)
+    } else {
+        (None, first)
+    };
+
+    let mut primary_key = Vec::new();
+    let mut unique = Vec::new();
+    let mut synonyms = Vec::new();
+    let mut tags = Vec::new();
+    let mut comment = None;
+    loop {
+        if primary_key.is_empty() && parser.parse_keywords(&[Keyword::PRIMARY, Keyword::KEY]) {
+            primary_key = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
+        } else if parser.parse_keyword(Keyword::UNIQUE) {
+            unique.push(parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?);
+        } else if synonyms.is_empty()
+            && (parser.parse_keywords(&[Keyword::WITH, Keyword::SYNONYMS])
+                || parser.parse_keyword(Keyword::SYNONYMS))
+        {
+            synonyms = parse_semantic_view_synonyms(parser)?;
+        } else if tags.is_empty()
+            && (parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                || parser.parse_keyword(Keyword::TAG))
+        {
+            tags = parse_semantic_view_tag_list(parser)?;
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_literal_string()?);
+        } else {
+            break;
+        }
+    }
+
+    Ok(SemanticViewTable {
+        alias,
+        name,
+        primary_key,
+        unique,
+        synonyms,
+        tags,
+        comment,
+    })
+}
+
+/// Parse a relationship element in the `RELATIONSHIPS ( ... )` clause:
+/// `[ <identifier> AS ] <table> ( <col> [ , ... ] ) REFERENCES <ref_table> [ ( <col> [ , ... ] ) ]`.
+fn parse_semantic_view_relationship(
+    parser: &mut Parser,
+) -> Result<SemanticViewRelationship, ParserError> {
+    let first = parser.parse_object_name(false)?;
+    let (identifier, table) = if parser.parse_keyword(Keyword::AS) {
+        (
+            Some(semantic_view_ident(first)?),
+            semantic_view_ident(parser.parse_object_name(false)?)?,
+        )
+    } else {
+        (None, semantic_view_ident(first)?)
+    };
+    let columns = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
+    parser.expect_keyword(Keyword::REFERENCES)?;
+    let ref_table = parser.parse_object_name(false)?;
+    let ref_columns = parser.parse_parenthesized_column_list(IsOptional::Optional, false)?;
+    Ok(SemanticViewRelationship {
+        identifier,
+        table,
+        columns,
+        ref_table,
+        ref_columns,
+    })
+}
+
+/// Parse a fact, dimension, or metric semantic expression:
+/// `[ PRIVATE | PUBLIC ] <name> [ AS <sql_expr> ] [ WITH SYNONYMS ( ... ) ]
+///  [ [WITH] TAG ( ... ) ] [ COMMENT = '...' ]`.
+fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, ParserError> {
+    let access = if parser.parse_keyword(Keyword::PRIVATE) {
+        Some(SemanticViewColumnAccess::Private)
+    } else if parser.parse_keyword(Keyword::PUBLIC) {
+        Some(SemanticViewColumnAccess::Public)
+    } else {
+        None
+    };
+    let name = parser.parse_object_name(false)?;
+    let expr = if parser.parse_keyword(Keyword::AS) {
+        Some(parser.parse_expr()?)
+    } else {
+        None
+    };
+
+    let mut synonyms = Vec::new();
+    let mut tags = Vec::new();
+    let mut comment = None;
+    loop {
+        if synonyms.is_empty()
+            && (parser.parse_keywords(&[Keyword::WITH, Keyword::SYNONYMS])
+                || parser.parse_keyword(Keyword::SYNONYMS))
+        {
+            synonyms = parse_semantic_view_synonyms(parser)?;
+        } else if tags.is_empty()
+            && (parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                || parser.parse_keyword(Keyword::TAG))
+        {
+            tags = parse_semantic_view_tag_list(parser)?;
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_literal_string()?);
+        } else {
+            break;
+        }
+    }
+
+    Ok(SemanticViewExpr {
+        access,
+        name,
+        expr,
+        synonyms,
+        tags,
+        comment,
+    })
+}
+
+/// Parse `CREATE [OR REPLACE] SEMANTIC VIEW [IF NOT EXISTS] <name>
+///   TABLES ( ... ) [ RELATIONSHIPS ( ... ) ] [ FACTS ( ... ) ]
+///   [ DIMENSIONS ( ... ) ] [ METRICS ( ... ) ] [ COMMENT = '...' ]`.
+/// The clauses are captured in declaration order (ADR 100 §1).
+fn parse_create_semantic_view(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+
+    let mut clauses = Vec::new();
+    let mut comment = None;
+    loop {
+        if parser.parse_keyword(Keyword::TABLES) {
+            clauses.push(SemanticViewClause::Tables(parse_semantic_view_paren_list(
+                parser,
+                parse_semantic_view_table,
+            )?));
+        } else if parser.parse_keyword(Keyword::RELATIONSHIPS) {
+            clauses.push(SemanticViewClause::Relationships(
+                parse_semantic_view_paren_list(parser, parse_semantic_view_relationship)?,
+            ));
+        } else if parser.parse_keyword(Keyword::FACTS) {
+            clauses.push(SemanticViewClause::Facts(parse_semantic_view_paren_list(
+                parser,
+                parse_semantic_view_expr,
+            )?));
+        } else if parser.parse_keyword(Keyword::DIMENSIONS) {
+            clauses.push(SemanticViewClause::Dimensions(
+                parse_semantic_view_paren_list(parser, parse_semantic_view_expr)?,
+            ));
+        } else if parser.parse_keyword(Keyword::METRICS) {
+            clauses.push(SemanticViewClause::Metrics(parse_semantic_view_paren_list(
+                parser,
+                parse_semantic_view_expr,
+            )?));
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_literal_string()?);
+        } else {
+            break;
+        }
+    }
+
+    Ok(Statement::CreateSemanticView(Box::new(CreateSemanticView {
+        or_replace,
+        if_not_exists,
+        name,
+        clauses,
+        comment,
+    })))
+}
+
+/// Parse `ALTER SEMANTIC VIEW [IF EXISTS] <name>
+///   { RENAME TO <name> | SET COMMENT = '...' | UNSET COMMENT
+///     | SET TAG <t> = '<v>' [, ...] | UNSET TAG <t> [, ...] }`.
+fn parse_alter_semantic_view(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterSemanticViewOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keyword(Keyword::SET) {
+        if parser.parse_keyword(Keyword::TAG) {
+            AlterSemanticViewOperation::SetTags(
+                parser.parse_comma_separated(parse_semantic_view_tag)?,
+            )
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            AlterSemanticViewOperation::SetComment {
+                value: parser.parse_literal_string()?,
+            }
+        } else {
+            return parser.expected_ref("COMMENT or TAG", parser.peek_token_ref());
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        if parser.parse_keyword(Keyword::TAG) {
+            AlterSemanticViewOperation::UnsetTags(
+                parser.parse_comma_separated(|p| p.parse_object_name(false))?,
+            )
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            AlterSemanticViewOperation::UnsetComment
+        } else {
+            return parser.expected_ref("COMMENT or TAG", parser.peek_token_ref());
+        }
+    } else {
+        return parser.expected_ref("RENAME TO, SET, or UNSET", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterSemanticView {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+/// Parse `DROP SEMANTIC VIEW [IF EXISTS] <name>`.
+fn parse_drop_semantic_view(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropSemanticView { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] SEMANTIC VIEW <name>`.
+fn parse_describe_semantic_view(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeSemanticView { name })
+}
+
+/// Parse `SHOW [TERSE] SEMANTIC VIEWS [ LIKE '<pattern>' ] [ IN <scope> ]`.
+fn parse_show_semantic_views(terse: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowSemanticViews {
+        terse,
+        show_options,
     })
 }
 

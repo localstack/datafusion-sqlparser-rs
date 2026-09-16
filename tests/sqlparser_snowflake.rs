@@ -10765,3 +10765,114 @@ fn reject_from_as_expression_operand() {
         "sql parser error: Expected an expression, found: FROM at Line: 1, Column: 12"
     );
 }
+
+#[test]
+fn parse_create_semantic_view() {
+    for sql in [
+        "CREATE SEMANTIC VIEW sv TABLES (orders) DIMENSIONS (orders.region AS region)",
+        "CREATE OR REPLACE SEMANTIC VIEW sv TABLES (o AS orders) METRICS (o.total AS SUM(o.amount))",
+        "CREATE SEMANTIC VIEW IF NOT EXISTS db.sc.sv TABLES (o AS orders) DIMENSIONS (o.region AS region) COMMENT = 'a view'",
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders PRIMARY KEY (id) UNIQUE (a, b) WITH SYNONYMS ('ord') WITH TAG (t='v') COMMENT = 'tbl') RELATIONSHIPS (rel AS o (cust_id) REFERENCES customers (id)) FACTS (o.amount AS amount) DIMENSIONS (o.region AS region) METRICS (o.total AS SUM(amount))",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+#[test]
+fn parse_create_semantic_view_preserves_clause_order() {
+    // The five clause lists are written in a deliberately non-canonical order;
+    // the parsed AST must recover that exact order.
+    let sql = "CREATE SEMANTIC VIEW sv METRICS (o.total AS SUM(o.amount)) TABLES (o AS orders) DIMENSIONS (o.region AS region) RELATIONSHIPS (o (cust_id) REFERENCES customers (id)) FACTS (o.amount AS amount)";
+    let stmt = snowflake().verified_stmt(sql);
+    let Statement::CreateSemanticView(create) = stmt else {
+        panic!("expected CreateSemanticView, got {stmt:?}");
+    };
+    let kinds: Vec<&str> = create
+        .clauses
+        .iter()
+        .map(|clause| match clause {
+            SemanticViewClause::Tables(_) => "TABLES",
+            SemanticViewClause::Relationships(_) => "RELATIONSHIPS",
+            SemanticViewClause::Facts(_) => "FACTS",
+            SemanticViewClause::Dimensions(_) => "DIMENSIONS",
+            SemanticViewClause::Metrics(_) => "METRICS",
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["METRICS", "TABLES", "DIMENSIONS", "RELATIONSHIPS", "FACTS"]
+    );
+}
+
+#[test]
+fn parse_create_semantic_view_element_fields() {
+    let sql = "CREATE SEMANTIC VIEW sv METRICS (PRIVATE o.total AS SUM(o.amount) WITH SYNONYMS ('revenue', 'sales') WITH TAG (cost_center='finance') COMMENT = 'total revenue')";
+    let stmt = snowflake().verified_stmt(sql);
+    let Statement::CreateSemanticView(create) = stmt else {
+        panic!("expected CreateSemanticView, got {stmt:?}");
+    };
+    let [SemanticViewClause::Metrics(metrics)] = create.clauses.as_slice() else {
+        panic!("expected a single METRICS clause, got {:?}", create.clauses);
+    };
+    let [metric] = metrics.as_slice() else {
+        panic!("expected a single metric, got {metrics:?}");
+    };
+    assert_eq!(metric.access, Some(SemanticViewColumnAccess::Private));
+    assert_eq!(metric.name.to_string(), "o.total");
+    assert_eq!(
+        metric.expr.as_ref().map(ToString::to_string),
+        Some("SUM(o.amount)".to_string())
+    );
+    assert_eq!(
+        metric.synonyms,
+        vec!["revenue".to_string(), "sales".to_string()]
+    );
+    assert_eq!(metric.tags, vec![Tag::new(ObjectName::from(vec![Ident::new("cost_center")]), "finance".to_string())]);
+    assert_eq!(metric.comment.as_deref(), Some("total revenue"));
+}
+
+#[test]
+fn parse_create_semantic_view_synonyms_and_tag_normalization() {
+    snowflake().one_statement_parses_to(
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders WITH SYNONYMS = ('ord') WITH TAG (t = 'v'))",
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders WITH SYNONYMS ('ord') WITH TAG (t='v'))",
+    );
+}
+
+#[test]
+fn parse_alter_semantic_view() {
+    for sql in [
+        "ALTER SEMANTIC VIEW sv RENAME TO sv2",
+        "ALTER SEMANTIC VIEW IF EXISTS sv SET COMMENT = 'hello'",
+        "ALTER SEMANTIC VIEW sv UNSET COMMENT",
+        "ALTER SEMANTIC VIEW sv SET TAG a='b', c='d'",
+        "ALTER SEMANTIC VIEW sv UNSET TAG a, b",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+#[test]
+fn parse_drop_describe_show_semantic_view() {
+    for sql in [
+        "DROP SEMANTIC VIEW sv",
+        "DROP SEMANTIC VIEW IF EXISTS db.sc.sv",
+        "DESCRIBE SEMANTIC VIEW sv",
+        "SHOW SEMANTIC VIEWS",
+        "SHOW TERSE SEMANTIC VIEWS",
+        "SHOW SEMANTIC VIEWS LIKE '%sales%'",
+        "SHOW SEMANTIC VIEWS IN SCHEMA my_schema",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+    snowflake().one_statement_parses_to("DESC SEMANTIC VIEW sv", "DESCRIBE SEMANTIC VIEW sv");
+}
+
+#[test]
+fn semantic_view_ddl_is_snowflake_only() {
+    assert!(Parser::parse_sql(
+        &GenericDialect {},
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region)"
+    )
+    .is_err());
+}

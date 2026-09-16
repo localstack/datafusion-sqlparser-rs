@@ -1546,6 +1546,281 @@ impl fmt::Display for AlterPasswordPolicyOperation {
     }
 }
 
+/// The `PRIVATE` / `PUBLIC` access modifier on a semantic view fact or metric.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view>
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum SemanticViewColumnAccess {
+    /// `PRIVATE` — the fact or metric cannot be queried directly.
+    Private,
+    /// `PUBLIC` — the default; the element can be queried.
+    Public,
+}
+
+impl fmt::Display for SemanticViewColumnAccess {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SemanticViewColumnAccess::Private => write!(f, "PRIVATE"),
+            SemanticViewColumnAccess::Public => write!(f, "PUBLIC"),
+        }
+    }
+}
+
+fn fmt_semantic_view_synonyms(f: &mut fmt::Formatter, synonyms: &[String]) -> fmt::Result {
+    write!(f, " WITH SYNONYMS (")?;
+    for (i, synonym) in synonyms.iter().enumerate() {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "'{}'", escape_single_quote_string(synonym))?;
+    }
+    write!(f, ")")
+}
+
+/// A logical table in the `TABLES (...)` clause of a `CREATE SEMANTIC VIEW`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct SemanticViewTable {
+    /// Optional `<alias> AS` used to refer to the table elsewhere.
+    pub alias: Option<Ident>,
+    /// The physical table name.
+    pub name: ObjectName,
+    /// `PRIMARY KEY ( ... )` columns (empty if absent).
+    pub primary_key: Vec<Ident>,
+    /// Zero or more `UNIQUE ( ... )` column groups.
+    pub unique: Vec<Vec<Ident>>,
+    /// `WITH SYNONYMS ( ... )` values (empty if absent).
+    pub synonyms: Vec<String>,
+    /// `WITH TAG ( ... )` entries (empty if absent).
+    pub tags: Vec<Tag>,
+    /// `COMMENT = '...'`.
+    pub comment: Option<String>,
+}
+
+impl fmt::Display for SemanticViewTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(alias) = &self.alias {
+            write!(f, "{alias} AS ")?;
+        }
+        write!(f, "{}", self.name)?;
+        if !self.primary_key.is_empty() {
+            write!(f, " PRIMARY KEY ({})", display_comma_separated(&self.primary_key))?;
+        }
+        for unique in &self.unique {
+            write!(f, " UNIQUE ({})", display_comma_separated(unique))?;
+        }
+        if !self.synonyms.is_empty() {
+            fmt_semantic_view_synonyms(f, &self.synonyms)?;
+        }
+        if !self.tags.is_empty() {
+            write!(f, " WITH TAG ({})", display_comma_separated(&self.tags))?;
+        }
+        if let Some(comment) = &self.comment {
+            write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
+        }
+        Ok(())
+    }
+}
+
+/// A relationship in the `RELATIONSHIPS (...)` clause of a `CREATE SEMANTIC VIEW`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct SemanticViewRelationship {
+    /// Optional `<identifier> AS` naming the relationship.
+    pub identifier: Option<Ident>,
+    /// The referencing logical table alias.
+    pub table: Ident,
+    /// The referencing columns.
+    pub columns: Vec<Ident>,
+    /// The referenced logical table.
+    pub ref_table: ObjectName,
+    /// The referenced columns (empty when omitted).
+    pub ref_columns: Vec<Ident>,
+}
+
+impl fmt::Display for SemanticViewRelationship {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(identifier) = &self.identifier {
+            write!(f, "{identifier} AS ")?;
+        }
+        write!(
+            f,
+            "{} ({}) REFERENCES {}",
+            self.table,
+            display_comma_separated(&self.columns),
+            self.ref_table
+        )?;
+        if !self.ref_columns.is_empty() {
+            write!(f, " ({})", display_comma_separated(&self.ref_columns))?;
+        }
+        Ok(())
+    }
+}
+
+/// A fact, dimension, or metric semantic expression in a `CREATE SEMANTIC VIEW`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct SemanticViewExpr {
+    /// Optional `PRIVATE` / `PUBLIC` access modifier.
+    pub access: Option<SemanticViewColumnAccess>,
+    /// The (optionally table-qualified) element name.
+    pub name: ObjectName,
+    /// The `AS <sql_expr>` definition, when present.
+    pub expr: Option<Expr>,
+    /// `WITH SYNONYMS ( ... )` values (empty if absent).
+    pub synonyms: Vec<String>,
+    /// `WITH TAG ( ... )` entries (empty if absent).
+    pub tags: Vec<Tag>,
+    /// `COMMENT = '...'`.
+    pub comment: Option<String>,
+}
+
+impl fmt::Display for SemanticViewExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(access) = &self.access {
+            write!(f, "{access} ")?;
+        }
+        write!(f, "{}", self.name)?;
+        if let Some(expr) = &self.expr {
+            write!(f, " AS {expr}")?;
+        }
+        if !self.synonyms.is_empty() {
+            fmt_semantic_view_synonyms(f, &self.synonyms)?;
+        }
+        if !self.tags.is_empty() {
+            write!(f, " WITH TAG ({})", display_comma_separated(&self.tags))?;
+        }
+        if let Some(comment) = &self.comment {
+            write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
+        }
+        Ok(())
+    }
+}
+
+/// One clause of a `CREATE SEMANTIC VIEW`. The clauses are stored in
+/// declaration order so the original ordering survives round-tripping.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum SemanticViewClause {
+    /// `TABLES ( ... )`
+    Tables(Vec<SemanticViewTable>),
+    /// `RELATIONSHIPS ( ... )`
+    Relationships(Vec<SemanticViewRelationship>),
+    /// `FACTS ( ... )`
+    Facts(Vec<SemanticViewExpr>),
+    /// `DIMENSIONS ( ... )`
+    Dimensions(Vec<SemanticViewExpr>),
+    /// `METRICS ( ... )`
+    Metrics(Vec<SemanticViewExpr>),
+}
+
+impl fmt::Display for SemanticViewClause {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SemanticViewClause::Tables(items) => {
+                write!(f, "TABLES ({})", display_comma_separated(items))
+            }
+            SemanticViewClause::Relationships(items) => {
+                write!(f, "RELATIONSHIPS ({})", display_comma_separated(items))
+            }
+            SemanticViewClause::Facts(items) => {
+                write!(f, "FACTS ({})", display_comma_separated(items))
+            }
+            SemanticViewClause::Dimensions(items) => {
+                write!(f, "DIMENSIONS ({})", display_comma_separated(items))
+            }
+            SemanticViewClause::Metrics(items) => {
+                write!(f, "METRICS ({})", display_comma_separated(items))
+            }
+        }
+    }
+}
+
+/// The payload of a `CREATE [OR REPLACE] SEMANTIC VIEW` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateSemanticView {
+    /// `OR REPLACE` flag.
+    pub or_replace: bool,
+    /// `IF NOT EXISTS` flag.
+    pub if_not_exists: bool,
+    /// The semantic view name.
+    pub name: ObjectName,
+    /// The clause lists in declaration order.
+    pub clauses: Vec<SemanticViewClause>,
+    /// `COMMENT = '...'`.
+    pub comment: Option<String>,
+}
+
+impl fmt::Display for CreateSemanticView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "CREATE {or_replace}SEMANTIC VIEW {if_not_exists}{name}",
+            or_replace = if self.or_replace { "OR REPLACE " } else { "" },
+            if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
+            name = self.name,
+        )?;
+        for clause in &self.clauses {
+            write!(f, " {clause}")?;
+        }
+        if let Some(comment) = &self.comment {
+            write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
+        }
+        Ok(())
+    }
+}
+
+/// An operation in an `ALTER SEMANTIC VIEW` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterSemanticViewOperation {
+    /// `RENAME TO <name>`
+    RenameTo {
+        /// The new semantic view name.
+        new_name: ObjectName,
+    },
+    /// `SET COMMENT = '...'`
+    SetComment {
+        /// The comment value.
+        value: String,
+    },
+    /// `UNSET COMMENT`
+    UnsetComment,
+    /// `SET TAG <tag> = '<value>' [ , ... ]`
+    SetTags(Vec<Tag>),
+    /// `UNSET TAG <tag> [ , ... ]`
+    UnsetTags(Vec<ObjectName>),
+}
+
+impl fmt::Display for AlterSemanticViewOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterSemanticViewOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+            AlterSemanticViewOperation::SetComment { value } => {
+                write!(f, "SET COMMENT = '{}'", escape_single_quote_string(value))
+            }
+            AlterSemanticViewOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterSemanticViewOperation::SetTags(tags) => {
+                write!(f, "SET TAG {}", display_comma_separated(tags))
+            }
+            AlterSemanticViewOperation::UnsetTags(tags) => {
+                write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
+        }
+    }
+}
+
 /// An operation on a session policy in an `ALTER SESSION POLICY` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

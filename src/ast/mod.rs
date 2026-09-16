@@ -69,7 +69,8 @@ pub use self::ddl::{
     AlterOperatorClass, AlterOperatorClassOperation, AlterOperatorFamily,
     AlterAuthenticationPolicyOperation, AlterOperatorFamilyOperation, AlterOperatorOperation,
     AlterPasswordPolicyOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
-    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterSessionPolicyOperation,
+    AlterProcedureOperation, AlterSchema, AlterSchemaOperation, AlterSemanticViewOperation,
+    AlterSessionPolicyOperation,
     AlterSnowflakeSecretOperation, AlterTable, AlterTableAlgorithm, AlterTableLock,
     AlterTableOperation, AlterTableType, AlterTagOperation, AlterType, AlterTypeAddValue,
     AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
@@ -86,7 +87,9 @@ pub use self::ddl::{
     IndexOption, IndexType, KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes,
     OperatorClassItem, OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose,
     Owner, Partition, PartitionBoundValue, ProcedureExecuteAs, ProcedureParam, ReferentialAction,
-    RenameTableNameKind, ReplicaIdentity, TagsColumnOption, TriggerObjectKind, Truncate,
+    RenameTableNameKind, ReplicaIdentity, CreateSemanticView, SemanticViewClause,
+    SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
+    TagsColumnOption, TriggerObjectKind, Truncate,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
     UserDefinedTypeStorage, ViewColumnDef,
@@ -5796,6 +5799,57 @@ pub enum Statement {
         on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] SEMANTIC VIEW [IF NOT EXISTS] <name>
+    ///   TABLES ( ... ) [ RELATIONSHIPS ( ... ) ] [ FACTS ( ... ) ]
+    ///   [ DIMENSIONS ( ... ) ] [ METRICS ( ... ) ] [ COMMENT = '<comment>' ]
+    /// ```
+    /// The payload is boxed to keep the `Statement` enum small (the clause
+    /// lists are recursive/expression-bearing). See
+    /// <https://docs.snowflake.com/en/sql-reference/sql/create-semantic-view>
+    CreateSemanticView(Box<CreateSemanticView>),
+    /// ```sql
+    /// ALTER SEMANTIC VIEW [IF EXISTS] <name>
+    ///   { RENAME TO <name> | SET COMMENT = '...' | UNSET COMMENT
+    ///     | SET TAG <t> = '<v>' [, ...] | UNSET TAG <t> [, ...] }
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-semantic-view>
+    AlterSemanticView {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The semantic view name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterSemanticViewOperation,
+    },
+    /// ```sql
+    /// DROP SEMANTIC VIEW [IF EXISTS] <name>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/drop-semantic-view>
+    DropSemanticView {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// The semantic view name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] SEMANTIC VIEW <name>
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/desc-semantic-view>
+    DescribeSemanticView {
+        /// The semantic view name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW [TERSE] SEMANTIC VIEWS [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-semantic-views>
+    ShowSemanticViews {
+        /// `TERSE` flag.
+        terse: bool,
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] SESSION POLICY [IF NOT EXISTS] <name>
     ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
     /// ```
@@ -9183,6 +9237,38 @@ impl fmt::Display for Statement {
                     write!(f, " ON {entity}")?;
                 }
                 Ok(())
+            }
+            Statement::CreateSemanticView(create) => write!(f, "{create}"),
+            Statement::AlterSemanticView {
+                if_exists,
+                name,
+                operation,
+            } => {
+                write!(
+                    f,
+                    "ALTER SEMANTIC VIEW {if_exists}{name} {operation}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DropSemanticView { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP SEMANTIC VIEW {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeSemanticView { name } => {
+                write!(f, "DESCRIBE SEMANTIC VIEW {name}")
+            }
+            Statement::ShowSemanticViews {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}SEMANTIC VIEWS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
+                )
             }
             Statement::CreateSessionPolicy {
                 or_replace,
