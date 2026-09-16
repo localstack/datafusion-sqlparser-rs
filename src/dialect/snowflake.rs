@@ -2816,12 +2816,13 @@ pub fn parse_create_table(
                         Token::Word(word) => word.value.as_str(),
                         _ => {
                             return parser.expected(
-                                "AUTO, FULL or INCREMENTAL",
+                                "ADAPTIVE, AUTO, FULL or INCREMENTAL",
                                 value_token,
                             )
                         }
                     };
                     let refresh_mode = match value.to_ascii_uppercase().as_str() {
+                        "ADAPTIVE" => Some(RefreshModeKind::Adaptive),
                         "AUTO" => Some(RefreshModeKind::Auto),
                         "FULL" => Some(RefreshModeKind::Full),
                         "INCREMENTAL" => Some(RefreshModeKind::Incremental),

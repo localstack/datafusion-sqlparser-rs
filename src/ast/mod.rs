@@ -16815,6 +16815,8 @@ impl fmt::Display for CreateTableLike {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum RefreshModeKind {
+    /// Adaptive refresh mode (`ADAPTIVE`).
+    Adaptive,
     /// Automatic refresh mode (`AUTO`).
     Auto,
     /// Full refresh mode (`FULL`).
@@ -16828,6 +16830,7 @@ pub enum RefreshModeKind {
 impl fmt::Display for RefreshModeKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            RefreshModeKind::Adaptive => write!(f, "ADAPTIVE"),
             RefreshModeKind::Auto => write!(f, "AUTO"),
             RefreshModeKind::Full => write!(f, "FULL"),
             RefreshModeKind::Incremental => write!(f, "INCREMENTAL"),
