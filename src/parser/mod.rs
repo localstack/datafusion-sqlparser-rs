@@ -13039,6 +13039,7 @@ impl<'a> Parser<'a> {
 
         Ok(AlterTable {
             name: table_name,
+            additional_names: vec![],
             if_exists,
             only,
             operations,
@@ -13049,6 +13050,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             },
+            copy_session: false,
             end_token: AttachedToken(end_token),
         }
         .into())
