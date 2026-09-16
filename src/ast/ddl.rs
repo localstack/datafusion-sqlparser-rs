@@ -1578,7 +1578,6 @@ pub enum AlterColumnOperation {
         /// The comment text.
         comment: String,
     },
-
     /// `UNSET COMMENT`
     ///
     /// Snowflake: clear the column comment.
