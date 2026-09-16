@@ -33,8 +33,8 @@ use crate::ast::{
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
     AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
-    CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr,
-    SemanticViewRelationship, SemanticViewTable,
+    CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewCortexSearch,
+    SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -5021,6 +5021,49 @@ fn semantic_view_ident(name: ObjectName) -> Result<Ident, ParserError> {
     }
 }
 
+/// Consume the next token if it is a non-quoted word matching `text`
+/// (case-insensitive). Used for semantic-view clause lead-ins that are not
+/// reserved keywords (`CORTEX`, `MAX_STALENESS`, `AI_*`).
+fn consume_semantic_word(parser: &mut Parser, text: &str) -> bool {
+    if let Token::Word(w) = &parser.peek_token_ref().token {
+        if w.quote_style.is_none() && w.value.eq_ignore_ascii_case(text) {
+            parser.advance_token();
+            return true;
+        }
+    }
+    false
+}
+
+/// Capture the raw contents of a `( ... )` group verbatim, balancing nested
+/// parentheses, and return them re-rendered from the tokens. Used to carry
+/// opaque clause bodies (`AI_VERIFIED_QUERIES`) without modelling their grammar.
+fn parse_semantic_view_opaque_paren(parser: &mut Parser) -> Result<String, ParserError> {
+    parser.expect_token(&Token::LParen)?;
+    let mut depth = 1usize;
+    let mut parts: Vec<String> = Vec::new();
+    loop {
+        let token = parser.next_token();
+        match token.token {
+            Token::LParen => {
+                depth += 1;
+                parts.push("(".to_string());
+            }
+            Token::RParen => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+                parts.push(")".to_string());
+            }
+            Token::EOF => {
+                return parser.expected_ref("closing ')'", parser.peek_token_ref());
+            }
+            other => parts.push(other.to_string()),
+        }
+    }
+    Ok(parts.join(" "))
+}
+
 /// Parse a parenthesized, comma-separated list using `f` for each element.
 fn parse_semantic_view_paren_list<T, F>(
     parser: &mut Parser,
@@ -5150,6 +5193,7 @@ fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, Par
     let mut synonyms = Vec::new();
     let mut tags = Vec::new();
     let mut comment = None;
+    let mut cortex_search = None;
     loop {
         if synonyms.is_empty()
             && (parser.parse_keywords(&[Keyword::WITH, Keyword::SYNONYMS])
@@ -5164,6 +5208,21 @@ fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, Par
         } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
             parser.expect_token(&Token::Eq)?;
             comment = Some(parser.parse_literal_string()?);
+        } else if cortex_search.is_none()
+            && matches!(&parser.peek_token_ref().token, Token::Word(w) if w.keyword == Keyword::WITH)
+            && matches!(&parser.peek_nth_token_ref(1).token, Token::Word(w) if w.quote_style.is_none() && w.value.eq_ignore_ascii_case("CORTEX"))
+        {
+            parser.expect_keyword(Keyword::WITH)?;
+            let _ = consume_semantic_word(parser, "CORTEX");
+            parser.expect_keyword(Keyword::SEARCH)?;
+            parser.expect_keyword(Keyword::SERVICE)?;
+            let service = parser.parse_object_name(false)?;
+            let using = if parser.parse_keyword(Keyword::USING) {
+                Some(parser.parse_identifier()?)
+            } else {
+                None
+            };
+            cortex_search = Some(SemanticViewCortexSearch { service, using });
         } else {
             break;
         }
@@ -5176,6 +5235,7 @@ fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, Par
         synonyms,
         tags,
         comment,
+        cortex_search,
     })
 }
 
@@ -5192,6 +5252,11 @@ fn parse_create_semantic_view(
 
     let mut clauses = Vec::new();
     let mut comment = None;
+    let mut max_staleness = None;
+    let mut ai_sql_generation = None;
+    let mut ai_question_categorization = None;
+    let mut ai_verified_queries = None;
+    let mut copy_grants = false;
     loop {
         if parser.parse_keyword(Keyword::TABLES) {
             clauses.push(SemanticViewClause::Tables(parse_semantic_view_paren_list(
@@ -5219,6 +5284,24 @@ fn parse_create_semantic_view(
         } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
             parser.expect_token(&Token::Eq)?;
             comment = Some(parser.parse_literal_string()?);
+        } else if max_staleness.is_none() && consume_semantic_word(parser, "MAX_STALENESS") {
+            parser.expect_token(&Token::Eq)?;
+            // Real Snowflake accepts only a quoted interval string here; a bare
+            // integer is a syntax error. Enforce the same so the emulator's
+            // acceptance matches the captured snapshots.
+            max_staleness = Some(parser.parse_literal_string()?);
+        } else if ai_sql_generation.is_none() && consume_semantic_word(parser, "AI_SQL_GENERATION") {
+            ai_sql_generation = Some(parser.parse_literal_string()?);
+        } else if ai_question_categorization.is_none()
+            && consume_semantic_word(parser, "AI_QUESTION_CATEGORIZATION")
+        {
+            ai_question_categorization = Some(parser.parse_literal_string()?);
+        } else if ai_verified_queries.is_none()
+            && consume_semantic_word(parser, "AI_VERIFIED_QUERIES")
+        {
+            ai_verified_queries = Some(parse_semantic_view_opaque_paren(parser)?);
+        } else if !copy_grants && parser.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]) {
+            copy_grants = true;
         } else {
             break;
         }
@@ -5230,6 +5313,11 @@ fn parse_create_semantic_view(
         name,
         clauses,
         comment,
+        max_staleness,
+        ai_sql_generation,
+        ai_question_categorization,
+        ai_verified_queries,
+        copy_grants,
     })))
 }
 

@@ -1660,6 +1660,29 @@ impl fmt::Display for SemanticViewRelationship {
     }
 }
 
+/// A per-dimension `WITH CORTEX SEARCH SERVICE <name> [ USING <column> ]`
+/// clause. Parsed and carried opaquely — the emulator stores it but attaches no
+/// runtime behaviour to it (ADR 101 §7).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct SemanticViewCortexSearch {
+    /// The Cortex Search Service name.
+    pub service: ObjectName,
+    /// The optional `USING <column>` search column.
+    pub using: Option<Ident>,
+}
+
+impl fmt::Display for SemanticViewCortexSearch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "WITH CORTEX SEARCH SERVICE {}", self.service)?;
+        if let Some(using) = &self.using {
+            write!(f, " USING {using}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A fact, dimension, or metric semantic expression in a `CREATE SEMANTIC VIEW`.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1677,6 +1700,8 @@ pub struct SemanticViewExpr {
     pub tags: Vec<Tag>,
     /// `COMMENT = '...'`.
     pub comment: Option<String>,
+    /// Per-dimension `WITH CORTEX SEARCH SERVICE ...` (dimensions only).
+    pub cortex_search: Option<SemanticViewCortexSearch>,
 }
 
 impl fmt::Display for SemanticViewExpr {
@@ -1696,6 +1721,9 @@ impl fmt::Display for SemanticViewExpr {
         }
         if let Some(comment) = &self.comment {
             write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
+        }
+        if let Some(cortex) = &self.cortex_search {
+            write!(f, " {cortex}")?;
         }
         Ok(())
     }
@@ -1756,6 +1784,18 @@ pub struct CreateSemanticView {
     pub clauses: Vec<SemanticViewClause>,
     /// `COMMENT = '...'`.
     pub comment: Option<String>,
+    /// `MAX_STALENESS = '<interval>'` — carried opaquely (ADR 101 §7). Real
+    /// Snowflake accepts only a quoted interval string here, not a bare integer.
+    pub max_staleness: Option<String>,
+    /// `AI_SQL_GENERATION '<instructions>'` — carried opaquely.
+    pub ai_sql_generation: Option<String>,
+    /// `AI_QUESTION_CATEGORIZATION '<instructions>'` — carried opaquely.
+    pub ai_question_categorization: Option<String>,
+    /// `AI_VERIFIED_QUERIES ( ... )` — the parenthesised list captured verbatim
+    /// and carried opaquely.
+    pub ai_verified_queries: Option<String>,
+    /// `COPY GRANTS` flag.
+    pub copy_grants: bool,
 }
 
 impl fmt::Display for CreateSemanticView {
@@ -1772,6 +1812,21 @@ impl fmt::Display for CreateSemanticView {
         }
         if let Some(comment) = &self.comment {
             write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
+        }
+        if let Some(max_staleness) = &self.max_staleness {
+            write!(f, " MAX_STALENESS = '{}'", escape_single_quote_string(max_staleness))?;
+        }
+        if let Some(instr) = &self.ai_sql_generation {
+            write!(f, " AI_SQL_GENERATION '{}'", escape_single_quote_string(instr))?;
+        }
+        if let Some(instr) = &self.ai_question_categorization {
+            write!(f, " AI_QUESTION_CATEGORIZATION '{}'", escape_single_quote_string(instr))?;
+        }
+        if let Some(queries) = &self.ai_verified_queries {
+            write!(f, " AI_VERIFIED_QUERIES ({queries})")?;
+        }
+        if self.copy_grants {
+            write!(f, " COPY GRANTS")?;
         }
         Ok(())
     }

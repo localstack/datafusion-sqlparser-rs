@@ -10832,6 +10832,57 @@ fn parse_create_semantic_view_element_fields() {
 }
 
 #[test]
+fn parse_create_semantic_view_opaque_clauses() {
+    // MAX_STALENESS, the AI clauses, COPY GRANTS and per-dimension
+    // WITH CORTEX SEARCH SERVICE are carried opaquely; each must round-trip.
+    for sql in [
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region) MAX_STALENESS = '120 seconds'",
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region) AI_SQL_GENERATION 'gen' AI_QUESTION_CATEGORIZATION 'cat'",
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region) COPY GRANTS",
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region WITH CORTEX SEARCH SERVICE my_db.my_sc.svc USING region)",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+#[test]
+fn parse_create_semantic_view_opaque_fields() {
+    let sql = "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region WITH CORTEX SEARCH SERVICE svc USING region) MAX_STALENESS = '1 day' AI_SQL_GENERATION 'gen instr' AI_QUESTION_CATEGORIZATION 'cat instr' COPY GRANTS";
+    let stmt = snowflake().verified_stmt(sql);
+    let Statement::CreateSemanticView(create) = stmt else {
+        panic!("expected CreateSemanticView, got {stmt:?}");
+    };
+    assert_eq!(create.max_staleness.as_deref(), Some("1 day"));
+    assert_eq!(create.ai_sql_generation.as_deref(), Some("gen instr"));
+    assert_eq!(create.ai_question_categorization.as_deref(), Some("cat instr"));
+    assert!(create.copy_grants);
+    let dims = create
+        .clauses
+        .iter()
+        .find_map(|clause| match clause {
+            SemanticViewClause::Dimensions(dims) => Some(dims),
+            _ => None,
+        })
+        .expect("a DIMENSIONS clause");
+    let [dim] = dims.as_slice() else {
+        panic!("expected a single dimension, got {dims:?}");
+    };
+    let cortex = dim.cortex_search.as_ref().expect("cortex search clause");
+    assert_eq!(cortex.service.to_string(), "svc");
+    assert_eq!(cortex.using.as_ref().map(ToString::to_string), Some("region".to_string()));
+}
+
+#[test]
+fn parse_create_semantic_view_ai_verified_queries() {
+    let sql = "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region) AI_VERIFIED_QUERIES (vq QUESTION 'how many?' SQL 'SELECT 1')";
+    let stmt = snowflake().verified_stmt(sql);
+    let Statement::CreateSemanticView(create) = stmt else {
+        panic!("expected CreateSemanticView, got {stmt:?}");
+    };
+    assert!(create.ai_verified_queries.is_some());
+}
+
+#[test]
 fn parse_create_semantic_view_synonyms_and_tag_normalization() {
     snowflake().one_statement_parses_to(
         "CREATE SEMANTIC VIEW sv TABLES (o AS orders WITH SYNONYMS = ('ord') WITH TAG (t = 'v'))",
