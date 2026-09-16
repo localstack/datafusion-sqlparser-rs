@@ -13889,12 +13889,14 @@ impl<'a> Parser<'a> {
 
         Ok(AlterTable {
             name: table_name,
+            additional_names: vec![],
             if_exists,
             only,
             operations,
             location,
             on_cluster,
             table_type,
+            copy_session: false,
             end_token: AttachedToken(end_token),
         }
         .into())
