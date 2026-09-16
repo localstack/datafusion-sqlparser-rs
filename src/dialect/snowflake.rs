@@ -1670,12 +1670,28 @@ fn parse_alter_dynamic_table_property(
     }
 
     if unset {
+        if key == "DCM"
+            && matches!(
+                &parser.peek_token().token,
+                Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("PROJECT")
+            )
+            && matches!(
+                parser.peek_nth_token_ref(1).token,
+                Token::EOF | Token::SemiColon
+            )
+        {
+            let _ = parser.next_token();
+            return Ok(SqlOption::KeyValue {
+                key: Ident::new("DCM_PROJECT"),
+                value: Expr::Value(Value::Null.into()),
+            });
+        }
         if !matches!(
             key.as_str(),
-            "COMMENT" | "INITIALIZATION_WAREHOUSE" | "SCHEDULER"
+            "COMMENT" | "DCM" | "INITIALIZATION_WAREHOUSE" | "SCHEDULER"
         ) {
             return parser.expected(
-                "COMMENT, INITIALIZATION_WAREHOUSE, SCHEDULER, FROZEN WHERE, or IMMUTABLE WHERE after UNSET",
+                "COMMENT, DCM PROJECT, INITIALIZATION_WAREHOUSE, SCHEDULER, FROZEN WHERE, or IMMUTABLE WHERE after UNSET",
                 key_token,
             );
         }
