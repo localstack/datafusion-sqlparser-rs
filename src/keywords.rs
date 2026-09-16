@@ -103,6 +103,7 @@ define_keywords!(
     ACCOUNT,
     ACCOUNTS,
     ACTION,
+    ADAPTIVE,
     ADD,
     ADDQUOTES,
     ADMIN,
