@@ -16725,7 +16725,7 @@ impl fmt::Display for CreateTableLike {
 /// Specifies the refresh mode for the dynamic table.
 ///
 /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table)
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum RefreshModeKind {
@@ -16735,6 +16735,8 @@ pub enum RefreshModeKind {
     Full,
     /// Incremental refresh mode (`INCREMENTAL`).
     Incremental,
+    /// An unsupported value retained for Snowflake-compatible validation.
+    Invalid(String),
 }
 
 impl fmt::Display for RefreshModeKind {
@@ -16743,6 +16745,7 @@ impl fmt::Display for RefreshModeKind {
             RefreshModeKind::Auto => write!(f, "AUTO"),
             RefreshModeKind::Full => write!(f, "FULL"),
             RefreshModeKind::Incremental => write!(f, "INCREMENTAL"),
+            RefreshModeKind::Invalid(value) => write!(f, "{value}"),
         }
     }
 }
@@ -16750,7 +16753,7 @@ impl fmt::Display for RefreshModeKind {
 /// Specifies the behavior of the initial refresh of the dynamic table.
 ///
 /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table)
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum InitializeKind {
@@ -16758,6 +16761,8 @@ pub enum InitializeKind {
     OnCreate,
     /// Initialize on schedule (`ON SCHEDULE`).
     OnSchedule,
+    /// An unsupported value retained for Snowflake-compatible validation.
+    Invalid(String),
 }
 
 impl fmt::Display for InitializeKind {
@@ -16765,6 +16770,7 @@ impl fmt::Display for InitializeKind {
         match self {
             InitializeKind::OnCreate => write!(f, "ON_CREATE"),
             InitializeKind::OnSchedule => write!(f, "ON_SCHEDULE"),
+            InitializeKind::Invalid(value) => write!(f, "{value}"),
         }
     }
 }

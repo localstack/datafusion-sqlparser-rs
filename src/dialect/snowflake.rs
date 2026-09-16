@@ -2739,7 +2739,7 @@ pub fn parse_create_table(
                 Keyword::IF if parser.parse_keywords(&[Keyword::NOT, Keyword::EXISTS]) => {
                     builder = builder.if_not_exists(true);
                 }
-                Keyword::TARGET_LAG => {
+                Keyword::TARGET_LAG | Keyword::LAG => {
                     parser.expect_token(&Token::Eq)?;
                     // TARGET_LAG accepts a quoted duration ('1 minute') or the
                     // bare keyword DOWNSTREAM.
@@ -2786,26 +2786,37 @@ pub fn parse_create_table(
                 }
                 Keyword::REFRESH_MODE => {
                     parser.expect_token(&Token::Eq)?;
-                    let refresh_mode = match parser.parse_one_of_keywords(&[
-                        Keyword::AUTO,
-                        Keyword::FULL,
-                        Keyword::INCREMENTAL,
-                    ]) {
-                        Some(Keyword::AUTO) => Some(RefreshModeKind::Auto),
-                        Some(Keyword::FULL) => Some(RefreshModeKind::Full),
-                        Some(Keyword::INCREMENTAL) => Some(RefreshModeKind::Incremental),
-                        _ => return parser.expected("AUTO, FULL or INCREMENTAL", next_token),
+                    let value_token = parser.next_token();
+                    let value = match &value_token.token {
+                        Token::SingleQuotedString(value) => value.as_str(),
+                        Token::Word(word) => word.value.as_str(),
+                        _ => {
+                            return parser.expected(
+                                "AUTO, FULL or INCREMENTAL",
+                                value_token,
+                            )
+                        }
+                    };
+                    let refresh_mode = match value.to_ascii_uppercase().as_str() {
+                        "AUTO" => Some(RefreshModeKind::Auto),
+                        "FULL" => Some(RefreshModeKind::Full),
+                        "INCREMENTAL" => Some(RefreshModeKind::Incremental),
+                        _ => Some(RefreshModeKind::Invalid(value.to_string())),
                     };
                     builder = builder.refresh_mode(refresh_mode);
                 }
                 Keyword::INITIALIZE => {
                     parser.expect_token(&Token::Eq)?;
-                    let initialize = match parser
-                        .parse_one_of_keywords(&[Keyword::ON_CREATE, Keyword::ON_SCHEDULE])
-                    {
-                        Some(Keyword::ON_CREATE) => Some(InitializeKind::OnCreate),
-                        Some(Keyword::ON_SCHEDULE) => Some(InitializeKind::OnSchedule),
-                        _ => return parser.expected("ON_CREATE or ON_SCHEDULE", next_token),
+                    let value_token = parser.next_token();
+                    let value = match &value_token.token {
+                        Token::SingleQuotedString(value) => value.as_str(),
+                        Token::Word(word) => word.value.as_str(),
+                        _ => return parser.expected("ON_CREATE or ON_SCHEDULE", value_token),
+                    };
+                    let initialize = match value.to_ascii_uppercase().as_str() {
+                        "ON_CREATE" => Some(InitializeKind::OnCreate),
+                        "ON_SCHEDULE" => Some(InitializeKind::OnSchedule),
+                        _ => Some(InitializeKind::Invalid(value.to_string())),
                     };
                     builder = builder.initialize(initialize);
                 }
