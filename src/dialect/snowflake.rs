@@ -27,6 +27,7 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
+    visit_expressions,
     AlterAlertOperation, AlterBackupPolicyOperation, AlterColumnOperation,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
@@ -49,6 +50,7 @@ use crate::ast::{
     StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
     WrappedCollection,
 };
+use core::ops::ControlFlow;
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
 use crate::parser::{IsOptional, Parser, ParserError};
@@ -1642,6 +1644,23 @@ fn parse_alter_dynamic_table_property(
             parser.expect_token(&Token::LParen)?;
             let predicate = parser.parse_expr()?;
             parser.expect_token(&Token::RParen)?;
+            if key == "FROZEN"
+                && visit_expressions(&predicate, |expr| {
+                if matches!(
+                    expr,
+                    Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
+                ) {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+                })
+                .is_break()
+            {
+                return Err(ParserError::ParserError(
+                    "FROZEN WHERE clauses cannot contain subqueries".to_string(),
+                ));
+            }
             Value::SingleQuotedString(predicate.to_string())
         };
         return Ok(SqlOption::KeyValue {
