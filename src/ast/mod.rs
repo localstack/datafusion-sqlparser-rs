@@ -106,6 +106,7 @@ pub use self::ddl::{
     AlterNetworkRuleOperation,
     AlterSnowflakeSecretOperation,
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
+    SemanticViewCortexSearch,
     ProcedureExecuteAs,
 };
 pub use self::dml::{
