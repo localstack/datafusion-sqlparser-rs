@@ -497,6 +497,17 @@ pub enum AlterTableOperation {
     },
     /// `DROP ALL ROW ACCESS POLICIES` (Snowflake).
     DropAllRowAccessPolicies,
+    /// `ADD STORAGE LIFECYCLE POLICY <policy> ON (<columns>)` (Snowflake).
+    AddStorageLifecyclePolicy {
+        /// The policy being attached.
+        policy_name: ObjectName,
+        /// Whether the policy's leaf identifier was quoted in the input.
+        policy_name_quoted: bool,
+        /// Columns supplied to the policy.
+        columns: Vec<Ident>,
+    },
+    /// `DROP STORAGE LIFECYCLE POLICY` (Snowflake).
+    DropStorageLifecyclePolicy,
     /// Redshift `ALTER SORTKEY (column_list)`
     /// <https://docs.aws.amazon.com/redshift/latest/dg/r_ALTER_TABLE.html>
     AlterSortKey {
@@ -1104,6 +1115,18 @@ impl fmt::Display for AlterTableOperation {
             }
             AlterTableOperation::DropAllRowAccessPolicies => {
                 write!(f, "DROP ALL ROW ACCESS POLICIES")
+            }
+            AlterTableOperation::AddStorageLifecyclePolicy {
+                policy_name,
+                columns,
+                ..
+            } => write!(
+                f,
+                "ADD STORAGE LIFECYCLE POLICY {policy_name} ON ({})",
+                display_comma_separated(columns)
+            ),
+            AlterTableOperation::DropStorageLifecyclePolicy => {
+                write!(f, "DROP STORAGE LIFECYCLE POLICY")
             }
             AlterTableOperation::AlterSortKey { columns } => {
                 write!(f, "ALTER SORTKEY({})", display_comma_separated(columns))?;

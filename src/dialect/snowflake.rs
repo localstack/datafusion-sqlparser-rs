@@ -1554,6 +1554,45 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
             AlterTableOperation::ClusterBy { exprs }
         } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
             AlterTableOperation::DropClusteringKey
+        } else if parser.parse_keywords(&[
+            Keyword::ADD,
+            Keyword::STORAGE,
+            Keyword::LIFECYCLE,
+            Keyword::POLICY,
+        ]) {
+            if parser.peek_keyword(Keyword::ON) {
+                return parser
+                    .expected_ref("storage lifecycle policy name", parser.peek_token_ref());
+            }
+            let policy_name = parser.parse_object_name(false)?;
+            let policy_name_quoted = policy_name
+                .0
+                .last()
+                .and_then(ObjectNamePart::as_ident)
+                .is_some_and(|ident| ident.quote_style.is_some());
+            parser.expect_keyword_is(Keyword::ON)?;
+            parser.expect_token(&Token::LParen)?;
+            let mut columns = vec![parser.parse_identifier()?];
+            while parser.peek_token_ref().token == Token::Comma {
+                let comma = parser.next_token();
+                if parser.peek_token_ref().token == Token::RParen {
+                    return parser.expected("column name", comma);
+                }
+                columns.push(parser.parse_identifier()?);
+            }
+            parser.expect_token(&Token::RParen)?;
+            AlterTableOperation::AddStorageLifecyclePolicy {
+                policy_name,
+                policy_name_quoted,
+                columns,
+            }
+        } else if parser.parse_keywords(&[
+            Keyword::DROP,
+            Keyword::STORAGE,
+            Keyword::LIFECYCLE,
+            Keyword::POLICY,
+        ]) {
+            AlterTableOperation::DropStorageLifecyclePolicy
         } else if parser.parse_keyword(Keyword::SET) {
             AlterTableOperation::SetOptionsParens {
                 options: parse_alter_dynamic_table_properties(parser, false)?,
@@ -1565,7 +1604,7 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         } else {
             return parser.expected_ref(
                 "REFRESH, SUSPEND, RESUME, RENAME, SWAP, SET, UNSET, CLUSTER BY, \
-                 or DROP CLUSTERING KEY after ALTER DYNAMIC TABLE",
+                 DROP CLUSTERING KEY, or a STORAGE LIFECYCLE POLICY action after ALTER DYNAMIC TABLE",
                 parser.peek_token_ref(),
             );
         };

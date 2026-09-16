@@ -1426,6 +1426,8 @@ impl Spanned for AlterTableOperation {
             AlterTableOperation::DisableRowLevelSecurity => Span::empty(),
             AlterTableOperation::DropRowAccessPolicy { .. } => Span::empty(),
             AlterTableOperation::DropAllRowAccessPolicies => Span::empty(),
+            AlterTableOperation::AddStorageLifecyclePolicy { .. }
+            | AlterTableOperation::DropStorageLifecyclePolicy => Span::empty(),
             AlterTableOperation::DisableRule { name } => name.span,
             AlterTableOperation::DisableTrigger { name } => name.span,
             AlterTableOperation::DropConstraint {
