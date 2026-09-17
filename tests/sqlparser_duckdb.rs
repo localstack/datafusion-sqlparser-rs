@@ -756,6 +756,7 @@ fn test_duckdb_union_datatype() {
             location: Default::default(),
             query: Default::default(),
             sqlite_table_options: Default::default(),
+            template: Default::default(),
             like: Default::default(),
             clone: Default::default(),
             comment: Default::default(),
