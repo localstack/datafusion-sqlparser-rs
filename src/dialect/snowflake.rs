@@ -5441,8 +5441,13 @@ fn parse_alter_semantic_view(parser: &mut Parser) -> Result<Statement, ParserErr
             AlterSemanticViewOperation::SetComment {
                 value: parser.parse_literal_string()?,
             }
+        } else if consume_semantic_word(parser, "MAX_STALENESS") {
+            parser.expect_token(&Token::Eq)?;
+            AlterSemanticViewOperation::SetMaxStaleness {
+                value: parser.parse_literal_string()?,
+            }
         } else {
-            return parser.expected_ref("COMMENT or TAG", parser.peek_token_ref());
+            return parser.expected_ref("COMMENT, TAG, or MAX_STALENESS", parser.peek_token_ref());
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
         if parser.parse_keyword(Keyword::TAG) {
@@ -5451,17 +5456,72 @@ fn parse_alter_semantic_view(parser: &mut Parser) -> Result<Statement, ParserErr
             )
         } else if parser.parse_keyword(Keyword::COMMENT) {
             AlterSemanticViewOperation::UnsetComment
+        } else if consume_semantic_word(parser, "MAX_STALENESS") {
+            AlterSemanticViewOperation::UnsetMaxStaleness
         } else {
-            return parser.expected_ref("COMMENT or TAG", parser.peek_token_ref());
+            return parser.expected_ref("COMMENT, TAG, or MAX_STALENESS", parser.peek_token_ref());
+        }
+    } else if parser.parse_keyword(Keyword::ADD) {
+        consume_materialization_keyword(parser)?;
+        let name = parser.parse_identifier()?;
+        AlterSemanticViewOperation::AddMaterialization {
+            name,
+            definition: parse_semantic_view_materialization_body(parser),
+        }
+    } else if parser.parse_keyword(Keyword::DROP) {
+        consume_materialization_keyword(parser)?;
+        AlterSemanticViewOperation::DropMaterialization {
+            name: parser.parse_identifier()?,
+        }
+    } else if parser.parse_keyword(Keyword::SUSPEND) {
+        consume_materialization_keyword(parser)?;
+        AlterSemanticViewOperation::SuspendMaterialization {
+            name: parser.parse_identifier()?,
+        }
+    } else if parser.parse_keyword(Keyword::RESUME) {
+        consume_materialization_keyword(parser)?;
+        AlterSemanticViewOperation::ResumeMaterialization {
+            name: parser.parse_identifier()?,
+        }
+    } else if parser.parse_keyword(Keyword::REFRESH) {
+        consume_materialization_keyword(parser)?;
+        AlterSemanticViewOperation::RefreshMaterialization {
+            name: parser.parse_identifier()?,
         }
     } else {
-        return parser.expected_ref("RENAME TO, SET, or UNSET", parser.peek_token_ref());
+        return parser.expected_ref(
+            "RENAME TO, SET, UNSET, ADD, DROP, SUSPEND, RESUME, or REFRESH",
+            parser.peek_token_ref(),
+        );
     };
     Ok(Statement::AlterSemanticView {
         if_exists,
         name,
         operation,
     })
+}
+
+/// Consume the (non-reserved) `MATERIALIZATION` word, erroring if it is absent.
+fn consume_materialization_keyword(parser: &mut Parser) -> Result<(), ParserError> {
+    if consume_semantic_word(parser, "MATERIALIZATION") {
+        Ok(())
+    } else {
+        parser.expected_ref("MATERIALIZATION", parser.peek_token_ref())
+    }
+}
+
+/// Capture the remainder of an `ADD MATERIALIZATION <name> ...` clause opaquely,
+/// re-rendered from its tokens, stopping at the statement boundary. The body is
+/// stored but never interpreted — materializations are ignored by the emulator.
+fn parse_semantic_view_materialization_body(parser: &mut Parser) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    loop {
+        match &parser.peek_token_ref().token {
+            Token::EOF | Token::SemiColon => break,
+            _ => parts.push(parser.next_token().to_string()),
+        }
+    }
+    parts.join(" ")
 }
 
 /// Parse `DROP SEMANTIC VIEW [IF EXISTS] <name>`.

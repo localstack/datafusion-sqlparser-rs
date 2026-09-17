@@ -1876,6 +1876,42 @@ pub enum AlterSemanticViewOperation {
     SetTags(Vec<Tag>),
     /// `UNSET TAG <tag> [ , ... ]`
     UnsetTags(Vec<ObjectName>),
+    /// `SET MAX_STALENESS = '<interval>'`
+    SetMaxStaleness {
+        /// The max-staleness value (a quoted interval string).
+        value: String,
+    },
+    /// `UNSET MAX_STALENESS`
+    UnsetMaxStaleness,
+    /// `ADD MATERIALIZATION <name> WAREHOUSE = ... AS DIMENSIONS ... METRICS ...`.
+    /// The definition beyond the name is carried opaquely — materializations are
+    /// a performance feature with nothing observable in the emulator.
+    AddMaterialization {
+        /// The materialization name.
+        name: Ident,
+        /// The raw remainder of the clause, re-rendered from its tokens.
+        definition: String,
+    },
+    /// `DROP MATERIALIZATION <name>`
+    DropMaterialization {
+        /// The materialization name.
+        name: Ident,
+    },
+    /// `SUSPEND MATERIALIZATION <name>`
+    SuspendMaterialization {
+        /// The materialization name.
+        name: Ident,
+    },
+    /// `RESUME MATERIALIZATION <name>`
+    ResumeMaterialization {
+        /// The materialization name.
+        name: Ident,
+    },
+    /// `REFRESH MATERIALIZATION <name>`
+    RefreshMaterialization {
+        /// The materialization name.
+        name: Ident,
+    },
 }
 
 impl fmt::Display for AlterSemanticViewOperation {
@@ -1893,6 +1929,29 @@ impl fmt::Display for AlterSemanticViewOperation {
             }
             AlterSemanticViewOperation::UnsetTags(tags) => {
                 write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
+            AlterSemanticViewOperation::SetMaxStaleness { value } => {
+                write!(
+                    f,
+                    "SET MAX_STALENESS = '{}'",
+                    escape_single_quote_string(value)
+                )
+            }
+            AlterSemanticViewOperation::UnsetMaxStaleness => write!(f, "UNSET MAX_STALENESS"),
+            AlterSemanticViewOperation::AddMaterialization { name, definition } => {
+                write!(f, "ADD MATERIALIZATION {name} {definition}")
+            }
+            AlterSemanticViewOperation::DropMaterialization { name } => {
+                write!(f, "DROP MATERIALIZATION {name}")
+            }
+            AlterSemanticViewOperation::SuspendMaterialization { name } => {
+                write!(f, "SUSPEND MATERIALIZATION {name}")
+            }
+            AlterSemanticViewOperation::ResumeMaterialization { name } => {
+                write!(f, "RESUME MATERIALIZATION {name}")
+            }
+            AlterSemanticViewOperation::RefreshMaterialization { name } => {
+                write!(f, "REFRESH MATERIALIZATION {name}")
             }
         }
     }
