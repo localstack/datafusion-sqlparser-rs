@@ -5195,6 +5195,8 @@ pub enum Statement {
         /// The validated `APPEND_ONLY` property, following the `{ AT | BEFORE }`
         /// clause. `None` when omitted (which Snowflake treats as `FALSE`).
         append_only: Option<bool>,
+        /// The validated `SHOW_INITIAL_ROWS` property. `None` when omitted.
+        show_initial_rows: Option<bool>,
         /// Whether eligible grants are copied from the replaced or cloned stream.
         copy_grants: bool,
     },
@@ -8657,6 +8659,7 @@ impl fmt::Display for Statement {
                 source_table,
                 at_before,
                 append_only,
+                show_initial_rows,
                 copy_grants,
             } => {
                 let source_prefix = if *clone {
@@ -8678,6 +8681,13 @@ impl fmt::Display for Statement {
                         f,
                         " APPEND_ONLY = {}",
                         if *append_only { "TRUE" } else { "FALSE" }
+                    )?;
+                }
+                if let Some(show_initial_rows) = show_initial_rows {
+                    write!(
+                        f,
+                        " SHOW_INITIAL_ROWS = {}",
+                        if *show_initial_rows { "TRUE" } else { "FALSE" }
                     )?;
                 }
                 if *copy_grants {
