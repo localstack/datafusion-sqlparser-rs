@@ -3984,6 +3984,8 @@ pub struct CreateTable {
     /// Stored as the serialized predicate text so its casing survives.
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub immutable_where: Option<String>,
+    /// Snowflake `BACKFILL FROM <table>` source for dynamic tables.
+    pub backfill_from: Option<ObjectName>,
     /// Snowflake "REFRESH_MODE" clause for dybamic tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub refresh_mode: Option<RefreshModeKind>,
@@ -4376,6 +4378,10 @@ impl fmt::Display for CreateTable {
 
         if let Some(immutable_where) = &self.immutable_where {
             write!(f, " IMMUTABLE WHERE ({immutable_where})")?;
+        }
+
+        if let Some(backfill_from) = &self.backfill_from {
+            write!(f, " BACKFILL FROM {backfill_from}")?;
         }
 
         if let Some(refresh_mode) = &self.refresh_mode {

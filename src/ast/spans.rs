@@ -762,6 +762,7 @@ impl Spanned for CreateTable {
             initialization_warehouse: _,
             scheduler: _,
             immutable_where: _,
+            backfill_from: _,
             version: _,
             refresh_mode: _,
             initialize: _,

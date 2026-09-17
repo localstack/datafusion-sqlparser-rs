@@ -2853,6 +2853,33 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::RParen)?;
                     builder = builder.immutable_where(Some(predicate.to_string()));
                 }
+                Keyword::NoKeyword if word.value.eq_ignore_ascii_case("FROZEN") => {
+                    parser.expect_keyword_is(Keyword::WHERE)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let predicate = parser.parse_expr()?;
+                    parser.expect_token(&Token::RParen)?;
+                    if visit_expressions(&predicate, |expr| {
+                        if matches!(
+                            expr,
+                            Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
+                        ) {
+                            ControlFlow::Break(())
+                        } else {
+                            ControlFlow::Continue(())
+                        }
+                    })
+                    .is_break()
+                    {
+                        return Err(ParserError::ParserError(
+                            "FROZEN WHERE clauses cannot contain subqueries".to_string(),
+                        ));
+                    }
+                    builder = builder.immutable_where(Some(predicate.to_string()));
+                }
+                Keyword::NoKeyword if word.value.eq_ignore_ascii_case("BACKFILL") => {
+                    parser.expect_keyword_is(Keyword::FROM)?;
+                    builder = builder.backfill_from(Some(parser.parse_object_name(false)?));
+                }
                 Keyword::AT | Keyword::BEFORE => {
                     parser.prev_token();
                     let version = parser.maybe_parse_table_version()?;

@@ -188,6 +188,8 @@ pub struct CreateTableBuilder {
     pub scheduler: Option<String>,
     /// Optional `IMMUTABLE WHERE` predicate text.
     pub immutable_where: Option<String>,
+    /// Optional `BACKFILL FROM` source for a dynamic table.
+    pub backfill_from: Option<ObjectName>,
     /// Optional refresh mode for materialized tables.
     pub refresh_mode: Option<RefreshModeKind>,
     /// Optional initialization kind for the table.
@@ -279,6 +281,7 @@ impl CreateTableBuilder {
             initialization_warehouse: None,
             scheduler: None,
             immutable_where: None,
+            backfill_from: None,
             refresh_mode: None,
             initialize: None,
             require_user: false,
@@ -594,6 +597,11 @@ impl CreateTableBuilder {
         self.immutable_where = immutable_where;
         self
     }
+    /// Set the dynamic-table backfill source.
+    pub fn backfill_from(mut self, backfill_from: Option<ObjectName>) -> Self {
+        self.backfill_from = backfill_from;
+        self
+    }
     /// Set refresh mode for materialized/managed tables.
     pub fn refresh_mode(mut self, refresh_mode: Option<RefreshModeKind>) -> Self {
         self.refresh_mode = refresh_mode;
@@ -718,6 +726,7 @@ impl CreateTableBuilder {
             initialization_warehouse: self.initialization_warehouse,
             scheduler: self.scheduler,
             immutable_where: self.immutable_where,
+            backfill_from: self.backfill_from,
             refresh_mode: self.refresh_mode,
             initialize: self.initialize,
             require_user: self.require_user,
@@ -813,6 +822,7 @@ impl From<CreateTable> for CreateTableBuilder {
             initialization_warehouse: table.initialization_warehouse,
             scheduler: table.scheduler,
             immutable_where: table.immutable_where,
+            backfill_from: table.backfill_from,
             refresh_mode: table.refresh_mode,
             initialize: table.initialize,
             require_user: table.require_user,

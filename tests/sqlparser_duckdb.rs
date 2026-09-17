@@ -801,6 +801,7 @@ fn test_duckdb_union_datatype() {
             backup: Default::default(),
             stage_file_format: None,
             immutable_where: None,
+            backfill_from: None,
             initialization_warehouse: None,
             scheduler: None,
             pattern: None,

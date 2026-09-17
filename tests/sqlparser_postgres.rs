@@ -6750,6 +6750,7 @@ fn parse_trigger_related_functions() {
             sortkey: None,
             backup: None,
             immutable_where: None,
+            backfill_from: None,
             initialization_warehouse: None,
             scheduler: None,
             pattern: None,
