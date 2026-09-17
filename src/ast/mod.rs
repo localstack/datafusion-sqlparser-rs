@@ -134,6 +134,7 @@ pub use self::query::{
     TableWithJoins, Top, TopQuantity, UpdateTableFromKind, ValueTableMode, Values,
     WildcardAdditionalOptions, With, WithFill, XmlNamespaceDefinition, XmlPassingArgument,
     XmlPassingClause, XmlTableColumn, XmlTableColumnOption,
+    SemanticViewQueryClause,
 };
 
 pub use self::trigger::{
