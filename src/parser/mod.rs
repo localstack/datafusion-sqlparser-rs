@@ -23923,7 +23923,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn maybe_parse_show_stmt_in(&mut self) -> Result<Option<ShowStatementIn>, ParserError> {
+    pub(crate) fn maybe_parse_show_stmt_in(&mut self) -> Result<Option<ShowStatementIn>, ParserError> {
         let clause = match self.parse_one_of_keywords(&[Keyword::FROM, Keyword::IN]) {
             Some(Keyword::FROM) => ShowStatementInClause::FROM,
             Some(Keyword::IN) => ShowStatementInClause::IN,
@@ -23993,7 +23993,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn maybe_parse_show_stmt_starts_with(&mut self) -> Result<Option<ValueWithSpan>, ParserError> {
+    pub(crate) fn maybe_parse_show_stmt_starts_with(&mut self) -> Result<Option<ValueWithSpan>, ParserError> {
         if self.parse_keywords(&[Keyword::STARTS, Keyword::WITH]) {
             Ok(Some(self.parse_value()?))
         } else {
@@ -24001,7 +24001,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn maybe_parse_show_stmt_limit(&mut self) -> Result<Option<Expr>, ParserError> {
+    pub(crate) fn maybe_parse_show_stmt_limit(&mut self) -> Result<Option<Expr>, ParserError> {
         if self.parse_keyword(Keyword::LIMIT) {
             Ok(self.parse_limit()?)
         } else {
@@ -24009,7 +24009,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn maybe_parse_show_stmt_from(&mut self) -> Result<Option<ValueWithSpan>, ParserError> {
+    pub(crate) fn maybe_parse_show_stmt_from(&mut self) -> Result<Option<ValueWithSpan>, ParserError> {
         if self.parse_keyword(Keyword::FROM) {
             Ok(Some(self.parse_value()?))
         } else {
