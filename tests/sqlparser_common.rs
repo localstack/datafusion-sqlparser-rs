@@ -6363,6 +6363,7 @@ fn run_explain_analyze(
             estimate,
             statement,
             format,
+            using_format: _,
             options,
         } => {
             assert_eq!(verbose, expected_verbose);
