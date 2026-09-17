@@ -4011,6 +4011,10 @@ pub struct CreateTable {
     /// Snowflake "ENABLE_SCHEMA_EVOLUTION" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub enable_schema_evolution: Option<bool>,
+    /// Snowflake `ERROR_LOGGING` table property.
+    pub error_logging: Option<bool>,
+    /// Snowflake `ROW_TIMESTAMP` table property.
+    pub row_timestamp: Option<bool>,
     /// Snowflake "CHANGE_TRACKING" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub change_tracking: Option<bool>,
@@ -4026,6 +4030,8 @@ pub struct CreateTable {
     /// Snowflake "DEFAULT_DDL_COLLATION" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub default_ddl_collation: Option<String>,
+    /// Snowflake `ICEBERG_DEFAULT_DDL_COLLATION` table property.
+    pub iceberg_default_ddl_collation: Option<String>,
     /// Snowflake "WITH AGGREGATION POLICY" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub with_aggregation_policy: Option<ObjectName>,
@@ -4445,6 +4451,14 @@ impl fmt::Display for CreateTable {
             )?;
         }
 
+        if let Some(is_enabled) = self.error_logging {
+            write!(f, " ERROR_LOGGING={is_enabled}")?;
+        }
+
+        if let Some(is_enabled) = self.row_timestamp {
+            write!(f, " ROW_TIMESTAMP={is_enabled}")?;
+        }
+
         if let Some(is_enabled) = self.change_tracking {
             write!(
                 f,
@@ -4475,6 +4489,10 @@ impl fmt::Display for CreateTable {
 
         if let Some(default_ddl_collation) = &self.default_ddl_collation {
             write!(f, " DEFAULT_DDL_COLLATION='{default_ddl_collation}'",)?;
+        }
+
+        if let Some(collation) = &self.iceberg_default_ddl_collation {
+            write!(f, " ICEBERG_DEFAULT_DDL_COLLATION='{collation}'",)?;
         }
 
         if let Some(with_aggregation_policy) = &self.with_aggregation_policy {
