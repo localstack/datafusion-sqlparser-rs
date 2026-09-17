@@ -1042,6 +1042,7 @@ define_keywords!(
     SHARES,
     SHARING,
     SHOW,
+    SHOW_INITIAL_ROWS,
     SIGNED,
     SIMILAR,
     SIMPLE,

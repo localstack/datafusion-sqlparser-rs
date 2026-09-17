@@ -5734,15 +5734,27 @@ impl<'a> Parser<'a> {
         // Accept the property value loosely. The Snowflake-facing parser layer
         // validates its domain and duplicate occurrences before dispatch.
         let mut append_only = None;
-        while self.parse_keyword(Keyword::APPEND_ONLY) {
+        let mut show_initial_rows = None;
+        while self.peek_keyword(Keyword::APPEND_ONLY)
+            || self.peek_keyword(Keyword::SHOW_INITIAL_ROWS)
+        {
+            let is_append_only = self.parse_keyword(Keyword::APPEND_ONLY);
+            if !is_append_only {
+                self.expect_keyword(Keyword::SHOW_INITIAL_ROWS)?;
+            }
             self.expect_token(&Token::Eq)?;
             let value = self.next_token();
-            append_only = Some(matches!(
+            let enabled = matches!(
                 value.token,
                 Token::Word(ref word)
                     if word.quote_style.is_none()
                         && word.value.eq_ignore_ascii_case("TRUE")
-            ));
+            );
+            if is_append_only {
+                append_only = Some(enabled);
+            } else {
+                show_initial_rows = Some(enabled);
+            }
         }
         Ok(Statement::CreateStream {
             or_replace,
@@ -5753,6 +5765,7 @@ impl<'a> Parser<'a> {
             source_table,
             at_before,
             append_only,
+            show_initial_rows,
             copy_grants,
         })
     }
