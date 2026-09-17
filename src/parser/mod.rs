@@ -5705,12 +5705,16 @@ impl<'a> Parser<'a> {
     fn parse_create_stream(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        self.expect_keyword(Keyword::ON)?;
-        let source_kind = if self.parse_keyword(Keyword::VIEW) {
+        let clone = self.parse_keyword(Keyword::CLONE);
+        if !clone {
+            self.expect_keyword(Keyword::ON)?;
+        }
+        let source_kind = if clone || self.parse_keyword(Keyword::TABLE) {
+            StreamSourceKind::Table
+        } else if self.parse_keyword(Keyword::VIEW) {
             StreamSourceKind::View
         } else {
-            self.expect_keyword(Keyword::TABLE)?;
-            StreamSourceKind::Table
+            return self.expected("TABLE or VIEW", self.peek_token());
         };
         let source_table = self.parse_object_name(false)?;
         // Optional `{ AT | BEFORE } ( <key> => <expr> )` clause, kept whole as
@@ -5739,6 +5743,7 @@ impl<'a> Parser<'a> {
             or_replace,
             if_not_exists,
             name,
+            clone,
             source_kind,
             source_table,
             at_before,

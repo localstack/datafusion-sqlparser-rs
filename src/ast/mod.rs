@@ -5084,6 +5084,8 @@ pub enum Statement {
         if_not_exists: bool,
         /// Stream name.
         name: ObjectName,
+        /// Whether this is `CREATE STREAM <name> CLONE <source>`.
+        clone: bool,
         /// Whether the source is a table (`ON TABLE`) or a view (`ON VIEW`).
         source_kind: StreamSourceKind,
         /// The source object the stream tracks (the `<source>` after
@@ -8539,14 +8541,20 @@ impl fmt::Display for Statement {
                 or_replace,
                 if_not_exists,
                 name,
+                clone,
                 source_kind,
                 source_table,
                 at_before,
                 append_only,
             } => {
+                let source_prefix = if *clone {
+                    "CLONE ".to_string()
+                } else {
+                    format!("ON {source_kind} ")
+                };
                 write!(
                     f,
-                    "CREATE {or_replace}STREAM {if_not_exists}{name} ON {source_kind} {source_table}",
+                    "CREATE {or_replace}STREAM {if_not_exists}{name} {source_prefix}{source_table}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
