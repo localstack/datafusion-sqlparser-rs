@@ -7099,6 +7099,7 @@ fn parse_trigger_related_functions() {
             fallback: None,
             with_data: None,
             immutable_where: None,
+            backfill_from: None,
             initialization_warehouse: None,
             scheduler: None,
             pattern: None,
