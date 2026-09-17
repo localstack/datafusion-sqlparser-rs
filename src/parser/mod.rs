@@ -5705,7 +5705,8 @@ impl<'a> Parser<'a> {
     fn parse_create_stream(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        let clone = self.parse_keyword(Keyword::CLONE);
+        let leading_copy_grants = self.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]);
+        let clone = !leading_copy_grants && self.parse_keyword(Keyword::CLONE);
         if !clone {
             self.expect_keyword(Keyword::ON)?;
         }
@@ -5717,6 +5718,8 @@ impl<'a> Parser<'a> {
             return self.expected("TABLE or VIEW", self.peek_token());
         };
         let source_table = self.parse_object_name(false)?;
+        let copy_grants = leading_copy_grants
+            || self.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]);
         // Optional `{ AT | BEFORE } ( <key> => <expr> )` clause, kept whole as
         // the function-call expression (the same shape `TableVersion::Function`
         // uses for a table-version anchor).
@@ -5748,6 +5751,7 @@ impl<'a> Parser<'a> {
             source_table,
             at_before,
             append_only,
+            copy_grants,
         })
     }
 
