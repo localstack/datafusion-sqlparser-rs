@@ -3852,6 +3852,8 @@ pub struct CreateTable {
     pub location: Option<String>,
     /// Query used to populate the table
     pub query: Option<Box<Query>>,
+    /// Snowflake `USING TEMPLATE (<query>)` query.
+    pub template: Option<Box<Query>>,
     /// If the table should be created without a rowid (SQLite)
     pub without_rowid: bool,
     /// `LIKE` clause
@@ -4438,7 +4440,9 @@ impl fmt::Display for CreateTable {
         if let Some(sortkey) = &self.sortkey {
             write!(f, " SORTKEY({})", display_comma_separated(sortkey))?;
         }
-        if let Some(query) = &self.query {
+        if let Some(query) = &self.template {
+            write!(f, " USING TEMPLATE ({query})")?;
+        } else if let Some(query) = &self.query {
             write!(f, " AS {query}")?;
         }
         Ok(())

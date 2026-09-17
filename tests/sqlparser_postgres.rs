@@ -6704,6 +6704,7 @@ fn parse_trigger_related_functions() {
             file_format: None,
             location: None,
             query: None,
+            template: None,
             without_rowid: false,
             like: None,
             clone: None,
