@@ -721,6 +721,7 @@ impl Spanned for CreateTable {
             snapshot: _,      // bool, BigQuery specific
             name,
             columns,
+            template: _,
             constraints,
             hive_distribution: _, // hive specific
             hive_formats: _,      // hive specific
