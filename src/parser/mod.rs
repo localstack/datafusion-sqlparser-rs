@@ -11477,7 +11477,40 @@ impl<'a> Parser<'a> {
     /// Parse a single `ALTER TABLE` operation and return an `AlterTableOperation`.
     pub fn parse_alter_table_operation(&mut self) -> Result<AlterTableOperation, ParserError> {
         let operation = if self.parse_keyword(Keyword::ADD) {
-            if let Some(constraint) = self.parse_optional_table_constraint()? {
+            if dialect_of!(self is SnowflakeDialect)
+                && self.parse_keywords(&[
+                    Keyword::STORAGE,
+                    Keyword::LIFECYCLE,
+                    Keyword::POLICY,
+                ])
+            {
+                if self.peek_keyword(Keyword::ON) {
+                    return self
+                        .expected_ref("storage lifecycle policy name", self.peek_token_ref());
+                }
+                let policy_name = self.parse_object_name(false)?;
+                let policy_name_quoted = policy_name
+                    .0
+                    .last()
+                    .and_then(ObjectNamePart::as_ident)
+                    .is_some_and(|ident| ident.quote_style.is_some());
+                self.expect_keyword_is(Keyword::ON)?;
+                self.expect_token(&Token::LParen)?;
+                let mut columns = vec![self.parse_identifier()?];
+                while self.peek_token_ref().token == Token::Comma {
+                    let comma = self.next_token();
+                    if self.peek_token_ref().token == Token::RParen {
+                        return self.expected("column name", comma);
+                    }
+                    columns.push(self.parse_identifier()?);
+                }
+                self.expect_token(&Token::RParen)?;
+                AlterTableOperation::AddStorageLifecyclePolicy {
+                    policy_name,
+                    policy_name_quoted,
+                    columns,
+                }
+            } else if let Some(constraint) = self.parse_optional_table_constraint()? {
                 let not_valid = self.parse_keywords(&[Keyword::NOT, Keyword::VALID]);
                 AlterTableOperation::AddConstraint {
                     constraint,
@@ -11665,7 +11698,15 @@ impl<'a> Parser<'a> {
                 partition,
             }
         } else if self.parse_keyword(Keyword::DROP) {
-            if self.parse_keywords(&[Keyword::IF, Keyword::EXISTS, Keyword::PARTITION]) {
+            if dialect_of!(self is SnowflakeDialect)
+                && self.parse_keywords(&[
+                    Keyword::STORAGE,
+                    Keyword::LIFECYCLE,
+                    Keyword::POLICY,
+                ])
+            {
+                AlterTableOperation::DropStorageLifecyclePolicy
+            } else if self.parse_keywords(&[Keyword::IF, Keyword::EXISTS, Keyword::PARTITION]) {
                 self.expect_token(&Token::LParen)?;
                 let partitions = self.parse_comma_separated(Parser::parse_expr)?;
                 self.expect_token(&Token::RParen)?;
