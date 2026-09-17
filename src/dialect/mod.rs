@@ -1187,6 +1187,12 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports Snowflake's
+    /// `EXPLAIN USING { TABULAR | JSON | TEXT } <statement>` clause.
+    fn supports_explain_using_format(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports `ASC` and `DESC` in column definitions
     /// e.g. `CREATE TABLE t (a INT ASC, b INT DESC);`
     fn supports_asc_desc_in_column_definition(&self) -> bool {

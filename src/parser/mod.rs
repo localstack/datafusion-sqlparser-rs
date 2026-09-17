@@ -15757,6 +15757,7 @@ impl<'a> Parser<'a> {
         let mut query_plan = false;
         let mut estimate = false;
         let mut format = None;
+        let mut using_format = None;
         let mut options = None;
 
         // Note: DuckDB is compatible with PostgreSQL syntax for this statement,
@@ -15766,6 +15767,20 @@ impl<'a> Parser<'a> {
             && self.peek_token_ref().token == Token::LParen
         {
             options = Some(self.parse_utility_options()?)
+        } else if describe_alias == DescribeAlias::Explain
+            && self.dialect.supports_explain_using_format()
+            && self.parse_keyword(Keyword::USING)
+        {
+            // Snowflake `EXPLAIN USING { TABULAR | JSON | TEXT }`. The format is
+            // captured verbatim as an identifier; validating it (and rejecting
+            // anything else) is left to the executor, which mirrors Snowflake's
+            // own compilation-time diagnostic for an unknown format.
+            let token = self.next_token();
+            let span = token.span;
+            match token.token {
+                Token::Word(w) => using_format = Some(w.into_ident(span)),
+                _ => return self.expected("an explain plan format", token),
+            }
         } else if self.parse_keywords(&[Keyword::QUERY, Keyword::PLAN]) {
             query_plan = true;
         } else if self.parse_keyword(Keyword::ESTIMATE) {
@@ -15790,6 +15805,7 @@ impl<'a> Parser<'a> {
                 estimate,
                 statement: Box::new(statement),
                 format,
+                using_format,
                 options,
             }),
             _ => {

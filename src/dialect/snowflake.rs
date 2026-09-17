@@ -163,6 +163,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_explain_using_format(&self) -> bool {
+        true
+    }
+
     fn supports_from_trailing_commas(&self) -> bool {
         true
     }
