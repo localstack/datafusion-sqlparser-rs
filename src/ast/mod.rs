@@ -12748,6 +12748,8 @@ pub enum StreamSourceKind {
     Table,
     /// `ON VIEW <name>`.
     View,
+    /// `ON STAGE <name>`.
+    Stage,
 }
 
 impl fmt::Display for StreamSourceKind {
@@ -12755,6 +12757,7 @@ impl fmt::Display for StreamSourceKind {
         f.write_str(match self {
             StreamSourceKind::Table => "TABLE",
             StreamSourceKind::View => "VIEW",
+            StreamSourceKind::Stage => "STAGE",
         })
     }
 }
