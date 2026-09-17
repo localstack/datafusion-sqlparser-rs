@@ -7090,6 +7090,7 @@ fn parse_trigger_related_functions() {
             location: None,
             query: None,
             sqlite_table_options: Default::default(),
+            template: None,
             like: None,
             clone: None,
             comment: None,

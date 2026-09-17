@@ -10082,8 +10082,17 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let template = if self.parse_keywords(&[Keyword::USING, Keyword::TEMPLATE]) {
+            self.expect_token(&Token::LParen)?;
+            let query = self.parse_query()?;
+            self.expect_token(&Token::RParen)?;
+            Some(query)
+        } else {
+            None
+        };
+
         // Parse optional `AS ( query )`
-        let query = if self.parse_keyword(Keyword::AS) {
+        let query = if template.is_none() && self.parse_keyword(Keyword::AS) {
             Some(self.parse_query()?)
         } else if self.dialect.supports_create_table_select() && self.parse_keyword(Keyword::SELECT)
         {
@@ -10117,6 +10126,7 @@ impl<'a> Parser<'a> {
             .global(global)
             .query(query)
             .sqlite_table_options(sqlite_table_options)
+            .template(template)
             .like(like)
             .clone_clause(clone)
             .comment_after_column_def(comment_after_column_def)

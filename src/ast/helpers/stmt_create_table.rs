@@ -110,6 +110,8 @@ pub struct CreateTableBuilder {
     pub query: Option<Box<Query>>,
     /// SQLite `table-options`.
     pub sqlite_table_options: SqliteTableOptions,
+    /// Optional Snowflake `USING TEMPLATE` query.
+    pub template: Option<Box<Query>>,
     /// Optional `LIKE` clause kind.
     pub like: Option<CreateTableLikeKind>,
     /// Optional `CLONE` source object name.
@@ -257,6 +259,7 @@ impl CreateTableBuilder {
             location: None,
             query: None,
             sqlite_table_options: SqliteTableOptions::default(),
+            template: None,
             like: None,
             clone: None,
             version: None,
@@ -421,6 +424,11 @@ impl CreateTableBuilder {
     /// Set the SQLite `table-options` list.
     pub fn sqlite_table_options(mut self, sqlite_table_options: SqliteTableOptions) -> Self {
         self.sqlite_table_options = sqlite_table_options;
+        self
+    }
+    /// Set a Snowflake `USING TEMPLATE` query.
+    pub fn template(mut self, template: Option<Box<Query>>) -> Self {
+        self.template = template;
         self
     }
     /// Set `LIKE` clause for the table.
@@ -744,6 +752,7 @@ impl CreateTableBuilder {
             location: self.location,
             query: self.query,
             sqlite_table_options: self.sqlite_table_options,
+            template: self.template,
             like: self.like,
             clone: self.clone,
             version: self.version,
@@ -847,6 +856,7 @@ impl From<CreateTable> for CreateTableBuilder {
             location: table.location,
             query: table.query,
             sqlite_table_options: table.sqlite_table_options,
+            template: table.template,
             like: table.like,
             clone: table.clone,
             version: table.version,
