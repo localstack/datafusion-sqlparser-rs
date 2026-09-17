@@ -5628,7 +5628,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(or_replace, or_alter, temporary)
         } else if self.parse_keyword(Keyword::STREAM) {
-            self.parse_create_stream(or_replace)
+            self.parse_create_stream(or_replace, or_alter)
         } else if self.parse_keyword(Keyword::PIPE) {
             self.parse_create_pipe(or_replace)
         } else if or_replace {
@@ -5702,7 +5702,11 @@ impl<'a> Parser<'a> {
 
     /// `CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>`
     ///   `[ { AT | BEFORE } ( <key> => <expr> ) ]`
-    fn parse_create_stream(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+    fn parse_create_stream(
+        &mut self,
+        or_replace: bool,
+        or_alter: bool,
+    ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         let leading_copy_grants = self.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]);
@@ -5758,6 +5762,7 @@ impl<'a> Parser<'a> {
         }
         Ok(Statement::CreateStream {
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             clone,
