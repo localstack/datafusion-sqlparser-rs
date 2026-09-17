@@ -739,11 +739,14 @@ impl Spanned for CreateTable {
             strict: _,                          // bool
             copy_grants: _,                     // bool
             enable_schema_evolution: _,         // bool
+            error_logging: _,                   // bool
+            row_timestamp: _,                   // bool
             change_tracking: _,                 // bool
             stage_file_format: _,               // key-value options, no span
             data_retention_time_in_days: _,     // u64, no span
             max_data_extension_time_in_days: _, // u64, no span
             default_ddl_collation: _,           // string, no span
+            iceberg_default_ddl_collation: _,   // string, no span
             with_aggregation_policy: _,         // todo, Snowflake specific
             with_row_access_policy: _,          // todo, Snowflake specific
             with_storage_lifecycle_policy: _,   // todo, Snowflake specific

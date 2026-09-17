@@ -142,6 +142,10 @@ pub struct CreateTableBuilder {
     pub copy_grants: bool,
     /// Optional flag for schema evolution support.
     pub enable_schema_evolution: Option<bool>,
+    /// Optional error logging flag.
+    pub error_logging: Option<bool>,
+    /// Optional row timestamp flag.
+    pub row_timestamp: Option<bool>,
     /// Optional change tracking flag.
     pub change_tracking: Option<bool>,
     /// Optional table-level stage file format options.
@@ -152,6 +156,8 @@ pub struct CreateTableBuilder {
     pub max_data_extension_time_in_days: Option<u64>,
     /// Optional default DDL collation.
     pub default_ddl_collation: Option<String>,
+    /// Optional default DDL collation for Iceberg columns.
+    pub iceberg_default_ddl_collation: Option<String>,
     /// Optional aggregation policy object name.
     pub with_aggregation_policy: Option<ObjectName>,
     /// Optional row access policy applied to the table.
@@ -258,11 +264,14 @@ impl CreateTableBuilder {
             strict: false,
             copy_grants: false,
             enable_schema_evolution: None,
+            error_logging: None,
+            row_timestamp: None,
             change_tracking: None,
             stage_file_format: None,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             default_ddl_collation: None,
+            iceberg_default_ddl_collation: None,
             with_aggregation_policy: None,
             with_row_access_policy: None,
             with_storage_lifecycle_policy: None,
@@ -485,6 +494,16 @@ impl CreateTableBuilder {
         self.enable_schema_evolution = enable_schema_evolution;
         self
     }
+    /// Enable or disable error logging.
+    pub fn error_logging(mut self, value: Option<bool>) -> Self {
+        self.error_logging = value;
+        self
+    }
+    /// Enable or disable row timestamps.
+    pub fn row_timestamp(mut self, value: Option<bool>) -> Self {
+        self.row_timestamp = value;
+        self
+    }
     /// Enable or disable change tracking.
     pub fn change_tracking(mut self, change_tracking: Option<bool>) -> Self {
         self.change_tracking = change_tracking;
@@ -511,6 +530,11 @@ impl CreateTableBuilder {
     /// Set default DDL collation.
     pub fn default_ddl_collation(mut self, default_ddl_collation: Option<String>) -> Self {
         self.default_ddl_collation = default_ddl_collation;
+        self
+    }
+    /// Set the default DDL collation for Iceberg columns.
+    pub fn iceberg_default_ddl_collation(mut self, value: Option<String>) -> Self {
+        self.iceberg_default_ddl_collation = value;
         self
     }
     /// Set aggregation policy object.
@@ -703,11 +727,14 @@ impl CreateTableBuilder {
             strict: self.strict,
             copy_grants: self.copy_grants,
             enable_schema_evolution: self.enable_schema_evolution,
+            error_logging: self.error_logging,
+            row_timestamp: self.row_timestamp,
             change_tracking: self.change_tracking,
             stage_file_format: self.stage_file_format,
             data_retention_time_in_days: self.data_retention_time_in_days,
             max_data_extension_time_in_days: self.max_data_extension_time_in_days,
             default_ddl_collation: self.default_ddl_collation,
+            iceberg_default_ddl_collation: self.iceberg_default_ddl_collation,
             with_aggregation_policy: self.with_aggregation_policy,
             with_row_access_policy: self.with_row_access_policy,
             with_storage_lifecycle_policy: self.with_storage_lifecycle_policy,
@@ -799,11 +826,14 @@ impl From<CreateTable> for CreateTableBuilder {
             strict: table.strict,
             copy_grants: table.copy_grants,
             enable_schema_evolution: table.enable_schema_evolution,
+            error_logging: table.error_logging,
+            row_timestamp: table.row_timestamp,
             change_tracking: table.change_tracking,
             stage_file_format: table.stage_file_format,
             data_retention_time_in_days: table.data_retention_time_in_days,
             max_data_extension_time_in_days: table.max_data_extension_time_in_days,
             default_ddl_collation: table.default_ddl_collation,
+            iceberg_default_ddl_collation: table.iceberg_default_ddl_collation,
             with_aggregation_policy: table.with_aggregation_policy,
             with_row_access_policy: table.with_row_access_policy,
             with_storage_lifecycle_policy: table.with_storage_lifecycle_policy,

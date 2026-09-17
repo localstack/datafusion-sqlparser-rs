@@ -2694,6 +2694,14 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.enable_schema_evolution(Some(parser.parse_boolean_string()?));
                 }
+                Keyword::ERROR_LOGGING => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.error_logging(Some(parser.parse_boolean_string()?));
+                }
+                Keyword::ROW_TIMESTAMP => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.row_timestamp(Some(parser.parse_boolean_string()?));
+                }
                 Keyword::CHANGE_TRACKING => {
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.change_tracking(Some(parser.parse_boolean_string()?));
@@ -2719,6 +2727,10 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     let default_ddl_collation = parser.parse_literal_string()?;
                     builder = builder.default_ddl_collation(Some(default_ddl_collation));
+                }
+                Keyword::ICEBERG_DEFAULT_DDL_COLLATION => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.iceberg_default_ddl_collation(Some(parser.parse_literal_string()?));
                 }
                 // WITH is optional, we just verify that next token is one of the expected ones and
                 // fallback to the default match statement
