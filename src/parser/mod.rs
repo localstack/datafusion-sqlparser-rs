@@ -12612,9 +12612,19 @@ impl<'a> Parser<'a> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         let operation = if self.parse_keyword(Keyword::SET) {
-            AlterPipeOperation::Set(self.parse_key_value_options(false, &[], false)?)
+            let (options, quoted_property_names) =
+                self.parse_key_value_options_with_names(false, &[], false)?;
+            AlterPipeOperation::Set {
+                options,
+                quoted_property_names,
+            }
         } else if self.parse_keyword(Keyword::UNSET) {
-            AlterPipeOperation::Unset(self.parse_comma_separated(Parser::parse_identifier)?)
+            let keys = self.parse_comma_separated(Parser::parse_identifier)?;
+            let quoted_property_names = keys.iter().map(|key| key.quote_style.is_some()).collect();
+            AlterPipeOperation::Unset {
+                keys,
+                quoted_property_names,
+            }
         } else if self.parse_keyword(Keyword::REFRESH) {
             let prefix = if self.parse_keyword(Keyword::PREFIX) {
                 self.expect_token(&Token::Eq)?;
@@ -23095,7 +23105,18 @@ impl<'a> Parser<'a> {
         end_words: &[Keyword],
         optional_equals: bool,
     ) -> Result<KeyValueOptions, ParserError> {
+        self.parse_key_value_options_with_names(parenthesized, end_words, optional_equals)
+            .map(|(options, _)| options)
+    }
+
+    fn parse_key_value_options_with_names(
+        &mut self,
+        parenthesized: bool,
+        end_words: &[Keyword],
+        optional_equals: bool,
+    ) -> Result<(KeyValueOptions, Vec<bool>), ParserError> {
         let mut options: Vec<KeyValueOption> = Vec::new();
+        let mut names = Vec::new();
         let mut delimiter = KeyValueOptionsDelimiter::Space;
         if parenthesized {
             self.expect_token(&Token::LParen)?;
@@ -23115,6 +23136,7 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 Token::Word(w) if !end_words.contains(&w.keyword) => {
+                    names.push(w.quote_style.is_some());
                     options.push(self.parse_key_value_option(&w, optional_equals)?)
                 }
                 Token::Word(w) if end_words.contains(&w.keyword) => {
@@ -23130,7 +23152,7 @@ impl<'a> Parser<'a> {
             };
         }
 
-        Ok(KeyValueOptions { delimiter, options })
+        Ok((KeyValueOptions { delimiter, options }, names))
     }
 
     /// Parses a `KEY = VALUE` construct based on the specified key.

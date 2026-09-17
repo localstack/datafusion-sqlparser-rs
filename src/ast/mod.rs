@@ -15737,9 +15737,19 @@ impl fmt::Display for AlterStreamOperation {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterPipeOperation {
     /// `SET <option> = <value> [ ... ]`
-    Set(KeyValueOptions),
+    Set {
+        /// Parsed option values.
+        options: KeyValueOptions,
+        /// Whether each property identifier was quoted in the input.
+        quoted_property_names: Vec<bool>,
+    },
     /// `UNSET <option> [, ...]`
-    Unset(Vec<Ident>),
+    Unset {
+        /// Parsed property identifiers.
+        keys: Vec<Ident>,
+        /// Whether each property identifier was quoted in the input.
+        quoted_property_names: Vec<bool>,
+    },
     /// `REFRESH [PREFIX = '<s>'] [MODIFIED_AFTER = '<ts>']`
     Refresh {
         /// Optional `PREFIX = '<string>'` clause.
@@ -15752,8 +15762,8 @@ pub enum AlterPipeOperation {
 impl fmt::Display for AlterPipeOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlterPipeOperation::Set(options) => write!(f, "SET {options}"),
-            AlterPipeOperation::Unset(keys) => {
+            AlterPipeOperation::Set { options, .. } => write!(f, "SET {options}"),
+            AlterPipeOperation::Unset { keys, .. } => {
                 write!(f, "UNSET {}", display_comma_separated(keys))
             }
             AlterPipeOperation::Refresh {

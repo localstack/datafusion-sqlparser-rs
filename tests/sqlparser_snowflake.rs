@@ -10209,8 +10209,28 @@ fn test_alter_pipe() {
         } => {
             assert!(!if_exists);
             assert_eq!("p", name.to_string());
-            assert!(matches!(operation, AlterPipeOperation::Set(_)));
+            let AlterPipeOperation::Set {
+                quoted_property_names,
+                ..
+            } = operation
+            else {
+                unreachable!()
+            };
+            assert_eq!(vec![false], quoted_property_names);
         }
+        _ => unreachable!(),
+    }
+    match snowflake().one_statement_parses_to(
+        "ALTER PIPE p SET \"ERROR_INTEGRATION\"=n",
+        "",
+    ) {
+        Statement::AlterPipe {
+            operation: AlterPipeOperation::Set {
+                quoted_property_names,
+                ..
+            },
+            ..
+        } => assert_eq!(vec![true], quoted_property_names),
         _ => unreachable!(),
     }
     match snowflake().verified_stmt("ALTER PIPE IF EXISTS p UNSET COMMENT") {
@@ -10220,8 +10240,29 @@ fn test_alter_pipe() {
             ..
         } => {
             assert!(if_exists);
-            assert!(matches!(operation, AlterPipeOperation::Unset(_)));
+            let AlterPipeOperation::Unset {
+                quoted_property_names,
+                ..
+            } = operation
+            else {
+                unreachable!()
+            };
+            assert_eq!(vec![false], quoted_property_names);
         }
+        _ => unreachable!(),
+    }
+    match snowflake().one_statement_parses_to(
+        "ALTER PIPE p UNSET \"ERROR_INTEGRATION\"",
+        "",
+    ) {
+        Statement::AlterPipe {
+            operation:
+                AlterPipeOperation::Unset {
+                    quoted_property_names,
+                    ..
+                },
+            ..
+        } => assert_eq!(vec![true], quoted_property_names),
         _ => unreachable!(),
     }
     match snowflake()
