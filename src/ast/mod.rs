@@ -6769,6 +6769,9 @@ pub enum Statement {
         statement: Box<Statement>,
         /// Optional output format of explain
         format: Option<AnalyzeFormatKind>,
+        /// Snowflake `EXPLAIN USING { TABULAR | JSON | TEXT }` format name,
+        /// carried verbatim (unrecognised names are diagnosed downstream).
+        using_format: Option<Ident>,
         /// Postgres style utility options, `(analyze, verbose true)`
         options: Option<Vec<UtilityOption>>,
     },
@@ -7353,6 +7356,7 @@ impl fmt::Display for Statement {
                 estimate,
                 statement,
                 format,
+                using_format,
                 options,
             } => {
                 write!(f, "{describe_alias} ")?;
@@ -7373,6 +7377,10 @@ impl fmt::Display for Statement {
 
                 if let Some(format) = format {
                     write!(f, "{format} ")?;
+                }
+
+                if let Some(using_format) = using_format {
+                    write!(f, "USING {using_format} ")?;
                 }
 
                 if let Some(options) = options {
