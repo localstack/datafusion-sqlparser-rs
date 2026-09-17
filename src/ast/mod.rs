@@ -5149,6 +5149,8 @@ pub enum Statement {
         /// The validated `APPEND_ONLY` property, following the `{ AT | BEFORE }`
         /// clause. `None` when omitted (which Snowflake treats as `FALSE`).
         append_only: Option<bool>,
+        /// Whether eligible grants are copied from the replaced or cloned stream.
+        copy_grants: bool,
     },
     /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
@@ -8605,6 +8607,7 @@ impl fmt::Display for Statement {
                 source_table,
                 at_before,
                 append_only,
+                copy_grants,
             } => {
                 let source_prefix = if *clone {
                     "CLONE ".to_string()
@@ -8626,6 +8629,9 @@ impl fmt::Display for Statement {
                         " APPEND_ONLY = {}",
                         if *append_only { "TRUE" } else { "FALSE" }
                     )?;
+                }
+                if *copy_grants {
+                    write!(f, " COPY GRANTS")?;
                 }
                 Ok(())
             }
