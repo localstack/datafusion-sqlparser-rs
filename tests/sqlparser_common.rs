@@ -18231,18 +18231,26 @@ fn test_parse_semantic_view_table_factor() {
             "SELECT * FROM SEMANTIC_VIEW(model DIMENSIONS dim.* METRICS orders.*)",
             None,
         ),
-        // We can parse in any order but will always produce a result in a fixed order.
+        // Elements may carry `AS <alias>`.
         (
-            "SELECT * FROM SEMANTIC_VIEW(model WHERE x > 0 DIMENSIONS dim1)",
-            Some("SELECT * FROM SEMANTIC_VIEW(model DIMENSIONS dim1 WHERE x > 0)"),
+            "SELECT * FROM SEMANTIC_VIEW(model FACTS a.x AS foo, b.y DIMENSIONS a.d AS bar)",
+            None,
         ),
+        // Written clause order is preserved: DIMENSIONS/METRICS/FACTS keep the
+        // order in which they were written rather than being normalised.
         (
             "SELECT * FROM SEMANTIC_VIEW(model METRICS met1 DIMENSIONS dim1)",
-            Some("SELECT * FROM SEMANTIC_VIEW(model DIMENSIONS dim1 METRICS met1)"),
+            None,
         ),
         (
             "SELECT * FROM SEMANTIC_VIEW(model FACTS fact1 DIMENSIONS dim1)",
-            Some("SELECT * FROM SEMANTIC_VIEW(model DIMENSIONS dim1 FACTS fact1)"),
+            None,
+        ),
+        // WHERE is not a projected clause, so it is always rendered last
+        // regardless of where it was written.
+        (
+            "SELECT * FROM SEMANTIC_VIEW(model WHERE x > 0 DIMENSIONS dim1)",
+            Some("SELECT * FROM SEMANTIC_VIEW(model DIMENSIONS dim1 WHERE x > 0)"),
         ),
     ];
 
@@ -18282,20 +18290,26 @@ fn test_parse_semantic_view_table_factor() {
                     match relation {
                         TableFactor::SemanticView {
                             name,
-                            dimensions,
-                            metrics,
-                            facts,
+                            clauses,
                             where_clause,
                             alias,
                         } => {
                             assert_eq!(name.to_string(), "my_model");
+                            // Clauses are kept in written order: DIMENSIONS then
+                            // METRICS.
+                            assert_eq!(clauses.len(), 2);
+                            let SemanticViewQueryClause::Dimensions(dimensions) = &clauses[0] else {
+                                panic!("Expected DIMENSIONS as the first clause");
+                            };
                             assert_eq!(dimensions.len(), 2);
                             assert_eq!(dimensions[0].to_string(), "DATE_PART('year', date_col)");
                             assert_eq!(dimensions[1].to_string(), "region_name");
+                            let SemanticViewQueryClause::Metrics(metrics) = &clauses[1] else {
+                                panic!("Expected METRICS as the second clause");
+                            };
                             assert_eq!(metrics.len(), 2);
                             assert_eq!(metrics[0].to_string(), "orders.revenue");
                             assert_eq!(metrics[1].to_string(), "orders.count");
-                            assert!(facts.is_empty());
                             assert!(where_clause.is_some());
                             assert_eq!(where_clause.as_ref().unwrap().to_string(), "active = true");
                             assert!(alias.is_some());

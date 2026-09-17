@@ -47,7 +47,8 @@ use super::{
     OnConflictAction, OnInsert, OpenStatement, OrderBy, OrderByExpr, OrderByKind, OutputClause,
     Parens, Partition, PartitionBoundValue, PivotValueSource, ProjectionSelect, Query,
     RaiseStatement, RaiseStatementValue, ReferentialAction, RenameSelectItem, RepeatStatement,
-    ReplaceSelectElement, ReplaceSelectItem, Select, SelectInto, SelectItem, SetExpr, SqlOption,
+    ReplaceSelectElement, ReplaceSelectItem, Select, SelectInto, SelectItem, SemanticViewQueryClause,
+    SetExpr, SqlOption,
     Statement, Subscript, SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint,
     TableFactor, TableObject, TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind,
     Use, Values, ViewColumnDef, WhileStatement, WildcardAdditionalOptions, With, WithFill,
@@ -2395,18 +2396,21 @@ impl Spanned for TableFactor {
             ),
             TableFactor::SemanticView {
                 name,
-                dimensions,
-                metrics,
-                facts,
+                clauses,
                 where_clause,
                 alias,
             } => union_spans(
                 name.0
                     .iter()
                     .map(|i| i.span())
-                    .chain(dimensions.iter().map(|d| d.span()))
-                    .chain(metrics.iter().map(|m| m.span()))
-                    .chain(facts.iter().map(|f| f.span()))
+                    .chain(clauses.iter().flat_map(|clause| {
+                        let items = match clause {
+                            SemanticViewQueryClause::Dimensions(items)
+                            | SemanticViewQueryClause::Metrics(items)
+                            | SemanticViewQueryClause::Facts(items) => items,
+                        };
+                        items.iter().map(|e| e.expr.span())
+                    }))
                     .chain(where_clause.as_ref().map(|e| e.span()))
                     .chain(alias.as_ref().map(|a| a.span())),
             ),

@@ -18683,34 +18683,46 @@ impl<'a> Parser<'a> {
 
         let name = self.parse_object_name(true)?;
 
-        // Parse DIMENSIONS, METRICS, FACTS and WHERE clauses in flexible order
-        let mut dimensions = Vec::new();
-        let mut metrics = Vec::new();
-        let mut facts = Vec::new();
+        // Parse DIMENSIONS, METRICS, FACTS and WHERE clauses in flexible order.
+        // Written clause order is preserved (Snowflake's output column order
+        // follows it), so the clauses are kept in a single ordered vector. Each
+        // of DIMENSIONS / METRICS / FACTS may still appear at most once.
+        let mut clauses: Vec<SemanticViewQueryClause> = Vec::new();
         let mut where_clause = None;
+        let seen = |clauses: &[SemanticViewQueryClause], want: &SemanticViewQueryClause| {
+            clauses
+                .iter()
+                .any(|c| core::mem::discriminant(c) == core::mem::discriminant(want))
+        };
 
         while self.peek_token_ref().token != Token::RParen {
             if self.parse_keyword(Keyword::DIMENSIONS) {
-                if !dimensions.is_empty() {
+                let items = self.parse_comma_separated(Parser::parse_semantic_view_element)?;
+                let clause = SemanticViewQueryClause::Dimensions(items);
+                if seen(&clauses, &clause) {
                     return Err(ParserError::ParserError(
                         "DIMENSIONS clause can only be specified once".to_string(),
                     ));
                 }
-                dimensions = self.parse_comma_separated(Parser::parse_wildcard_expr)?;
+                clauses.push(clause);
             } else if self.parse_keyword(Keyword::METRICS) {
-                if !metrics.is_empty() {
+                let items = self.parse_comma_separated(Parser::parse_semantic_view_element)?;
+                let clause = SemanticViewQueryClause::Metrics(items);
+                if seen(&clauses, &clause) {
                     return Err(ParserError::ParserError(
                         "METRICS clause can only be specified once".to_string(),
                     ));
                 }
-                metrics = self.parse_comma_separated(Parser::parse_wildcard_expr)?;
+                clauses.push(clause);
             } else if self.parse_keyword(Keyword::FACTS) {
-                if !facts.is_empty() {
+                let items = self.parse_comma_separated(Parser::parse_semantic_view_element)?;
+                let clause = SemanticViewQueryClause::Facts(items);
+                if seen(&clauses, &clause) {
                     return Err(ParserError::ParserError(
                         "FACTS clause can only be specified once".to_string(),
                     ));
                 }
-                facts = self.parse_comma_separated(Parser::parse_wildcard_expr)?;
+                clauses.push(clause);
             } else if self.parse_keyword(Keyword::WHERE) {
                 if where_clause.is_some() {
                     return Err(ParserError::ParserError(
@@ -18736,12 +18748,22 @@ impl<'a> Parser<'a> {
 
         Ok(TableFactor::SemanticView {
             name,
-            dimensions,
-            metrics,
-            facts,
+            clauses,
             where_clause,
             alias,
         })
+    }
+
+    /// Parse a single `SEMANTIC_VIEW()` element: a (possibly wildcard)
+    /// expression optionally followed by `AS <alias>`.
+    fn parse_semantic_view_element(&mut self) -> Result<ExprWithAlias, ParserError> {
+        let expr = self.parse_wildcard_expr()?;
+        let alias = if self.parse_keyword(Keyword::AS) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        Ok(ExprWithAlias { expr, alias })
     }
 
     fn parse_match_recognize(&mut self, table: TableFactor) -> Result<TableFactor, ParserError> {

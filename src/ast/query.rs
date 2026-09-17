@@ -1742,17 +1742,47 @@ pub enum TableFactor {
     SemanticView {
         /// The name of the semantic model
         name: ObjectName,
-        /// List of dimensions or expression referring to dimensions (e.g. DATE_PART('year', col))
-        dimensions: Vec<Expr>,
-        /// List of metrics (references to objects like orders.value, value, orders.*)
-        metrics: Vec<Expr>,
-        /// List of facts or expressions referring to facts or dimensions.
-        facts: Vec<Expr>,
+        /// The `DIMENSIONS` / `METRICS` / `FACTS` clauses in the order they
+        /// were written. Snowflake's output column order follows written
+        /// clause order, so the clauses are kept ordered rather than split
+        /// into per-kind vectors.
+        clauses: Vec<SemanticViewQueryClause>,
         /// WHERE clause for filtering
         where_clause: Option<Expr>,
         /// The alias for the table
         alias: Option<TableAlias>,
     },
+}
+
+/// One `DIMENSIONS` / `METRICS` / `FACTS` clause of a [`TableFactor::SemanticView`]
+/// query construct. Each clause carries its elements, each an expression with an
+/// optional `AS <alias>`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum SemanticViewQueryClause {
+    /// A `DIMENSIONS` clause.
+    Dimensions(Vec<ExprWithAlias>),
+    /// A `METRICS` clause.
+    Metrics(Vec<ExprWithAlias>),
+    /// A `FACTS` clause.
+    Facts(Vec<ExprWithAlias>),
+}
+
+impl fmt::Display for SemanticViewQueryClause {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SemanticViewQueryClause::Dimensions(items) => {
+                write!(f, "DIMENSIONS {}", display_comma_separated(items))
+            }
+            SemanticViewQueryClause::Metrics(items) => {
+                write!(f, "METRICS {}", display_comma_separated(items))
+            }
+            SemanticViewQueryClause::Facts(items) => {
+                write!(f, "FACTS {}", display_comma_separated(items))
+            }
+        }
+    }
 }
 
 /// Components of a Snowflake `RESAMPLE` table factor.
@@ -2625,24 +2655,14 @@ impl fmt::Display for TableFactor {
             }
             TableFactor::SemanticView {
                 name,
-                dimensions,
-                metrics,
-                facts,
+                clauses,
                 where_clause,
                 alias,
             } => {
                 write!(f, "SEMANTIC_VIEW({name}")?;
 
-                if !dimensions.is_empty() {
-                    write!(f, " DIMENSIONS {}", display_comma_separated(dimensions))?;
-                }
-
-                if !metrics.is_empty() {
-                    write!(f, " METRICS {}", display_comma_separated(metrics))?;
-                }
-
-                if !facts.is_empty() {
-                    write!(f, " FACTS {}", display_comma_separated(facts))?;
+                for clause in clauses {
+                    write!(f, " {clause}")?;
                 }
 
                 if let Some(where_clause) = where_clause {
