@@ -48,7 +48,9 @@ use crate::ast::{
     MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
     MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
     OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
-    ShowKeysKind, ShowObjects, ShowPolicyEntity, SqlOption, Statement, StorageLifecyclePolicy,
+    ShowKeysKind, ShowObjects, ShowPolicyEntity, ShowSemanticElementKind,
+    ShowStatementFilterPosition, ShowStatementOptions, SqlOption, Statement,
+    StorageLifecyclePolicy,
     StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
     WrappedCollection,
 };
@@ -1084,8 +1086,24 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::PASSWORD, Keyword::POLICIES]) {
                 return Some(parse_show_password_policies(parser));
             }
-            if parser.parse_keywords(&[Keyword::SEMANTIC, Keyword::VIEWS]) {
-                return Some(parse_show_semantic_views(terse, parser));
+            if parser.parse_keyword(Keyword::SEMANTIC) {
+                if parser.parse_keyword(Keyword::VIEWS) {
+                    return Some(parse_show_semantic_views(terse, parser));
+                }
+                if let Some(kw) = parser.parse_one_of_keywords(&[
+                    Keyword::DIMENSIONS,
+                    Keyword::FACTS,
+                    Keyword::METRICS,
+                ]) {
+                    let kind = match kw {
+                        Keyword::DIMENSIONS => ShowSemanticElementKind::Dimensions,
+                        Keyword::FACTS => ShowSemanticElementKind::Facts,
+                        _ => ShowSemanticElementKind::Metrics,
+                    };
+                    return Some(parse_show_semantic_elements(kind, parser));
+                }
+                // Not a semantic SHOW form we recognise; give back SEMANTIC.
+                parser.prev_token();
             }
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICIES]) {
                 return Some(parse_show_session_policies(parser));
@@ -5461,6 +5479,40 @@ fn parse_show_semantic_views(terse: bool, parser: &mut Parser) -> Result<Stateme
     Ok(Statement::ShowSemanticViews {
         terse,
         show_options,
+    })
+}
+
+/// Parse the tail of `SHOW SEMANTIC { DIMENSIONS | FACTS | METRICS }`, whose
+/// grammar interleaves an optional `FOR METRIC <metric>` between the `IN` scope
+/// and the `STARTS WITH` / `LIMIT` filters — so the pieces are parsed
+/// individually rather than through `parse_show_stmt_options`. Snowflake places
+/// `LIKE` before `IN` for these forms.
+fn parse_show_semantic_elements(
+    kind: ShowSemanticElementKind,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let filter_position = parser
+        .parse_show_statement_filter()?
+        .map(ShowStatementFilterPosition::Infix);
+    let show_in = parser.maybe_parse_show_stmt_in()?;
+    let for_metric = if parser.parse_keywords(&[Keyword::FOR, Keyword::METRIC]) {
+        Some(parser.parse_object_name(false)?)
+    } else {
+        None
+    };
+    let starts_with = parser.maybe_parse_show_stmt_starts_with()?;
+    let limit = parser.maybe_parse_show_stmt_limit()?;
+    let limit_from = parser.maybe_parse_show_stmt_from()?;
+    Ok(Statement::ShowSemanticElements {
+        kind,
+        for_metric,
+        show_options: ShowStatementOptions {
+            filter_position,
+            show_in,
+            starts_with,
+            limit,
+            limit_from,
+        },
     })
 }
 

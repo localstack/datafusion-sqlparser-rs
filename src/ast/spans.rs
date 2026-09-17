@@ -606,6 +606,7 @@ impl Spanned for Statement {
             Statement::DropSemanticView { .. } => Span::empty(),
             Statement::DescribeSemanticView { .. } => Span::empty(),
             Statement::ShowSemanticViews { .. } => Span::empty(),
+            Statement::ShowSemanticElements { .. } => Span::empty(),
             Statement::CreateSessionPolicy { .. } => Span::empty(),
             Statement::AlterSessionPolicy { .. } => Span::empty(),
             Statement::DropSessionPolicy { .. } => Span::empty(),

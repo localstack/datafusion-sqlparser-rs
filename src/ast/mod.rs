@@ -5856,6 +5856,22 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW SEMANTIC { DIMENSIONS | FACTS | METRICS } [ LIKE '<pattern>' ]
+    ///   [ IN { <semantic_view> | ACCOUNT | DATABASE [<db>] | SCHEMA [<db>.<sc>] } ]
+    ///   [ FOR METRIC <metric> ] [ STARTS WITH '<s>' ] [ LIMIT <n> ]
+    /// ```
+    /// The element-level read surface of a semantic view. `FOR METRIC` is only
+    /// valid for the `DIMENSIONS` form, which then requires `IN <semantic_view>`.
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/show-semantic-dimensions>
+    ShowSemanticElements {
+        /// Which element family to list.
+        kind: ShowSemanticElementKind,
+        /// `FOR METRIC <metric>` target (only the `DIMENSIONS` form).
+        for_metric: Option<ObjectName>,
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] SESSION POLICY [IF NOT EXISTS] <name>
     ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
     /// ```
@@ -9293,6 +9309,42 @@ impl fmt::Display for Statement {
                     "SHOW {terse}SEMANTIC VIEWS{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
+            }
+            Statement::ShowSemanticElements {
+                kind,
+                for_metric,
+                show_options,
+            } => {
+                write!(f, "SHOW SEMANTIC {kind}")?;
+                match for_metric {
+                    None => write!(f, "{show_options}"),
+                    Some(metric) => {
+                        // `FOR METRIC` sits between the `IN` scope and the
+                        // `STARTS WITH` / `LIMIT` filters, so the monolithic
+                        // `ShowStatementOptions` Display can't be reused whole.
+                        if let Some(
+                            ShowStatementFilterPosition::Infix(filter)
+                            | ShowStatementFilterPosition::Suffix(filter),
+                        ) = &show_options.filter_position
+                        {
+                            write!(f, " {filter}")?;
+                        }
+                        if let Some(show_in) = &show_options.show_in {
+                            write!(f, " {show_in}")?;
+                        }
+                        write!(f, " FOR METRIC {metric}")?;
+                        if let Some(starts_with) = &show_options.starts_with {
+                            write!(f, " STARTS WITH {starts_with}")?;
+                        }
+                        if let Some(limit) = &show_options.limit {
+                            write!(f, " LIMIT {limit}")?;
+                        }
+                        if let Some(from) = &show_options.limit_from {
+                            write!(f, " FROM {from}")?;
+                        }
+                        Ok(())
+                    }
+                }
             }
             Statement::CreateSessionPolicy {
                 or_replace,
@@ -15009,6 +15061,30 @@ impl Display for ShowStatementOptions {
             }
         )?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// The element family listed by a `SHOW SEMANTIC { DIMENSIONS | FACTS | METRICS }`
+/// statement.
+pub enum ShowSemanticElementKind {
+    /// `SHOW SEMANTIC DIMENSIONS`.
+    Dimensions,
+    /// `SHOW SEMANTIC FACTS`.
+    Facts,
+    /// `SHOW SEMANTIC METRICS`.
+    Metrics,
+}
+
+impl fmt::Display for ShowSemanticElementKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ShowSemanticElementKind::Dimensions => write!(f, "DIMENSIONS"),
+            ShowSemanticElementKind::Facts => write!(f, "FACTS"),
+            ShowSemanticElementKind::Metrics => write!(f, "METRICS"),
+        }
     }
 }
 

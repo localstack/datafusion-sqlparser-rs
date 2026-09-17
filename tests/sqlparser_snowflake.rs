@@ -10921,6 +10921,30 @@ fn parse_drop_describe_show_semantic_view() {
 }
 
 #[test]
+fn parse_show_semantic_elements() {
+    for sql in [
+        "SHOW SEMANTIC DIMENSIONS",
+        "SHOW SEMANTIC FACTS",
+        "SHOW SEMANTIC METRICS",
+        "SHOW SEMANTIC DIMENSIONS LIKE 'dim%'",
+        "SHOW SEMANTIC METRICS IN ACCOUNT",
+        "SHOW SEMANTIC FACTS IN DATABASE my_db",
+        "SHOW SEMANTIC DIMENSIONS IN SCHEMA my_schema",
+        "SHOW SEMANTIC DIMENSIONS IN my_view",
+        "SHOW SEMANTIC DIMENSIONS IN db.sc.my_view",
+        "SHOW SEMANTIC METRICS STARTS WITH 'M'",
+        "SHOW SEMANTIC FACTS LIMIT 5",
+        "SHOW SEMANTIC DIMENSIONS LIKE 'd%' IN my_view STARTS WITH 'D' LIMIT 3",
+        "SHOW SEMANTIC DIMENSIONS IN my_view FOR METRIC my_metric",
+        "SHOW SEMANTIC DIMENSIONS LIKE 'd%' IN my_view FOR METRIC my_metric",
+        "SHOW SEMANTIC DIMENSIONS IN my_view FOR METRIC my_metric STARTS WITH 'D'",
+        "SHOW SEMANTIC DIMENSIONS IN my_view FOR METRIC my_metric LIMIT 3",
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+#[test]
 fn semantic_view_ddl_is_snowflake_only() {
     assert!(Parser::parse_sql(
         &GenericDialect {},
