@@ -5714,8 +5714,10 @@ impl<'a> Parser<'a> {
             StreamSourceKind::Table
         } else if self.parse_keyword(Keyword::VIEW) {
             StreamSourceKind::View
+        } else if self.parse_keyword(Keyword::STAGE) {
+            StreamSourceKind::Stage
         } else {
-            return self.expected("TABLE or VIEW", self.peek_token());
+            return self.expected("TABLE, VIEW, or STAGE", self.peek_token());
         };
         let source_table = self.parse_object_name(false)?;
         let copy_grants = leading_copy_grants

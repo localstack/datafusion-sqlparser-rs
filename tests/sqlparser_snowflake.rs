@@ -119,6 +119,7 @@ fn parse_sf_create_stream_on_table_and_view() {
     for (sql, expected_kind) in [
         ("CREATE STREAM s ON TABLE t", StreamSourceKind::Table),
         ("CREATE STREAM s ON VIEW v", StreamSourceKind::View),
+        ("CREATE STREAM s ON STAGE st", StreamSourceKind::Stage),
         (
             "CREATE OR REPLACE STREAM s ON TABLE t",
             StreamSourceKind::Table,
