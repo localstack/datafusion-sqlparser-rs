@@ -755,6 +755,7 @@ fn test_duckdb_union_datatype() {
             file_format: Default::default(),
             location: Default::default(),
             query: Default::default(),
+            template: Default::default(),
             without_rowid: Default::default(),
             like: Default::default(),
             clone: Default::default(),

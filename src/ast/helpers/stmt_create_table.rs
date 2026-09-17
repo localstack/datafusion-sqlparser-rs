@@ -108,6 +108,8 @@ pub struct CreateTableBuilder {
     pub location: Option<String>,
     /// Optional `AS SELECT` query for the table.
     pub query: Option<Box<Query>>,
+    /// Optional Snowflake `USING TEMPLATE` query.
+    pub template: Option<Box<Query>>,
     /// Whether `WITHOUT ROWID` is set.
     pub without_rowid: bool,
     /// Optional `LIKE` clause kind.
@@ -258,6 +260,7 @@ impl CreateTableBuilder {
             file_format: None,
             location: None,
             query: None,
+            template: None,
             without_rowid: false,
             like: None,
             clone: None,
@@ -419,6 +422,11 @@ impl CreateTableBuilder {
     /// Set an underlying `AS SELECT` query for the table.
     pub fn query(mut self, query: Option<Box<Query>>) -> Self {
         self.query = query;
+        self
+    }
+    /// Set a Snowflake `USING TEMPLATE` query.
+    pub fn template(mut self, template: Option<Box<Query>>) -> Self {
+        self.template = template;
         self
     }
     /// Set `WITHOUT ROWID` option.
@@ -752,6 +760,7 @@ impl CreateTableBuilder {
             file_format: self.file_format,
             location: self.location,
             query: self.query,
+            template: self.template,
             without_rowid: self.without_rowid,
             like: self.like,
             clone: self.clone,
@@ -856,6 +865,7 @@ impl From<CreateTable> for CreateTableBuilder {
             file_format: table.file_format,
             location: table.location,
             query: table.query,
+            template: table.template,
             without_rowid: table.without_rowid,
             like: table.like,
             clone: table.clone,
