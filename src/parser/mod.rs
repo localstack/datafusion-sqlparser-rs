@@ -12223,7 +12223,16 @@ impl<'a> Parser<'a> {
     fn maybe_parse_column_masking_policy(
         &mut self,
     ) -> Result<Option<AlterColumnOperation>, ParserError> {
-        if self.parse_keywords(&[Keyword::SET, Keyword::MASKING, Keyword::POLICY]) {
+        if self.parse_keywords(&[Keyword::SET, Keyword::PROJECTION, Keyword::POLICY]) {
+            let policy_name = self.parse_object_name(false)?;
+            let force = self.parse_keyword(Keyword::FORCE);
+            Ok(Some(AlterColumnOperation::SetProjectionPolicy {
+                policy_name,
+                force,
+            }))
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::PROJECTION, Keyword::POLICY]) {
+            Ok(Some(AlterColumnOperation::UnsetProjectionPolicy))
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::MASKING, Keyword::POLICY]) {
             let policy_name = self.parse_object_name(false)?;
             let using_columns = if self.parse_keyword(Keyword::USING) {
                 Some(self.parse_parenthesized_column_list(Mandatory, false)?)

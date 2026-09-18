@@ -1566,11 +1566,20 @@ pub enum AlterColumnOperation {
         /// Whether the `FORCE` keyword was present.
         force: bool,
     },
+    /// `SET PROJECTION POLICY <policy_name> [FORCE]`
+    SetProjectionPolicy {
+        /// Projection policy name.
+        policy_name: ObjectName,
+        /// Replace the existing projection policy attachment.
+        force: bool,
+    },
 
     /// `UNSET MASKING POLICY`
     ///
     /// Snowflake: detach the masking policy from the column.
     UnsetMaskingPolicy,
+    /// `UNSET PROJECTION POLICY`
+    UnsetProjectionPolicy,
 }
 
 /// An operation on a masking policy in an `ALTER MASKING POLICY` statement.
@@ -2308,6 +2317,14 @@ impl fmt::Display for AlterColumnOperation {
                 Ok(())
             }
             AlterColumnOperation::UnsetMaskingPolicy => write!(f, "UNSET MASKING POLICY"),
+            AlterColumnOperation::SetProjectionPolicy { policy_name, force } => {
+                write!(f, "SET PROJECTION POLICY {policy_name}")?;
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
+            AlterColumnOperation::UnsetProjectionPolicy => write!(f, "UNSET PROJECTION POLICY"),
         }
     }
 }
