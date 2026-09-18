@@ -1002,6 +1002,7 @@ fn parse_typed_struct_syntax_bigquery() {
                 field_name: None,
                 field_type: DataType::Interval {
                     fields: None,
+                    leading_precision: None,
                     precision: None
                 },
                 options: None,
@@ -1344,6 +1345,7 @@ fn parse_typed_struct_syntax_bigquery_and_generic() {
                 field_name: None,
                 field_type: DataType::Interval {
                     fields: None,
+                    leading_precision: None,
                     precision: None
                 },
                 options: None,
