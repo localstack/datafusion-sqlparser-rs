@@ -8754,7 +8754,12 @@ impl fmt::Display for Statement {
                 if let Some(append_only) = append_only {
                     write!(
                         f,
-                        " APPEND_ONLY = {}",
+                        " {} = {}",
+                        if matches!(source_kind, StreamSourceKind::ExternalTable) {
+                            "INSERT_ONLY"
+                        } else {
+                            "APPEND_ONLY"
+                        },
                         if *append_only { "TRUE" } else { "FALSE" }
                     )?;
                 }
@@ -12922,6 +12927,8 @@ pub enum StreamSourceKind {
     View,
     /// `ON STAGE <name>`.
     Stage,
+    /// `ON EXTERNAL TABLE <name>`.
+    ExternalTable,
 }
 
 impl fmt::Display for StreamSourceKind {
@@ -12930,6 +12937,7 @@ impl fmt::Display for StreamSourceKind {
             StreamSourceKind::Table => "TABLE",
             StreamSourceKind::View => "VIEW",
             StreamSourceKind::Stage => "STAGE",
+            StreamSourceKind::ExternalTable => "EXTERNAL TABLE",
         })
     }
 }
