@@ -582,6 +582,7 @@ define_keywords!(
     INSENSITIVE,
     INSERT,
     INSERT_METHOD,
+    INSERT_ONLY,
     INSTALL,
     INSTANT,
     INSTEAD,
