@@ -10151,6 +10151,7 @@ fn test_create_pipe_auto_ingest() {
             aws_sns_topic,
             integration,
             comment,
+            with_tags,
             copy_statement,
         } => {
             assert!(!or_replace);
@@ -10161,6 +10162,7 @@ fn test_create_pipe_auto_ingest() {
             assert!(aws_sns_topic.is_none());
             assert!(integration.is_none());
             assert!(comment.is_none());
+            assert!(with_tags.is_empty());
             assert!(matches!(
                 *copy_statement,
                 Statement::CopyIntoSnowflake { .. }
