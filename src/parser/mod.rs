@@ -6160,14 +6160,17 @@ impl<'a> Parser<'a> {
         if !clone {
             self.expect_keyword(Keyword::ON)?;
         }
-        let source_kind = if clone || self.parse_keyword(Keyword::TABLE) {
+        let source_kind = if !clone && self.parse_keyword(Keyword::EXTERNAL) {
+            self.expect_keyword(Keyword::TABLE)?;
+            StreamSourceKind::ExternalTable
+        } else if clone || self.parse_keyword(Keyword::TABLE) {
             StreamSourceKind::Table
         } else if self.parse_keyword(Keyword::VIEW) {
             StreamSourceKind::View
         } else if self.parse_keyword(Keyword::STAGE) {
             StreamSourceKind::Stage
         } else {
-            return self.expected("TABLE, VIEW, or STAGE", self.peek_token());
+            return self.expected("TABLE, EXTERNAL TABLE, VIEW, or STAGE", self.peek_token());
         };
         let source_table = self.parse_object_name(false)?;
         let copy_grants = leading_copy_grants
@@ -6187,9 +6190,16 @@ impl<'a> Parser<'a> {
         let mut show_initial_rows = None;
         while self.peek_keyword(Keyword::APPEND_ONLY)
             || self.peek_keyword(Keyword::SHOW_INITIAL_ROWS)
+            || self.peek_keyword(Keyword::INSERT_ONLY)
         {
             let is_append_only = self.parse_keyword(Keyword::APPEND_ONLY);
-            if !is_append_only {
+            let is_insert_only = !is_append_only && self.parse_keyword(Keyword::INSERT_ONLY);
+            if (is_append_only && source_kind == StreamSourceKind::ExternalTable)
+                || (is_insert_only && source_kind != StreamSourceKind::ExternalTable)
+            {
+                return self.expected("a property valid for this stream source", self.peek_token());
+            }
+            if !is_append_only && !is_insert_only {
                 self.expect_keyword(Keyword::SHOW_INITIAL_ROWS)?;
             }
             self.expect_token(&Token::Eq)?;
@@ -6200,7 +6210,7 @@ impl<'a> Parser<'a> {
                     if word.quote_style.is_none()
                         && word.value.eq_ignore_ascii_case("TRUE")
             );
-            if is_append_only {
+            if is_append_only || is_insert_only {
                 append_only = Some(enabled);
             } else {
                 show_initial_rows = Some(enabled);
