@@ -23402,6 +23402,17 @@ impl<'a> Parser<'a> {
                 option_name: key.value.clone(),
                 option_value: KeyValueOptionKind::Single(self.parse_value()?),
             }),
+            Token::Minus if matches!(self.peek_nth_token(1).token, Token::Number(..)) => {
+                self.next_token();
+                let mut value = self.parse_value()?;
+                if let Value::Number(number, _) = &mut value.value {
+                    number.insert(0, '-');
+                }
+                Ok(KeyValueOption {
+                    option_name: key.value.clone(),
+                    option_value: KeyValueOptionKind::Single(value),
+                })
+            }
             // A wire bind placeholder (`?`, `:N`, `:name`) is a legal option
             // value; `parse_value` yields `Value::Placeholder`, whose content
             // distinguishes a genuine bind from a bare-word option value (which
