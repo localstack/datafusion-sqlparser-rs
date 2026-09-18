@@ -80,6 +80,7 @@ pub use self::ddl::{
     AlterAuthenticationPolicyOperation,
     AlterBackupPolicyOperation,
     AlterSemanticViewOperation,
+    ConstraintTarget,
     ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, AlterView, AlterViewOperation,
     ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
