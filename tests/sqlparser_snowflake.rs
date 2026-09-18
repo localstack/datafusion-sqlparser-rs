@@ -10823,6 +10823,35 @@ fn parse_create_semantic_view() {
 }
 
 #[test]
+fn parse_snowflake_ansi_interval_types() {
+    // Round-trips: leading precision and trailing SECOND precision.
+    for sql in [
+        "CAST('1-2' AS INTERVAL YEAR TO MONTH)",
+        "CAST('1-2' AS INTERVAL YEAR(4) TO MONTH)",
+        "CAST('1' AS INTERVAL MONTH)",
+        "CAST('1' AS INTERVAL DAY TO SECOND)",
+        "CAST('1' AS INTERVAL DAY(3) TO SECOND(6))",
+        "CAST('1' AS INTERVAL SECOND(9, 9))",
+        "CAST('1' AS INTERVAL HOUR TO MINUTE)",
+    ] {
+        snowflake().verified_expr(sql);
+    }
+
+    // Field/precision decomposition.
+    match snowflake().verified_expr("CAST('1' AS INTERVAL DAY(3) TO SECOND(6))") {
+        Expr::Cast { data_type, .. } => assert_eq!(
+            data_type,
+            DataType::Interval {
+                fields: Some(IntervalFields::DayToSecond),
+                leading_precision: Some(3),
+                precision: Some(6),
+            }
+        ),
+        other => panic!("unexpected: {other:?}"),
+    }
+}
+
+#[test]
 fn parse_create_semantic_view_preserves_clause_order() {
     // The five clause lists are written in a deliberately non-canonical order;
     // the parsed AST must recover that exact order.
@@ -10994,4 +11023,15 @@ fn semantic_view_ddl_is_snowflake_only() {
         "CREATE SEMANTIC VIEW sv TABLES (o AS orders) DIMENSIONS (o.region AS region)"
     )
     .is_err());
+}
+
+#[test]
+fn reject_bare_snowflake_interval_type() {
+    let err = Parser::parse_sql(&SnowflakeDialect {}, "SELECT CAST('1' AS INTERVAL)")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("YEAR, MONTH, DAY, HOUR, MINUTE, or SECOND"),
+        "unexpected error: {err}"
+    );
 }

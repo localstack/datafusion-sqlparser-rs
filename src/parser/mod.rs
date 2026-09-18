@@ -14508,13 +14508,20 @@ impl<'a> Parser<'a> {
                     TimezoneInfo::Tz,
                 )),
                 Keyword::INTERVAL => {
-                    if self.dialect.supports_interval_options() {
+                    if self.dialect.supports_snowflake_interval_type() {
+                        self.parse_snowflake_interval_type()
+                    } else if self.dialect.supports_interval_options() {
                         let fields = self.maybe_parse_optional_interval_fields()?;
                         let precision = self.parse_optional_precision()?;
-                        Ok(DataType::Interval { fields, precision })
+                        Ok(DataType::Interval {
+                            fields,
+                            leading_precision: None,
+                            precision,
+                        })
                     } else {
                         Ok(DataType::Interval {
                             fields: None,
+                            leading_precision: None,
                             precision: None,
                         })
                     }
@@ -15650,6 +15657,99 @@ impl<'a> Parser<'a> {
                 )
             }
             None => Ok(None),
+        }
+    }
+
+    /// Parse a Snowflake ANSI INTERVAL data type: a mandatory leading field with
+    /// optional leading-field precision, an optional `TO <field>`, and an
+    /// optional fractional-seconds precision on a trailing `SECOND`. Examples:
+    /// `INTERVAL YEAR TO MONTH`, `INTERVAL YEAR(4) TO MONTH`,
+    /// `INTERVAL DAY(3) TO SECOND(6)`, `INTERVAL SECOND(9, 9)`.
+    ///
+    /// A bare `INTERVAL` with no field specification is rejected (unlike the
+    /// permissive PostgreSQL shape).
+    fn parse_snowflake_interval_type(&mut self) -> Result<DataType, ParserError> {
+        let lead = self.parse_one_of_keywords(&[
+            Keyword::YEAR,
+            Keyword::MONTH,
+            Keyword::DAY,
+            Keyword::HOUR,
+            Keyword::MINUTE,
+            Keyword::SECOND,
+        ]);
+        let Some(lead) = lead else {
+            return self.expected_ref(
+                "YEAR, MONTH, DAY, HOUR, MINUTE, or SECOND",
+                self.peek_token_ref(),
+            );
+        };
+
+        // Optional precision on the leading field. A leading `SECOND` also
+        // accepts a second argument — the fractional-seconds precision.
+        let (leading_precision, mut fsp) = if self.consume_token(&Token::LParen) {
+            let p = self.parse_literal_uint()?;
+            let fsp = if lead == Keyword::SECOND && self.consume_token(&Token::Comma) {
+                Some(self.parse_literal_uint()?)
+            } else {
+                None
+            };
+            self.expect_token(&Token::RParen)?;
+            (Some(p), fsp)
+        } else {
+            (None, None)
+        };
+
+        // Optional `TO <field>`, restricted to the trailing fields valid for the
+        // given leading field. A trailing `SECOND` may carry its own precision.
+        let trail = if self.parse_keyword(Keyword::TO) {
+            let allowed: &[Keyword] = match lead {
+                Keyword::YEAR => &[Keyword::MONTH],
+                Keyword::DAY => &[Keyword::HOUR, Keyword::MINUTE, Keyword::SECOND],
+                Keyword::HOUR => &[Keyword::MINUTE, Keyword::SECOND],
+                Keyword::MINUTE => &[Keyword::SECOND],
+                _ => {
+                    return self.expected_ref(
+                        "a leading field that can precede TO",
+                        self.peek_token_ref(),
+                    )
+                }
+            };
+            let trail = self.expect_one_of_keywords(allowed)?;
+            if trail == Keyword::SECOND {
+                fsp = self.parse_optional_precision()?;
+            }
+            Some(trail)
+        } else {
+            None
+        };
+
+        let fields = Self::snowflake_interval_fields(lead, trail);
+        Ok(DataType::Interval {
+            fields: Some(fields),
+            leading_precision,
+            precision: fsp,
+        })
+    }
+
+    /// Map a validated `(leading, trailing)` field-keyword pair to its
+    /// [`IntervalFields`] variant. The callers restrict the trailing field per
+    /// leading field, so every combination reaching here is valid.
+    fn snowflake_interval_fields(lead: Keyword, trail: Option<Keyword>) -> IntervalFields {
+        match (lead, trail) {
+            (Keyword::YEAR, Some(Keyword::MONTH)) => IntervalFields::YearToMonth,
+            (Keyword::YEAR, _) => IntervalFields::Year,
+            (Keyword::MONTH, _) => IntervalFields::Month,
+            (Keyword::DAY, Some(Keyword::HOUR)) => IntervalFields::DayToHour,
+            (Keyword::DAY, Some(Keyword::MINUTE)) => IntervalFields::DayToMinute,
+            (Keyword::DAY, Some(Keyword::SECOND)) => IntervalFields::DayToSecond,
+            (Keyword::DAY, _) => IntervalFields::Day,
+            (Keyword::HOUR, Some(Keyword::MINUTE)) => IntervalFields::HourToMinute,
+            (Keyword::HOUR, Some(Keyword::SECOND)) => IntervalFields::HourToSecond,
+            (Keyword::HOUR, _) => IntervalFields::Hour,
+            (Keyword::MINUTE, Some(Keyword::SECOND)) => IntervalFields::MinuteToSecond,
+            (Keyword::MINUTE, _) => IntervalFields::Minute,
+            (Keyword::SECOND, _) => IntervalFields::Second,
+            _ => IntervalFields::Second,
         }
     }
 

@@ -384,7 +384,12 @@ pub enum DataType {
         ///
         /// [PostgreSQL]: https://www.postgresql.org/docs/17/datatype-datetime.html
         fields: Option<IntervalFields>,
-        /// [PostgreSQL] subsecond precision like `INTERVAL HOUR TO SECOND(3)`
+        /// Precision attached to the *leading* field, e.g. the `4` in Snowflake's
+        /// `INTERVAL YEAR(4) TO MONTH` or the `3` in `INTERVAL DAY(3) TO SECOND(6)`.
+        /// PostgreSQL has no leading-field precision, so it is always `None` there.
+        leading_precision: Option<u64>,
+        /// [PostgreSQL] subsecond precision like `INTERVAL HOUR TO SECOND(3)` —
+        /// the fractional-seconds precision attached to a trailing `SECOND`.
         ///
         /// [PostgreSQL]: https://www.postgresql.org/docs/17/datatype-datetime.html
         precision: Option<u64>,
@@ -689,13 +694,41 @@ impl fmt::Display for DataType {
                     timezone,
                 )
             }
-            DataType::Interval { fields, precision } => {
+            DataType::Interval {
+                fields,
+                leading_precision,
+                precision,
+            } => {
                 write!(f, "INTERVAL")?;
-                if let Some(fields) = fields {
-                    write!(f, " {fields}")?;
-                }
-                if let Some(precision) = precision {
-                    write!(f, "({precision})")?;
+                match (fields, leading_precision) {
+                    // Snowflake form: precision attaches to the leading field,
+                    // e.g. `INTERVAL YEAR(4) TO MONTH`, `INTERVAL DAY(3) TO SECOND(6)`.
+                    (Some(fields), Some(lp)) => {
+                        let text = fields.to_string();
+                        if let Some((lead, trail)) = text.split_once(" TO ") {
+                            write!(f, " {lead}({lp}) TO {trail}")?;
+                            if let Some(p) = precision {
+                                write!(f, "({p})")?;
+                            }
+                        } else {
+                            // Single field carrying a leading precision.
+                            write!(f, " {text}")?;
+                            if let Some(p) = precision {
+                                // Two-arg `SECOND(p, fsp)`.
+                                write!(f, "({lp}, {p})")?;
+                            } else {
+                                write!(f, "({lp})")?;
+                            }
+                        }
+                    }
+                    (fields, _) => {
+                        if let Some(fields) = fields {
+                            write!(f, " {fields}")?;
+                        }
+                        if let Some(precision) = precision {
+                            write!(f, "({precision})")?;
+                        }
+                    }
                 }
                 Ok(())
             }

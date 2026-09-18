@@ -1575,6 +1575,16 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports the Snowflake ANSI INTERVAL data
+    /// types, where precision attaches to the *leading* field (and to a trailing
+    /// `SECOND`), e.g. `INTERVAL YEAR(4) TO MONTH`, `INTERVAL DAY(3) TO SECOND(6)`,
+    /// `INTERVAL SECOND(9, 9)`. Unlike [`Self::supports_interval_options`] (the
+    /// PostgreSQL shape, one trailing precision), a bare `INTERVAL` with no field
+    /// specification is rejected.
+    fn supports_snowflake_interval_type(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports specifying which table to copy
     /// the schema from inside parenthesis.
     ///

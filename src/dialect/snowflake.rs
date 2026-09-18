@@ -167,6 +167,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_snowflake_interval_type(&self) -> bool {
+        true
+    }
+
     fn supports_from_trailing_commas(&self) -> bool {
         true
     }

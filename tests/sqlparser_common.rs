@@ -6424,7 +6424,9 @@ fn parse_interval_all() {
     verified_only_select("SELECT INTERVAL 1 HOURS");
     verified_only_select("SELECT INTERVAL 1 MINUTES");
     verified_only_select("SELECT INTERVAL 1 SECONDS");
-    verified_only_select(
+    // Snowflake rejects a bare `INTERVAL` data type (fields are mandatory),
+    // so this field-less `::INTERVAL` cast is exercised on the other dialects.
+    all_dialects_except(|d| d.supports_snowflake_interval_type()).verified_only_select(
         "SELECT '2 years 15 months 100 weeks 99 hours 123456789 milliseconds'::INTERVAL",
     );
 }
@@ -14082,7 +14084,7 @@ fn test_group_by_nothing() {
 
 #[test]
 fn test_extract_seconds_ok() {
-    let dialects = all_dialects_where(|d| d.allow_extract_custom());
+    let dialects = all_dialects_where(|d| d.allow_extract_custom() && !d.supports_snowflake_interval_type());
     let stmt = dialects.verified_expr("EXTRACT(SECONDS FROM '2 seconds'::INTERVAL)");
 
     assert_eq!(
@@ -14097,6 +14099,7 @@ fn test_extract_seconds_ok() {
                 )),
                 data_type: DataType::Interval {
                     fields: None,
+                    leading_precision: None,
                     precision: None
                 },
                 array: false,
@@ -14128,6 +14131,7 @@ fn test_extract_seconds_ok() {
                     )),
                     data_type: DataType::Interval {
                         fields: None,
+                        leading_precision: None,
                         precision: None,
                     },
                     array: false,
@@ -14167,7 +14171,7 @@ fn test_extract_seconds_ok() {
 
 #[test]
 fn test_extract_seconds_single_quote_ok() {
-    let dialects = all_dialects_where(|d| d.allow_extract_custom());
+    let dialects = all_dialects_where(|d| d.allow_extract_custom() && !d.supports_snowflake_interval_type());
     let stmt = dialects.verified_expr(r#"EXTRACT('seconds' FROM '2 seconds'::INTERVAL)"#);
 
     assert_eq!(
@@ -14186,6 +14190,7 @@ fn test_extract_seconds_single_quote_ok() {
                 )),
                 data_type: DataType::Interval {
                     fields: None,
+                    leading_precision: None,
                     precision: None
                 },
                 array: false,
