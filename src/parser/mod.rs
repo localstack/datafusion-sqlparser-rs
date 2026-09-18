@@ -5787,6 +5787,7 @@ impl<'a> Parser<'a> {
         let mut aws_sns_topic: Option<String> = None;
         let mut integration: Option<String> = None;
         let mut comment: Option<String> = None;
+        let mut with_tags = Vec::new();
 
         loop {
             if self.parse_keyword(Keyword::AS) {
@@ -5800,6 +5801,7 @@ impl<'a> Parser<'a> {
                     aws_sns_topic,
                     integration,
                     comment,
+                    with_tags,
                     copy_statement,
                 });
             }
@@ -5818,6 +5820,10 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
+            } else if self.parse_keywords(&[Keyword::WITH, Keyword::TAG]) {
+                self.expect_token(&Token::LParen)?;
+                with_tags = self.parse_comma_separated(Parser::parse_tag)?;
+                self.expect_token(&Token::RParen)?;
             } else {
                 return self.expected(
                     "AUTO_INGEST, ERROR_INTEGRATION, AWS_SNS_TOPIC, INTEGRATION, COMMENT, or AS in CREATE PIPE",
@@ -12617,18 +12623,38 @@ impl<'a> Parser<'a> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         let operation = if self.parse_keyword(Keyword::SET) {
-            let (options, quoted_property_names) =
-                self.parse_key_value_options_with_names(false, &[], false)?;
-            AlterPipeOperation::Set {
-                options,
-                quoted_property_names,
+            if self.parse_keyword(Keyword::TAG) {
+                let mut tags = Vec::new();
+                loop {
+                    let key = self.parse_object_name(false)?;
+                    self.expect_token(&Token::Eq)?;
+                    tags.push(Tag::new(key, self.parse_literal_string()?));
+                    if !self.consume_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                AlterPipeOperation::SetTags(tags)
+            } else {
+                let (options, quoted_property_names) =
+                    self.parse_key_value_options_with_names(false, &[], false)?;
+                AlterPipeOperation::Set {
+                    options,
+                    quoted_property_names,
+                }
             }
         } else if self.parse_keyword(Keyword::UNSET) {
-            let keys = self.parse_comma_separated(Parser::parse_identifier)?;
-            let quoted_property_names = keys.iter().map(|key| key.quote_style.is_some()).collect();
-            AlterPipeOperation::Unset {
-                keys,
-                quoted_property_names,
+            if self.parse_keyword(Keyword::TAG) {
+                AlterPipeOperation::UnsetTags(
+                    self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+                )
+            } else {
+                let keys = self.parse_comma_separated(Parser::parse_identifier)?;
+                let quoted_property_names =
+                    keys.iter().map(|key| key.quote_style.is_some()).collect();
+                AlterPipeOperation::Unset {
+                    keys,
+                    quoted_property_names,
+                }
             }
         } else if self.parse_keyword(Keyword::REFRESH) {
             let prefix = if self.parse_keyword(Keyword::PREFIX) {
