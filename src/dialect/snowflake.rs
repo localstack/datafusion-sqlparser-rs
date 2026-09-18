@@ -2769,6 +2769,19 @@ pub fn parse_create_table(
                     parser.expect_keyword_is(Keyword::POLICY)?;
                     let aggregation_policy = parser.parse_object_name(false)?;
                     builder = builder.with_aggregation_policy(Some(aggregation_policy));
+                    if parser.parse_keywords(&[Keyword::ENTITY, Keyword::KEY]) {
+                        parser.expect_token(&Token::LParen)?;
+                        let columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+                        parser.expect_token(&Token::RParen)?;
+                        builder = builder.aggregation_policy_entity_key(columns);
+                    }
+                }
+                Keyword::ENTITY if builder.with_aggregation_policy.is_some() => {
+                    parser.expect_keyword_is(Keyword::KEY)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
+                    parser.expect_token(&Token::RParen)?;
+                    builder = builder.aggregation_policy_entity_key(columns);
                 }
                 Keyword::ROW => {
                     parser.expect_keywords(&[Keyword::ACCESS, Keyword::POLICY])?;

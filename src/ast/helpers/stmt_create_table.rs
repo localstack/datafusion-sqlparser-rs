@@ -162,6 +162,8 @@ pub struct CreateTableBuilder {
     pub iceberg_default_ddl_collation: Option<String>,
     /// Optional aggregation policy object name.
     pub with_aggregation_policy: Option<ObjectName>,
+    /// Optional entity-key columns for the aggregation policy.
+    pub aggregation_policy_entity_key: Vec<Ident>,
     /// Optional row access policy applied to the table.
     pub with_row_access_policy: Option<RowAccessPolicy>,
     /// Optional storage lifecycle policy applied to the table.
@@ -276,6 +278,7 @@ impl CreateTableBuilder {
             default_ddl_collation: None,
             iceberg_default_ddl_collation: None,
             with_aggregation_policy: None,
+            aggregation_policy_entity_key: vec![],
             with_row_access_policy: None,
             with_storage_lifecycle_policy: None,
             with_tags: None,
@@ -550,6 +553,11 @@ impl CreateTableBuilder {
         self.with_aggregation_policy = with_aggregation_policy;
         self
     }
+    /// Set aggregation-policy entity-key columns.
+    pub fn aggregation_policy_entity_key(mut self, columns: Vec<Ident>) -> Self {
+        self.aggregation_policy_entity_key = columns;
+        self
+    }
     /// Attach a row access policy to the table.
     pub fn with_row_access_policy(
         mut self,
@@ -745,6 +753,7 @@ impl CreateTableBuilder {
             default_ddl_collation: self.default_ddl_collation,
             iceberg_default_ddl_collation: self.iceberg_default_ddl_collation,
             with_aggregation_policy: self.with_aggregation_policy,
+            aggregation_policy_entity_key: self.aggregation_policy_entity_key,
             with_row_access_policy: self.with_row_access_policy,
             with_storage_lifecycle_policy: self.with_storage_lifecycle_policy,
             with_tags: self.with_tags,
@@ -845,6 +854,7 @@ impl From<CreateTable> for CreateTableBuilder {
             default_ddl_collation: table.default_ddl_collation,
             iceberg_default_ddl_collation: table.iceberg_default_ddl_collation,
             with_aggregation_policy: table.with_aggregation_policy,
+            aggregation_policy_entity_key: table.aggregation_policy_entity_key,
             with_row_access_policy: table.with_row_access_policy,
             with_storage_lifecycle_policy: table.with_storage_lifecycle_policy,
             with_tags: table.with_tags,

@@ -4068,6 +4068,8 @@ pub struct CreateTable {
     /// Snowflake "WITH AGGREGATION POLICY" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub with_aggregation_policy: Option<ObjectName>,
+    /// Snowflake aggregation-policy entity key.
+    pub aggregation_policy_entity_key: Vec<Ident>,
     /// Snowflake "WITH ROW ACCESS POLICY" clause
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-table>
     pub with_row_access_policy: Option<RowAccessPolicy>,
@@ -4497,6 +4499,9 @@ impl fmt::Display for CreateTable {
 
         if let Some(with_aggregation_policy) = &self.with_aggregation_policy {
             write!(f, " WITH AGGREGATION POLICY {with_aggregation_policy}",)?;
+            if !self.aggregation_policy_entity_key.is_empty() {
+                write!(f, " ENTITY KEY ({})", display_comma_separated(&self.aggregation_policy_entity_key))?;
+            }
         }
 
         if let Some(row_access_policy) = &self.with_row_access_policy {
