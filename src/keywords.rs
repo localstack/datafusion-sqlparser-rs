@@ -418,6 +418,7 @@ define_keywords!(
     ENGINE,
     ENGINE_ATTRIBUTE,
     ENROLL,
+    ENTITY,
     ENUM,
     ENUM16,
     ENUM8,
