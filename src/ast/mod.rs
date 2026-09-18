@@ -5464,6 +5464,8 @@ pub enum Statement {
         integration: Option<String>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
+        /// Optional `WITH TAG (...)` clause.
+        with_tags: Vec<Tag>,
         /// The `COPY INTO` statement the pipe wraps (after `AS`).
         copy_statement: Box<Statement>,
     },
@@ -8969,6 +8971,7 @@ impl fmt::Display for Statement {
                 aws_sns_topic,
                 integration,
                 comment,
+                with_tags,
                 copy_statement,
             } => {
                 write!(
@@ -8995,6 +8998,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(comment) = comment {
                     write!(f, " COMMENT = '{comment}'")?;
+                }
+                if !with_tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?;
                 }
                 write!(f, " AS {copy_statement}")
             }
@@ -15911,6 +15917,10 @@ impl fmt::Display for AlterStreamOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterPipeOperation {
+    /// `SET TAG <name> = '<value>' [, ...]`
+    SetTags(Vec<Tag>),
+    /// `UNSET TAG <name> [, ...]`
+    UnsetTags(Vec<ObjectName>),
     /// `SET <option> = <value> [ ... ]`
     Set {
         /// Parsed option values.
@@ -15937,6 +15947,12 @@ pub enum AlterPipeOperation {
 impl fmt::Display for AlterPipeOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterPipeOperation::SetTags(tags) => {
+                write!(f, "SET TAG {}", display_comma_separated(tags))
+            }
+            AlterPipeOperation::UnsetTags(tags) => {
+                write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
             AlterPipeOperation::Set { options, .. } => write!(f, "SET {options}"),
             AlterPipeOperation::Unset { keys, .. } => {
                 write!(f, "UNSET {}", display_comma_separated(keys))
