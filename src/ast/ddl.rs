@@ -139,11 +139,57 @@ impl fmt::Display for ExternalTablePartitionColumn {
     }
 }
 
+/// A Snowflake constraint selected by name or kind.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ConstraintTarget {
+    /// `CONSTRAINT <name>`.
+    Constraint(Ident),
+    /// `PRIMARY KEY`.
+    PrimaryKey,
+    /// `UNIQUE`.
+    Unique,
+    /// `FOREIGN KEY`.
+    ForeignKey,
+}
+
+impl fmt::Display for ConstraintTarget {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Constraint(name) => write!(f, "CONSTRAINT {name}"),
+            Self::PrimaryKey => write!(f, "PRIMARY KEY"),
+            Self::Unique => write!(f, "UNIQUE"),
+            Self::ForeignKey => write!(f, "FOREIGN KEY"),
+        }
+    }
+}
+
 /// An `ALTER TABLE` (`Statement::AlterTable`) operation
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTableOperation {
+    /// Snowflake constraint target mutation.
+    AlterConstraint {
+        /// Whether `MODIFY` (rather than `ALTER`) was used.
+        modify: bool,
+        /// Named or kind-based target.
+        target: ConstraintTarget,
+        /// Columns identifying a kind-based target.
+        columns: Vec<Ident>,
+        /// Properties supplied by the statement.
+        characteristics: Option<ConstraintCharacteristics>,
+    },
+    /// Snowflake `DROP UNIQUE (...)` / `DROP FOREIGN KEY (...)`.
+    DropConstraintColumns {
+        /// Constraint kind (`UNIQUE` or `FOREIGN KEY`).
+        target: ConstraintTarget,
+        /// Columns identifying the constraint.
+        columns: Vec<Ident>,
+        /// Optional removal behavior.
+        drop_behavior: Option<DropBehavior>,
+    },
     /// `ADD <table_constraint> [NOT VALID]`
     AddConstraint {
         /// The table constraint to add.
@@ -793,6 +839,32 @@ pub enum AlterIndexOperation {
 impl fmt::Display for AlterTableOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTableOperation::AlterConstraint {
+                modify,
+                target,
+                columns,
+                characteristics,
+            } => {
+                write!(f, "{} {target}", if *modify { "MODIFY" } else { "ALTER" })?;
+                if !columns.is_empty() {
+                    write!(f, " ({})", display_comma_separated(columns))?;
+                }
+                if let Some(characteristics) = characteristics {
+                    write!(f, " {characteristics}")?;
+                }
+                Ok(())
+            }
+            AlterTableOperation::DropConstraintColumns {
+                target,
+                columns,
+                drop_behavior,
+            } => {
+                write!(f, "DROP {target} ({})", display_comma_separated(columns))?;
+                if let Some(drop_behavior) = drop_behavior {
+                    write!(f, " {drop_behavior}")?;
+                }
+                Ok(())
+            }
             AlterTableOperation::AddPartitions {
                 if_not_exists,
                 new_partitions,

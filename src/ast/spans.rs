@@ -1399,6 +1399,8 @@ impl Spanned for CreateTableOptions {
 impl Spanned for AlterTableOperation {
     fn span(&self) -> Span {
         match self {
+            AlterTableOperation::AlterConstraint { .. }
+            | AlterTableOperation::DropConstraintColumns { .. } => Span::empty(),
             AlterTableOperation::AddConstraint {
                 constraint,
                 not_valid: _,

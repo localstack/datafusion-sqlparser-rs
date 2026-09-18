@@ -11508,6 +11508,82 @@ impl<'a> Parser<'a> {
             )
     }
 
+    /// Parse a Snowflake named or kind-and-column constraint target.
+    fn parse_snowflake_constraint_target(
+        &mut self,
+    ) -> Result<(ConstraintTarget, Vec<Ident>), ParserError> {
+        let target = if self.parse_keyword(Keyword::CONSTRAINT) {
+            ConstraintTarget::Constraint(self.parse_identifier()?)
+        } else if self.parse_keywords(&[Keyword::PRIMARY, Keyword::KEY]) {
+            ConstraintTarget::PrimaryKey
+        } else if self.parse_keyword(Keyword::UNIQUE) {
+            ConstraintTarget::Unique
+        } else {
+            self.expect_keywords(&[Keyword::FOREIGN, Keyword::KEY])?;
+            ConstraintTarget::ForeignKey
+        };
+        let takes_columns = matches!(target, ConstraintTarget::Unique | ConstraintTarget::ForeignKey);
+        let columns = if takes_columns {
+            self.expect_token(&Token::LParen)?;
+            let columns = self.parse_comma_separated(Parser::parse_identifier)?;
+            self.expect_token(&Token::RParen)?;
+            columns
+        } else {
+            vec![]
+        };
+        Ok((target, columns))
+    }
+
+    fn parse_snowflake_constraint_mutation_characteristics(
+        &mut self,
+    ) -> Result<Option<ConstraintCharacteristics>, ParserError> {
+        let mut characteristics = ConstraintCharacteristics::default();
+        characteristics.rely = if self.parse_keyword(Keyword::RELY) {
+            Some(true)
+        } else if self.parse_keyword(Keyword::NORELY) {
+            Some(false)
+        } else {
+            None
+        };
+        characteristics.enforced = if self.parse_keyword(Keyword::ENFORCED) {
+            Some(true)
+        } else if self.parse_keywords(&[Keyword::NOT, Keyword::ENFORCED]) {
+            Some(false)
+        } else {
+            None
+        };
+        if characteristics.enforced.is_some() {
+            if self.parse_keyword(Keyword::ENFORCED) {
+                characteristics.enforced = Some(true);
+            } else if self.parse_keywords(&[Keyword::NOT, Keyword::ENFORCED]) {
+                characteristics.enforced = Some(false);
+            }
+        }
+        if characteristics.enforced.is_some() {
+            characteristics.validated = if self.parse_keyword(Keyword::VALIDATE) {
+                Some(true)
+            } else if self.parse_keyword(Keyword::NOVALIDATE) {
+                Some(false)
+            } else {
+                None
+            };
+        }
+        if characteristics.rely.is_none() {
+            characteristics.rely = if self.parse_keyword(Keyword::RELY) {
+                Some(true)
+            } else if self.parse_keyword(Keyword::NORELY) {
+                Some(false)
+            } else {
+                None
+            };
+        }
+        if characteristics == ConstraintCharacteristics::default() {
+            Ok(None)
+        } else {
+            Ok(Some(characteristics))
+        }
+    }
+
     /// Parse a single `ALTER TABLE` operation and return an `AlterTableOperation`.
     pub fn parse_alter_table_operation(&mut self) -> Result<AlterTableOperation, ParserError> {
         let operation = if self.parse_keyword(Keyword::ADD) {
@@ -11617,7 +11693,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if self.parse_keyword(Keyword::RENAME) {
-            if dialect_of!(self is PostgreSqlDialect) && self.parse_keyword(Keyword::CONSTRAINT) {
+            if dialect_of!(self is PostgreSqlDialect | SnowflakeDialect) && self.parse_keyword(Keyword::CONSTRAINT) {
                 let old_name = self.parse_identifier()?;
                 self.expect_keyword_is(Keyword::TO)?;
                 let new_name = self.parse_identifier()?;
@@ -11766,13 +11842,42 @@ impl<'a> Parser<'a> {
                     drop_behavior,
                 }
             } else if self.parse_keywords(&[Keyword::PRIMARY, Keyword::KEY]) {
-                let drop_behavior = self.parse_optional_drop_behavior();
-                AlterTableOperation::DropPrimaryKey { drop_behavior }
+                if dialect_of!(self is SnowflakeDialect) && self.consume_token(&Token::LParen) {
+                    let columns = self.parse_comma_separated(Parser::parse_identifier)?;
+                    self.expect_token(&Token::RParen)?;
+                    let drop_behavior = self.parse_optional_drop_behavior();
+                    AlterTableOperation::DropConstraintColumns {
+                        target: ConstraintTarget::PrimaryKey,
+                        columns,
+                        drop_behavior,
+                    }
+                } else {
+                    let drop_behavior = self.parse_optional_drop_behavior();
+                    AlterTableOperation::DropPrimaryKey { drop_behavior }
+                }
             } else if self.parse_keywords(&[Keyword::FOREIGN, Keyword::KEY]) {
-                let name = self.parse_identifier()?;
+                if dialect_of!(self is SnowflakeDialect) && self.consume_token(&Token::LParen) {
+                    let columns = self.parse_comma_separated(Parser::parse_identifier)?;
+                    self.expect_token(&Token::RParen)?;
+                    let drop_behavior = self.parse_optional_drop_behavior();
+                    AlterTableOperation::DropConstraintColumns {
+                        target: ConstraintTarget::ForeignKey,
+                        columns,
+                        drop_behavior,
+                    }
+                } else {
+                    let name = self.parse_identifier()?;
+                    let drop_behavior = self.parse_optional_drop_behavior();
+                    AlterTableOperation::DropForeignKey { name, drop_behavior }
+                }
+            } else if dialect_of!(self is SnowflakeDialect) && self.parse_keyword(Keyword::UNIQUE) {
+                self.expect_token(&Token::LParen)?;
+                let columns = self.parse_comma_separated(Parser::parse_identifier)?;
+                self.expect_token(&Token::RParen)?;
                 let drop_behavior = self.parse_optional_drop_behavior();
-                AlterTableOperation::DropForeignKey {
-                    name,
+                AlterTableOperation::DropConstraintColumns {
+                    target: ConstraintTarget::Unique,
+                    columns,
                     drop_behavior,
                 }
             } else if self.parse_keyword(Keyword::INDEX) {
@@ -11845,6 +11950,13 @@ impl<'a> Parser<'a> {
                 column_position,
             }
         } else if self.parse_keyword(Keyword::MODIFY) {
+            if dialect_of!(self is SnowflakeDialect)
+                && self.peek_one_of_keywords(&[Keyword::CONSTRAINT, Keyword::PRIMARY, Keyword::UNIQUE, Keyword::FOREIGN]).is_some()
+            {
+                let (target, columns) = self.parse_snowflake_constraint_target()?;
+                let characteristics = self.parse_snowflake_constraint_mutation_characteristics()?;
+                AlterTableOperation::AlterConstraint { modify: true, target, columns, characteristics }
+            } else {
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
             let col_name = self.parse_identifier()?;
             if let Some(op) = self.maybe_parse_column_masking_policy()? {
@@ -11868,6 +11980,7 @@ impl<'a> Parser<'a> {
                     column_position,
                 }
             }
+            }
         } else if self.dialect.supports_alter_column_comment()
             && (self.parse_keyword(Keyword::COLUMN) || self.peek_bare_column_comment_continuation())
         {
@@ -11888,6 +12001,14 @@ impl<'a> Parser<'a> {
             if self.peek_keyword(Keyword::SORTKEY) {
                 self.prev_token();
                 return self.parse_alter_sort_key();
+            }
+
+            if dialect_of!(self is SnowflakeDialect)
+                && self.peek_one_of_keywords(&[Keyword::CONSTRAINT, Keyword::PRIMARY, Keyword::UNIQUE, Keyword::FOREIGN]).is_some()
+            {
+                let (target, columns) = self.parse_snowflake_constraint_target()?;
+                let characteristics = self.parse_snowflake_constraint_mutation_characteristics()?;
+                return Ok(AlterTableOperation::AlterConstraint { modify: false, target, columns, characteristics });
             }
 
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]

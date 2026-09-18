@@ -75,7 +75,7 @@ pub use self::ddl::{
     AlterTableOperation, AlterTableType, AlterTagOperation, AlterType, AlterTypeAddValue,
     AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
     ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
-    ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation, CreateCollationDefinition,
+    ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget, CreateCollation, CreateCollationDefinition,
     CreateConnector, CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateTable, CreateTrigger, CreateView, Deduplicate, DeferrableInitial, DistStyle,
