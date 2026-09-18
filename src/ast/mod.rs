@@ -103,6 +103,7 @@ pub use self::ddl::{
     AlterAuthenticationPolicyOperation,
     AlterBackupPolicyOperation,
     AlterSemanticViewOperation,
+    ConstraintTarget,
     ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     ExternalTablePartitionColumn,
     AlterNetworkRuleOperation,
