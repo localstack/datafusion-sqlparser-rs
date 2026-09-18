@@ -80,6 +80,7 @@ pub use self::ddl::{
     AlterAuthenticationPolicyOperation,
     AlterBackupPolicyOperation,
     AlterSemanticViewOperation,
+    ConstraintTarget,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
     DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
