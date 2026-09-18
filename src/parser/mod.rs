@@ -291,6 +291,8 @@ enum ParserState {
     /// CREATE TABLE foo (abc BIGINT NOT NULL);
     /// ```
     ColumnDefinition,
+    /// The state when parsing ALTER TABLE operations.
+    AlterTable,
 }
 
 /// A SQL Parser
@@ -11371,7 +11373,10 @@ impl<'a> Parser<'a> {
                 }
                 .into(),
             ))
-        } else if self.parse_keyword(Keyword::REFERENCES) {
+        } else if (dialect_of!(self is SnowflakeDialect)
+            && self.parse_keywords(&[Keyword::FOREIGN, Keyword::KEY, Keyword::REFERENCES]))
+            || self.parse_keyword(Keyword::REFERENCES)
+        {
             let foreign_table = self.parse_object_name(false)?;
             // PostgreSQL allows omitting the column list and
             // uses the primary key column of the foreign table by default
@@ -11726,9 +11731,15 @@ impl<'a> Parser<'a> {
                 } else {
                     self.expected_ref("one of DEFERRED or IMMEDIATE", self.peek_token_ref())?;
                 }
-            } else if cc.enforced.is_none() && self.parse_keyword(Keyword::ENFORCED) {
+            } else if (cc.enforced.is_none()
+                || (dialect_of!(self is SnowflakeDialect)
+                    && matches!(self.state, ParserState::AlterTable)))
+                && self.parse_keyword(Keyword::ENFORCED)
+            {
                 cc.enforced = Some(true);
-            } else if cc.enforced.is_none()
+            } else if (cc.enforced.is_none()
+                || (dialect_of!(self is SnowflakeDialect)
+                    && matches!(self.state, ParserState::AlterTable)))
                 && self.parse_keywords(&[Keyword::NOT, Keyword::ENFORCED])
             {
                 cc.enforced = Some(false);
@@ -11757,7 +11768,10 @@ impl<'a> Parser<'a> {
             return false;
         }
 
-        if cc.enabled.is_none() {
+        if cc.enabled.is_none()
+            || (dialect_of!(self is SnowflakeDialect)
+                && matches!(self.state, ParserState::AlterTable))
+        {
             if self.parse_keyword(Keyword::ENABLE) {
                 cc.enabled = Some(true);
                 return true;
@@ -11767,7 +11781,10 @@ impl<'a> Parser<'a> {
                 return true;
             }
         }
-        if cc.validated.is_none() {
+        if cc.validated.is_none()
+            || (dialect_of!(self is SnowflakeDialect)
+                && matches!(self.state, ParserState::AlterTable))
+        {
             if self.parse_keyword(Keyword::VALIDATE) {
                 cc.validated = Some(true);
                 return true;
@@ -11777,7 +11794,10 @@ impl<'a> Parser<'a> {
                 return true;
             }
         }
-        if cc.rely.is_none() {
+        if cc.rely.is_none()
+            || (dialect_of!(self is SnowflakeDialect)
+                && matches!(self.state, ParserState::AlterTable))
+        {
             if self.parse_keyword(Keyword::RELY) {
                 cc.rely = Some(true);
                 return true;
@@ -11948,6 +11968,9 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
+                if dialect_of!(self is SnowflakeDialect) {
+                    self.parse_constraint_characteristics()?;
+                }
 
                 Ok(Some(
                     CheckConstraint {
@@ -13728,7 +13751,9 @@ impl<'a> Parser<'a> {
         let only = self.parse_keyword(Keyword::ONLY); // [ ONLY ]
         let table_name = self.parse_object_name(false)?;
         let on_cluster = self.parse_optional_on_cluster()?;
-        let operations = self.parse_comma_separated(Parser::parse_alter_table_operation)?;
+        let operations = self.with_state(ParserState::AlterTable, |parser| {
+            parser.parse_comma_separated(Parser::parse_alter_table_operation)
+        })?;
 
         let mut location = None;
         if self.parse_keyword(Keyword::LOCATION) {
