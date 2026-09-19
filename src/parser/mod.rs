@@ -5725,11 +5725,13 @@ impl<'a> Parser<'a> {
             StreamSourceKind::View
         } else if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
             StreamSourceKind::DynamicTable
+        } else if self.parse_keywords(&[Keyword::EVENT, Keyword::TABLE]) {
+            StreamSourceKind::EventTable
         } else if self.parse_keyword(Keyword::STAGE) {
             StreamSourceKind::Stage
         } else {
             return self.expected(
-                "TABLE, EXTERNAL TABLE, VIEW, DYNAMIC TABLE, or STAGE",
+                "TABLE, EXTERNAL TABLE, VIEW, DYNAMIC TABLE, EVENT TABLE, or STAGE",
                 self.peek_token(),
             );
         };
@@ -5760,7 +5762,9 @@ impl<'a> Parser<'a> {
                 || (is_insert_only
                     && !matches!(
                         source_kind,
-                        StreamSourceKind::ExternalTable | StreamSourceKind::DynamicTable
+                        StreamSourceKind::ExternalTable
+                            | StreamSourceKind::DynamicTable
+                            | StreamSourceKind::EventTable
                     ))
             {
                 return self.expected("a property valid for this stream source", self.peek_token());

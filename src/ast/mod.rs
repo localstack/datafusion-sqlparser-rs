@@ -12689,6 +12689,8 @@ pub enum StreamSourceKind {
     View,
     /// `ON DYNAMIC TABLE <name>`.
     DynamicTable,
+    /// `ON EVENT TABLE <name>`.
+    EventTable,
     /// `ON STAGE <name>`.
     Stage,
     /// `ON EXTERNAL TABLE <name>`.
@@ -12701,6 +12703,7 @@ impl fmt::Display for StreamSourceKind {
             StreamSourceKind::Table => "TABLE",
             StreamSourceKind::View => "VIEW",
             StreamSourceKind::DynamicTable => "DYNAMIC TABLE",
+            StreamSourceKind::EventTable => "EVENT TABLE",
             StreamSourceKind::Stage => "STAGE",
             StreamSourceKind::ExternalTable => "EXTERNAL TABLE",
         })
