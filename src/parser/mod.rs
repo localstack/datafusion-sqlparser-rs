@@ -5723,10 +5723,15 @@ impl<'a> Parser<'a> {
             StreamSourceKind::Table
         } else if self.parse_keyword(Keyword::VIEW) {
             StreamSourceKind::View
+        } else if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+            StreamSourceKind::DynamicTable
         } else if self.parse_keyword(Keyword::STAGE) {
             StreamSourceKind::Stage
         } else {
-            return self.expected("TABLE, EXTERNAL TABLE, VIEW, or STAGE", self.peek_token());
+            return self.expected(
+                "TABLE, EXTERNAL TABLE, VIEW, DYNAMIC TABLE, or STAGE",
+                self.peek_token(),
+            );
         };
         let source_table = self.parse_object_name(false)?;
         let copy_grants = leading_copy_grants
@@ -5743,15 +5748,20 @@ impl<'a> Parser<'a> {
         // Accept the property value loosely. The Snowflake-facing parser layer
         // validates its domain and duplicate occurrences before dispatch.
         let mut append_only = None;
+        let mut insert_only = None;
         let mut show_initial_rows = None;
         while self.peek_keyword(Keyword::APPEND_ONLY)
-            || self.peek_keyword(Keyword::SHOW_INITIAL_ROWS)
             || self.peek_keyword(Keyword::INSERT_ONLY)
+            || self.peek_keyword(Keyword::SHOW_INITIAL_ROWS)
         {
             let is_append_only = self.parse_keyword(Keyword::APPEND_ONLY);
             let is_insert_only = !is_append_only && self.parse_keyword(Keyword::INSERT_ONLY);
             if (is_append_only && source_kind == StreamSourceKind::ExternalTable)
-                || (is_insert_only && source_kind != StreamSourceKind::ExternalTable)
+                || (is_insert_only
+                    && !matches!(
+                        source_kind,
+                        StreamSourceKind::ExternalTable | StreamSourceKind::DynamicTable
+                    ))
             {
                 return self.expected("a property valid for this stream source", self.peek_token());
             }
@@ -5766,8 +5776,12 @@ impl<'a> Parser<'a> {
                     if word.quote_style.is_none()
                         && word.value.eq_ignore_ascii_case("TRUE")
             );
-            if is_append_only || is_insert_only {
+            if is_append_only
+                || (is_insert_only && source_kind == StreamSourceKind::ExternalTable)
+            {
                 append_only = Some(enabled);
+            } else if is_insert_only {
+                insert_only = Some(enabled);
             } else {
                 show_initial_rows = Some(enabled);
             }
@@ -5782,6 +5796,7 @@ impl<'a> Parser<'a> {
             source_table,
             at_before,
             append_only,
+            insert_only,
             show_initial_rows,
             copy_grants,
         })

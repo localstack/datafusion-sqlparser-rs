@@ -121,6 +121,14 @@ fn parse_sf_create_stream_on_table_and_view() {
         ("CREATE STREAM s ON VIEW v", StreamSourceKind::View),
         ("CREATE STREAM s ON STAGE st", StreamSourceKind::Stage),
         (
+            "CREATE STREAM s ON DYNAMIC TABLE dt",
+            StreamSourceKind::DynamicTable,
+        ),
+        (
+            "CREATE STREAM s ON DYNAMIC TABLE dt INSERT_ONLY = TRUE",
+            StreamSourceKind::DynamicTable,
+        ),
+        (
             "CREATE OR REPLACE STREAM s ON TABLE t",
             StreamSourceKind::Table,
         ),
