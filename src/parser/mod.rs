@@ -12064,6 +12064,10 @@ impl<'a> Parser<'a> {
                 AlterColumnOperation::Comment {
                     comment: self.parse_literal_string()?,
                 }
+            } else if self.dialect.supports_alter_column_comment()
+                && self.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT])
+            {
+                AlterColumnOperation::UnsetComment
             } else if self.parse_keywords(&[Keyword::ADD, Keyword::GENERATED]) {
                 let generated_as = if self.parse_keyword(Keyword::ALWAYS) {
                     Some(GeneratedAs::Always)
