@@ -23460,6 +23460,7 @@ impl<'a> Parser<'a> {
 
         let (parent_type, parent_name) = match self.parse_one_of_keywords(&[
             Keyword::ACCOUNT,
+            Keyword::APPLICATION,
             Keyword::DATABASE,
             Keyword::SCHEMA,
             Keyword::TABLE,
@@ -23482,16 +23483,25 @@ impl<'a> Parser<'a> {
                 // The parent name here is still optional, for example:
                 // SHOW TABLES IN ACCOUNT, so parsing the object name
                 // may fail because the statement ends.
+                let application_package = parent_kw == Keyword::APPLICATION
+                    && self.parse_keyword(Keyword::PACKAGE);
                 let parent_name = self.maybe_parse(|p| p.parse_object_name(false))?;
                 match parent_kw {
                     Keyword::ACCOUNT => (Some(ShowStatementInParentType::Account), parent_name),
+                    Keyword::APPLICATION if application_package => (
+                        Some(ShowStatementInParentType::ApplicationPackage),
+                        parent_name,
+                    ),
+                    Keyword::APPLICATION => {
+                        (Some(ShowStatementInParentType::Application), parent_name)
+                    }
                     Keyword::DATABASE => (Some(ShowStatementInParentType::Database), parent_name),
                     Keyword::SCHEMA => (Some(ShowStatementInParentType::Schema), parent_name),
                     Keyword::TABLE => (Some(ShowStatementInParentType::Table), parent_name),
                     Keyword::VIEW => (Some(ShowStatementInParentType::View), parent_name),
                     _ => {
                         return self.expected_ref(
-                            "one of ACCOUNT, DATABASE, SCHEMA, TABLE or VIEW",
+                            "one of ACCOUNT, APPLICATION, DATABASE, SCHEMA, TABLE or VIEW",
                             self.peek_token_ref(),
                         )
                     }
