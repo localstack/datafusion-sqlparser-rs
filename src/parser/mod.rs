@@ -73,8 +73,30 @@ mod merge;
 mod recursion {
     use std::cell::Cell;
     use std::rc::Rc;
+    use std::sync::OnceLock;
 
     use super::ParserError;
+
+    /// A process-wide "is the stack too deep?" probe, consulted on every
+    /// recursion step before the depth counters are. Installed once by the
+    /// host through [`install_stack_check`]; unset, the counters alone apply.
+    static STACK_CHECK: OnceLock<fn() -> bool> = OnceLock::new();
+
+    /// Install a stack probe the parser asks before every recursion step;
+    /// `true` means "too deep", and the parse fails with
+    /// [`ParserError::RecursionLimitExceeded`] instead of recursing further.
+    ///
+    /// The depth counters bound *how many* levels the parser recurses; they
+    /// cannot know how much stack is left, which depends on who called the
+    /// parser and on what thread. A host that does know — PostgreSQL's
+    /// `stack_is_too_deep()`, measured against `max_stack_depth` from the
+    /// backend's stack base — plugs it in here, so a statement that would
+    /// overflow becomes an ordinary parse error rather than a SIGSEGV that
+    /// a `cdylib` has no handler for. Process-wide and first-wins; returns
+    /// `false` if a probe was already installed.
+    pub fn install_stack_check(check: fn() -> bool) -> bool {
+        STACK_CHECK.set(check).is_ok()
+    }
 
     /// Tracks remaining recursion depth. This value is decremented on
     /// each call to [`RecursionCounter::try_decrease()`], when it reaches 0 an error will
@@ -106,6 +128,9 @@ mod recursion {
         /// Returns a [`DepthGuard`] which will adds 1 to the
         /// remaining depth upon drop;
         pub fn try_decrease(&self) -> Result<DepthGuard, ParserError> {
+            if STACK_CHECK.get().is_some_and(|too_deep| too_deep()) {
+                return Err(ParserError::RecursionLimitExceeded);
+            }
             let old_value = self.remaining_depth.get();
             // ran out of space
             if old_value == 0 {
@@ -144,6 +169,11 @@ mod recursion {
     /// but does not actually limit stack depth.
     pub(crate) struct RecursionCounter {}
 
+    /// No stack to probe without std; see the std variant.
+    pub fn install_stack_check(_check: fn() -> bool) -> bool {
+        false
+    }
+
     impl RecursionCounter {
         pub fn new(_remaining_depth: usize) -> Self {
             Self {}
@@ -155,6 +185,8 @@ mod recursion {
 
     pub struct DepthGuard {}
 }
+
+pub use recursion::install_stack_check;
 
 #[derive(PartialEq, Eq)]
 /// Indicates whether a parser element is optional or mandatory.
@@ -207,6 +239,50 @@ impl core::error::Error for ParserError {}
 
 // By default, allow expressions up to this deep before erroring
 const DEFAULT_REMAINING_DEPTH: usize = 50;
+
+/// How deeply `BEGIN ... END` scripting blocks may nest before erroring.
+///
+/// Separate from [`DEFAULT_REMAINING_DEPTH`] because the two recursions cost
+/// wildly different amounts of stack. An expression level is a handful of small
+/// frames; one scripting-block level is the cycle `parse_statement` ->
+/// `Dialect::parse_statement` -> `parse_begin_exception_end` ->
+/// `parse_scripting_statement_list` -> `parse_statement`, whose frames carry
+/// several `Statement`-sized values. Measured against a live PostgreSQL backend
+/// on an 8 MB stack, unoptimised as CI's instrumented build also is:
+/// **660 kB per level** - 11 levels survive, 12 segfaults the backend.
+///
+/// A segfault here is silent. The parser runs inside a cdylib, so `std::rt::init`
+/// never installs Rust's stack-overflow handler, and PostgreSQL sees only a
+/// backend vanish - which SIGQUITs every other backend and takes the cluster
+/// into crash recovery (`docs/backend-crash-forensics.md`).
+///
+/// Eight caps one parse at roughly 5.3 MB, leaving ~2.7 MB of an 8 MB backend
+/// stack for the PL/pgSQL, SPI and executor frames the parse sits on top of.
+/// It is also well above the deepest nesting the compatibility suite produces
+/// (three), and exceeding it is an ordinary parse error rather than a dead
+/// cluster.
+///
+/// The server process hit the same recursion first and escaped it by giving
+/// tokio workers a 16 MB stack (`crates/server/src/main.rs`). A PostgreSQL
+/// backend has no such lever - its stack is the process stack, fixed by
+/// `ulimit -s` - so the bound has to live here.
+const MAX_SCRIPTING_BLOCK_DEPTH: usize = 8;
+
+/// How many infix operations one left-associative chain (`a OR b OR c …`) may
+/// carry, nested chains included.
+///
+/// A chain is parsed by the loop in [`Parser::parse_subexpr`] at constant
+/// parser depth, so [`DEFAULT_REMAINING_DEPTH`] never sees it — but every
+/// term wraps the expression one `BinaryOp` deeper, and everything that later
+/// recurses over the AST (the derived `Clone`, `Drop` and `Display`, every
+/// visitor) pays one frame per term with no counter at all. Measured against
+/// an 8 MB stack: `Expr::clone` overflows between 1400 and 1800 terms
+/// unoptimised and at ~4200 optimised, so the bound follows the build and a
+/// maximal chain costs about 4 MB in either. The count is the AST depth a
+/// chain adds, so `a = 1 OR a = 2 OR …` with N terms needs N + 1 (the last
+/// term's `=` is parsed while every `OR` guard is still held). Exceeding it is
+/// a parse error, not a dead process.
+const MAX_EXPR_CHAIN_LENGTH: usize = if cfg!(debug_assertions) { 1024 } else { 2048 };
 
 // A constant EOF token that can be referenced.
 const EOF_TOKEN: TokenWithSpan = TokenWithSpan {
@@ -361,6 +437,14 @@ pub struct Parser<'a> {
     options: ParserOptions,
     /// Ensures the stack does not overflow by limiting recursion depth.
     recursion_counter: RecursionCounter,
+    /// Ensures nested scripting blocks do not overflow the stack. Counted
+    /// separately from `recursion_counter` because a block level costs orders
+    /// of magnitude more stack than an expression level
+    /// ([`MAX_SCRIPTING_BLOCK_DEPTH`]).
+    block_counter: RecursionCounter,
+    /// Bounds the depth a chain of infix operators adds to the AST
+    /// ([`MAX_EXPR_CHAIN_LENGTH`]); the parser itself does not recurse there.
+    chain_counter: RecursionCounter,
     match_recognize_definition: bool,
     match_recognize_semantics: Option<RunningFinal>,
 }
@@ -388,6 +472,8 @@ impl<'a> Parser<'a> {
             state: ParserState::Normal,
             dialect,
             recursion_counter: RecursionCounter::new(DEFAULT_REMAINING_DEPTH),
+            block_counter: RecursionCounter::new(MAX_SCRIPTING_BLOCK_DEPTH),
+            chain_counter: RecursionCounter::new(MAX_EXPR_CHAIN_LENGTH),
             match_recognize_definition: false,
             match_recognize_semantics: None,
             options: ParserOptions::new().with_trailing_commas(dialect.supports_trailing_commas()),
@@ -1058,6 +1144,11 @@ impl<'a> Parser<'a> {
         &mut self,
         terminal_keywords: &[Keyword],
     ) -> Result<Vec<Statement>, ParserError> {
+        // One level of block nesting costs ~660 kB of stack, so this budget is
+        // far tighter than `recursion_counter`'s. Guarding here rather than in
+        // `parse_begin_exception_end` covers every block form in one place:
+        // `BEGIN ... END`, its `EXCEPTION` arms, and `IF` / `ELSEIF` / `ELSE`.
+        let _block_guard = self.block_counter.try_decrease()?;
         let mut values = vec![];
         loop {
             match &self.peek_nth_token_ref(0).token {
@@ -1747,6 +1838,10 @@ impl<'a> Parser<'a> {
         }
 
         debug!("prefix: {expr:?}");
+        // Each infix term wraps `expr` one level deeper at constant parser
+        // depth. The guards live for the whole chain so that nested chains
+        // add up to the depth the AST really has ([`MAX_EXPR_CHAIN_LENGTH`]).
+        let mut chain_guards = Vec::new();
         loop {
             let next_precedence = self.get_next_precedence()?;
             debug!("next precedence: {next_precedence:?}");
@@ -1761,6 +1856,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
+            chain_guards.push(self.chain_counter.try_decrease()?);
             expr = self.parse_infix(expr, next_precedence)?;
         }
         Ok(expr)

@@ -11043,3 +11043,121 @@ fn reject_bare_snowflake_interval_type() {
         "unexpected error: {err}"
     );
 }
+
+#[test]
+fn scripting_block_nesting_is_bounded_separately_from_expressions() {
+    // A scripting block level is far more expensive than an expression level:
+    // the cycle `parse_statement` -> `SnowflakeDialect::parse_statement` ->
+    // `parse_begin_exception_end` -> `parse_scripting_statement_list` ->
+    // `parse_statement` carries several `Statement`-sized values per frame and
+    // costs ~660 kB of stack. The 50-level expression budget is far too
+    // permissive to keep an 8 MB PostgreSQL backend stack alive, so
+    // `MAX_SCRIPTING_BLOCK_DEPTH` bounds block nesting at 8 separately.
+    //
+    // Parsing at that limit needs ~5.3 MB, and the test harness hands each test
+    // a 2 MB thread - which is itself the measurement, so ask for a stack that
+    // fits rather than trimming the assertion.
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            let block = |depth: usize| {
+                format!(
+                    "{}RETURN 1; {}",
+                    "BEGIN ".repeat(depth),
+                    "END; ".repeat(depth)
+                )
+            };
+
+            assert_eq!(Parser::parse_sql(&SnowflakeDialect {}, &block(8)).err(), None);
+            assert_eq!(
+                Parser::parse_sql(&SnowflakeDialect {}, &block(9)).err(),
+                Some(ParserError::RecursionLimitExceeded)
+            );
+            // Well inside the 50-level expression budget, so it is the tighter
+            // counter firing rather than `DEFAULT_REMAINING_DEPTH`.
+            assert_eq!(
+                Parser::parse_sql(&SnowflakeDialect {}, &block(60)).err(),
+                Some(ParserError::RecursionLimitExceeded)
+            );
+
+            // A depth limit, not a count limit: many sibling blocks at shallow
+            // depth stay fine.
+            let siblings = format!(
+                "BEGIN {} RETURN 1; END;",
+                "BEGIN RETURN 1; END; ".repeat(50)
+            );
+            assert_eq!(
+                Parser::parse_sql(&SnowflakeDialect {}, &siblings).err(),
+                None
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn operator_chains_are_bounded_at_parse_time() {
+    // `a + b + c …` is parsed by a loop, so the recursion counter never moves,
+    // but every term deepens the AST by one and everything that later walks
+    // the AST recurses once per term. `MAX_EXPR_CHAIN_LENGTH` bounds the
+    // operations in one chain, nested chains included, and follows the build
+    // because the measured frame sizes do.
+    let limit = if cfg!(debug_assertions) { 1024 } else { 2048 };
+    let chain = |ops: usize| format!("SELECT {}", vec!["1"; ops + 1].join(" + "));
+
+    assert_eq!(Parser::parse_sql(&SnowflakeDialect {}, &chain(limit)).err(), None);
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, &chain(limit + 1)).err(),
+        Some(ParserError::RecursionLimitExceeded)
+    );
+
+    // Nested chains add up: a chain inside a parenthesised term of another
+    // chain is that much deeper.
+    let nested = format!(
+        "SELECT {} + ({})",
+        vec!["1"; limit / 2 + 1].join(" + "),
+        vec!["1"; limit / 2 + 1].join(" + ")
+    );
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, &nested).err(),
+        Some(ParserError::RecursionLimitExceeded)
+    );
+
+    // Sibling chains do not: each select item is its own chain.
+    let siblings = format!(
+        "SELECT {}, {}",
+        vec!["1"; limit / 2 + 1].join(" + "),
+        vec!["1"; limit / 2 + 1].join(" + ")
+    );
+    assert_eq!(Parser::parse_sql(&SnowflakeDialect {}, &siblings).err(), None);
+}
+
+thread_local! {
+    static STACK_TOO_DEEP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn fake_stack_probe() -> bool {
+    STACK_TOO_DEEP.with(std::cell::Cell::get)
+}
+
+#[test]
+fn host_stack_probe_stops_recursion_with_a_parse_error() {
+    // The probe is process-wide and first-wins; a thread-local flag keeps it
+    // inert on every other test thread in this binary.
+    sqlparser::parser::install_stack_check(fake_stack_probe);
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, "SELECT 1 + 1").err(),
+        None
+    );
+    STACK_TOO_DEEP.with(|f| f.set(true));
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, "SELECT 1 + 1").err(),
+        Some(ParserError::RecursionLimitExceeded)
+    );
+    STACK_TOO_DEEP.with(|f| f.set(false));
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, "SELECT 1 + 1").err(),
+        None
+    );
+}
