@@ -15406,6 +15406,10 @@ pub enum ShowStatementFilterPosition {
 pub enum ShowStatementInParentType {
     /// ACCOUNT parent type for SHOW statements.
     Account,
+    /// APPLICATION parent type for SHOW statements.
+    Application,
+    /// APPLICATION PACKAGE parent type for SHOW statements.
+    ApplicationPackage,
     /// DATABASE parent type for SHOW statements.
     Database,
     /// SCHEMA parent type for SHOW statements.
@@ -15420,6 +15424,8 @@ impl fmt::Display for ShowStatementInParentType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ShowStatementInParentType::Account => write!(f, "ACCOUNT"),
+            ShowStatementInParentType::Application => write!(f, "APPLICATION"),
+            ShowStatementInParentType::ApplicationPackage => write!(f, "APPLICATION PACKAGE"),
             ShowStatementInParentType::Database => write!(f, "DATABASE"),
             ShowStatementInParentType::Schema => write!(f, "SCHEMA"),
             ShowStatementInParentType::Table => write!(f, "TABLE"),
