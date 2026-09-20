@@ -197,6 +197,16 @@ pub trait Visitor {
     /// boxing it with `Box` to minimize stack usage.
     type Break;
 
+    /// Invoked for any object name before visiting its parts.
+    fn pre_visit_object_name(&mut self, _name: &ObjectName) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any object name after visiting its parts.
+    fn post_visit_object_name(&mut self, _name: &ObjectName) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
     /// Invoked for any queries that appear in the AST before visiting children
     fn pre_visit_query(&mut self, _query: &Query) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
@@ -328,6 +338,16 @@ pub trait VisitorMut {
     /// stack overflow during recursion. If you need to return an error, consider
     /// boxing it with `Box` to minimize stack usage.
     type Break;
+
+    /// Invoked for any object name before visiting its parts.
+    fn pre_visit_object_name(&mut self, _name: &mut ObjectName) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any object name after visiting its parts.
+    fn post_visit_object_name(&mut self, _name: &mut ObjectName) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
 
     /// Invoked for any queries that appear in the AST before visiting children
     fn pre_visit_query(&mut self, _query: &mut Query) -> ControlFlow<Self::Break> {

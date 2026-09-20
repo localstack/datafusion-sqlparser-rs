@@ -422,8 +422,25 @@ impl VisitMut for Ident {
 /// A name of a table, view, custom type, etc., possibly multi-part, i.e. db.schema.obj
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ObjectName(pub Vec<ObjectNamePart>);
+
+#[cfg(feature = "visitor")]
+impl Visit for ObjectName {
+    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+        visitor.pre_visit_object_name(self)?;
+        Visit::visit(&self.0, visitor)?;
+        visitor.post_visit_object_name(self)
+    }
+}
+
+#[cfg(feature = "visitor")]
+impl VisitMut for ObjectName {
+    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+        visitor.pre_visit_object_name(self)?;
+        VisitMut::visit(&mut self.0, visitor)?;
+        visitor.post_visit_object_name(self)
+    }
+}
 
 impl From<Vec<Ident>> for ObjectName {
     fn from(idents: Vec<Ident>) -> Self {
