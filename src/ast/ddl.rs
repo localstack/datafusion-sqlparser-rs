@@ -2519,7 +2519,7 @@ impl fmt::Display for ProcedureParam {
     }
 }
 
-/// Snowflake `EXECUTE AS { CALLER | OWNER }` rights on a stored procedure.
+/// Snowflake execution rights on a stored procedure.
 ///
 /// When the clause is omitted the procedure runs with owner's rights, so an
 /// absent clause (`None` on `Statement::CreateProcedure`) is equivalent to
@@ -2530,6 +2530,8 @@ impl fmt::Display for ProcedureParam {
 pub enum ProcedureExecuteAs {
     /// `EXECUTE AS CALLER` — run with the caller's rights.
     Caller,
+    /// `EXECUTE AS RESTRICTED CALLER` — run with restricted caller's rights.
+    RestrictedCaller,
     /// `EXECUTE AS OWNER` — run with the owner's rights (Snowflake default).
     Owner,
 }
@@ -2538,6 +2540,7 @@ impl fmt::Display for ProcedureExecuteAs {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ProcedureExecuteAs::Caller => write!(f, "CALLER"),
+            ProcedureExecuteAs::RestrictedCaller => write!(f, "RESTRICTED CALLER"),
             ProcedureExecuteAs::Owner => write!(f, "OWNER"),
         }
     }
