@@ -2150,6 +2150,10 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         AlterTableOperation::RemoveFiles {
             files: parse_external_table_file_list(parser)?,
         }
+    } else if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterTableOperation::RenameTable {
+            table_name: RenameTableNameKind::To(parser.parse_object_name(false)?),
+        }
     } else if parser.parse_keywords(&[Keyword::ADD, Keyword::PARTITION]) {
         parser.expect_token(&Token::LParen)?;
         let mut partitions = Vec::new();
@@ -2182,7 +2186,7 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         AlterTableOperation::SetAutoRefresh { value }
     } else {
         return parser.expected_ref(
-            "REFRESH, ADD FILES, REMOVE FILES, ADD/DROP PARTITION or SET AUTO_REFRESH after ALTER EXTERNAL TABLE",
+            "REFRESH, ADD FILES, REMOVE FILES, RENAME TO, ADD/DROP PARTITION or SET AUTO_REFRESH after ALTER EXTERNAL TABLE",
             parser.peek_token_ref(),
         );
     };

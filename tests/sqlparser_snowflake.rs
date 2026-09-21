@@ -10326,6 +10326,7 @@ fn parse_snowflake_external_table_family_roundtrips() {
         "ALTER EXTERNAL TABLE et REFRESH 'sub_a/'",
         "ALTER EXTERNAL TABLE IF EXISTS et ADD FILES ('a.json', 'b.json')",
         "ALTER EXTERNAL TABLE et REMOVE FILES ('a.json')",
+        "ALTER EXTERNAL TABLE et RENAME TO et_renamed",
         "ALTER EXTERNAL TABLE et SET AUTO_REFRESH = TRUE",
         "ALTER EXTERNAL TABLE et ADD PARTITION (dt = '2026-01-01') LOCATION 'json/'",
         "ALTER EXTERNAL TABLE et DROP PARTITION LOCATION 'json/'",
