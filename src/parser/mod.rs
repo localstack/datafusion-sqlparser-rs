@@ -18703,6 +18703,17 @@ impl<'a> Parser<'a> {
             };
 
             // Parse potential version qualifier
+            if self.peek_keyword(Keyword::CHANGES)
+                && name.0.iter().any(|part| {
+                    part.as_ident().is_some_and(|ident| {
+                        ident.quote_style == Some('"') && ident.value.contains('"')
+                    })
+                })
+            {
+                return Err(ParserError::ParserError(
+                    "CHANGES does not accept doubled-quote identifiers".to_string(),
+                ));
+            }
             let version = self.maybe_parse_table_version()?;
 
             // Postgres, MSSQL, ClickHouse: table-valued functions:
