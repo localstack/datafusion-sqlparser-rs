@@ -8556,7 +8556,7 @@ impl<'a> Parser<'a> {
     /// Parse a Snowflake `UNDROP <object type> <name>` statement.
     ///
     /// Grammar for the whole UNDROP family (`TABLE`, `DYNAMIC TABLE`,
-    /// `SCHEMA`, `DATABASE`) plus `VIEW`, which parses so it can be rejected
+    /// `SCHEMA`, `DATABASE`) plus unsupported object kinds, which parse so they can be rejected
     /// downstream with Snowflake's unsupported-feature error rather than a
     /// parse error.
     pub fn parse_undrop(&mut self) -> Result<Statement, ParserError> {
@@ -8576,9 +8576,11 @@ impl<'a> Parser<'a> {
             ObjectType::Database
         } else if self.parse_keyword(Keyword::ALERT) {
             ObjectType::Alert
+        } else if self.parse_keyword(Keyword::STAGE) {
+            ObjectType::Stage
         } else {
             return self.expected_ref(
-                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, TABLE or VIEW after UNDROP",
+                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, STAGE, TABLE or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };
