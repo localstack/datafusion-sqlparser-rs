@@ -668,6 +668,7 @@ fn parse_create_table_auto_increment() {
                                 index_options: vec![],
                                 characteristics: None,
                                 on_conflict: None,
+                                comment: None,
                             }),
                         },
                         ColumnOptionDef {
@@ -722,6 +723,7 @@ fn table_constraint_unique_primary_ctor(
             characteristics,
             nulls_distinct: NullsDistinctOption::None,
             on_conflict: None,
+            comment: None,
         }
         .into(),
         None => PrimaryKeyConstraint {
@@ -733,6 +735,7 @@ fn table_constraint_unique_primary_ctor(
             index_options,
             characteristics,
             on_conflict: None,
+            comment: None,
         }
         .into(),
     }
@@ -783,6 +786,7 @@ fn parse_create_table_primary_and_unique_key() {
                                         index_options: vec![],
                                         characteristics: None,
                                         on_conflict: None,
+                                        comment: None,
                                     }),
                                 },
                                 ColumnOptionDef {
@@ -1457,6 +1461,7 @@ fn parse_quote_identifiers() {
                             index_options: vec![],
                             characteristics: None,
                             on_conflict: None,
+                            comment: None,
                         }),
                     }],
                 }],

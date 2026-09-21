@@ -4491,6 +4491,7 @@ fn parse_create_table() {
                                     index_options: vec![],
                                     characteristics: None,
                                     on_conflict: None,
+                                    comment: None,
                                 }),
                             },
                             ColumnOptionDef {
@@ -4510,6 +4511,7 @@ fn parse_create_table() {
                                     characteristics: None,
                                     nulls_distinct: NullsDistinctOption::None,
                                     on_conflict: None,
+                                    comment: None,
                                 }),
                             },
                             ColumnOptionDef {
@@ -4520,6 +4522,7 @@ fn parse_create_table() {
                                     no_inherit: false,
                                     enforced: None,
                                     on_conflict: None,
+                                    comment: None,
                                 }),
                             },
                         ],
@@ -4539,6 +4542,7 @@ fn parse_create_table() {
                                 on_update: None,
                                 match_kind: None,
                                 characteristics: None,
+                                comment: None,
                             }),
                         }],
                     },
@@ -4557,6 +4561,7 @@ fn parse_create_table() {
                                 on_update: Some(ReferentialAction::NoAction),
                                 match_kind: None,
                                 characteristics: None,
+                                comment: None,
                             }),
                         },],
                     },
@@ -4575,6 +4580,7 @@ fn parse_create_table() {
                         on_update: None,
                         match_kind: None,
                         characteristics: None,
+                        comment: None,
                     }
                     .into(),
                     ForeignKeyConstraint {
@@ -4587,6 +4593,7 @@ fn parse_create_table() {
                         on_update: Some(ReferentialAction::Restrict),
                         match_kind: None,
                         characteristics: None,
+                        comment: None,
                     }
                     .into(),
                     ForeignKeyConstraint {
@@ -4599,6 +4606,7 @@ fn parse_create_table() {
                         on_update: Some(ReferentialAction::SetDefault),
                         match_kind: None,
                         characteristics: None,
+                        comment: None,
                     }
                     .into(),
                     ForeignKeyConstraint {
@@ -4611,6 +4619,7 @@ fn parse_create_table() {
                         on_update: Some(ReferentialAction::SetNull),
                         match_kind: None,
                         characteristics: None,
+                        comment: None,
                     }
                     .into(),
                 ]
@@ -4715,6 +4724,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             enforced: None,
                             ..Default::default()
                         }),
+                        comment: None,
                     }
                     .into(),
                     ForeignKeyConstraint {
@@ -4732,6 +4742,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             enforced: None,
                             ..Default::default()
                         }),
+                        comment: None,
                     }
                     .into(),
                     ForeignKeyConstraint {
@@ -4749,6 +4760,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             enforced: Some(false),
                             ..Default::default()
                         }),
+                        comment: None,
                     }
                     .into(),
                     ForeignKeyConstraint {
@@ -4766,6 +4778,7 @@ fn parse_create_table_with_constraint_characteristics() {
                             enforced: Some(true),
                             ..Default::default()
                         }),
+                        comment: None,
                     }
                     .into(),
                 ]
@@ -4857,6 +4870,7 @@ fn parse_create_table_column_constraint_characteristics() {
                                 characteristics: expected_value,
                                 nulls_distinct: NullsDistinctOption::None,
                                 on_conflict: None,
+                                comment: None,
                             })
                         }]
                     }],

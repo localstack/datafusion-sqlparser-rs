@@ -233,6 +233,9 @@ pub struct CheckConstraint {
     /// SQLite [conflict clause](https://www.sqlite.org/lang_conflict.html) such as
     /// `ON CONFLICT FAIL`, which SQLite accepts on a table-level `CHECK` and ignores.
     pub on_conflict: Option<Keyword>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    /// `None` for inline constraints, whose `COMMENT` comments the column.
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for CheckConstraint {
@@ -332,6 +335,8 @@ pub struct ForeignKeyConstraint {
     pub match_kind: Option<ConstraintReferenceMatchKind>,
     /// Optional characteristics (e.g., `DEFERRABLE`).
     pub characteristics: Option<ConstraintCharacteristics>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for ForeignKeyConstraint {
@@ -554,6 +559,8 @@ pub struct PrimaryKeyConstraint {
     /// SQLite [conflict clause](https://www.sqlite.org/lang_conflict.html) such as
     /// `ON CONFLICT REPLACE`. On a column it parses as [`crate::ast::ColumnOption::OnConflict`].
     pub on_conflict: Option<Keyword>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for PrimaryKeyConstraint {
@@ -632,6 +639,8 @@ pub struct UniqueConstraint {
     /// SQLite [conflict clause](https://www.sqlite.org/lang_conflict.html) such as
     /// `ON CONFLICT REPLACE`. On a column it parses as [`crate::ast::ColumnOption::OnConflict`].
     pub on_conflict: Option<Keyword>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for UniqueConstraint {

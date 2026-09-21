@@ -236,6 +236,7 @@ fn parse_create_table_auto_increment() {
                                 index_options: vec![],
                                 characteristics: None,
                                 on_conflict: None,
+                                comment: None,
                             }),
                         },
                         ColumnOptionDef {
@@ -270,6 +271,7 @@ fn parse_create_table_primary_key_asc_desc() {
                     index_options: vec![],
                     characteristics: None,
                     on_conflict: None,
+                    comment: None,
                 }),
             },
             ColumnOptionDef {
