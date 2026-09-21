@@ -1733,15 +1733,21 @@ fn parse_alter_dynamic_table_property(
     };
 
     if matches!(key.as_str(), "FROZEN" | "IMMUTABLE") {
-        parser.expect_keyword_is(Keyword::WHERE)?;
+        // Cloud snapshot query-result-4 in test_dynamic_table_frozen_round_trip.snapshot.json
+        // shows that bare UNSET IMMUTABLE succeeds, unlike bare UNSET FROZEN.
+        let bare_immutable_unset = unset
+            && key == "IMMUTABLE"
+            && matches!(parser.peek_token().token, Token::EOF | Token::SemiColon);
+        if !bare_immutable_unset {
+            parser.expect_keyword_is(Keyword::WHERE)?;
+        }
         let value = if unset {
             Value::Null
         } else {
             parser.expect_token(&Token::LParen)?;
             let predicate = parser.parse_expr()?;
             parser.expect_token(&Token::RParen)?;
-            if key == "FROZEN"
-                && visit_expressions(&predicate, |expr| {
+            if visit_expressions(&predicate, |expr| {
                 if matches!(
                     expr,
                     Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
