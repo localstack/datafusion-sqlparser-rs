@@ -12890,9 +12890,33 @@ impl<'a> Parser<'a> {
             AlterTaskAction::RemoveAfter(
                 self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
             )
+        } else if self.parse_keyword(Keyword::SET) {
+            if self.parse_keyword(Keyword::WAREHOUSE) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetWarehouse(self.parse_object_name(false)?)
+            } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetManagedWarehouseSize(self.parse_literal_string()?)
+            } else {
+                return self.expected(
+                    "WAREHOUSE or USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE after ALTER TASK SET",
+                    self.peek_token(),
+                );
+            }
+        } else if self.parse_keyword(Keyword::UNSET) {
+            if self.parse_keyword(Keyword::WAREHOUSE) {
+                AlterTaskAction::UnsetWarehouse
+            } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
+                AlterTaskAction::UnsetManagedWarehouseSize
+            } else {
+                return self.expected(
+                    "WAREHOUSE or USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE after ALTER TASK UNSET",
+                    self.peek_token(),
+                );
+            }
         } else {
             return self.expected(
-                "RESUME, SUSPEND, ADD AFTER, or REMOVE AFTER after ALTER TASK",
+                "RESUME, SUSPEND, ADD AFTER, REMOVE AFTER, SET, or UNSET after ALTER TASK",
                 self.peek_token(),
             );
         };

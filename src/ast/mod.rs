@@ -15719,6 +15719,14 @@ pub enum AlterTaskAction {
     AddAfter(Vec<ObjectName>),
     /// `REMOVE AFTER <task> [, <task> ...]`
     RemoveAfter(Vec<ObjectName>),
+    /// `SET WAREHOUSE = <warehouse>`
+    SetWarehouse(ObjectName),
+    /// `UNSET WAREHOUSE`
+    UnsetWarehouse,
+    /// `SET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '<size>'`
+    SetManagedWarehouseSize(String),
+    /// `UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE`
+    UnsetManagedWarehouseSize,
 }
 
 impl fmt::Display for AlterTaskAction {
@@ -15736,6 +15744,17 @@ impl fmt::Display for AlterTaskAction {
                 "REMOVE AFTER {}",
                 display_comma_separated(tasks)
             ),
+            AlterTaskAction::SetWarehouse(warehouse) => {
+                write!(f, "SET WAREHOUSE = {warehouse}")
+            }
+            AlterTaskAction::UnsetWarehouse => write!(f, "UNSET WAREHOUSE"),
+            AlterTaskAction::SetManagedWarehouseSize(size) => write!(
+                f,
+                "SET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'"
+            ),
+            AlterTaskAction::UnsetManagedWarehouseSize => {
+                write!(f, "UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE")
+            }
         }
     }
 }
