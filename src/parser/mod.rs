@@ -25013,9 +25013,13 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let execute_as = if self.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+        let execute_as = if self.parse_keyword(Keyword::EXECUTE) {
+            self.expect_keyword_is(Keyword::AS)?;
             if self.parse_keyword(Keyword::CALLER) {
                 Some(ProcedureExecuteAs::Caller)
+            } else if self.parse_keyword(Keyword::RESTRICTED) {
+                self.expect_keyword_is(Keyword::CALLER)?;
+                Some(ProcedureExecuteAs::RestrictedCaller)
             } else {
                 self.expect_keyword_is(Keyword::OWNER)?;
                 Some(ProcedureExecuteAs::Owner)
