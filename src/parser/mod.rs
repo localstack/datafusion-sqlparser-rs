@@ -10599,6 +10599,7 @@ impl<'a> Parser<'a> {
                     columns: vec![],
                     index_options: vec![],
                     characteristics,
+                    comment: None,
                 }
                 .into(),
             ))
@@ -10620,6 +10621,7 @@ impl<'a> Parser<'a> {
                     index_options: vec![],
                     characteristics,
                     nulls_distinct: NullsDistinctOption::None,
+                    comment: None,
                 }
                 .into(),
             ))
@@ -10635,6 +10637,7 @@ impl<'a> Parser<'a> {
                     columns: vec![],
                     index_options: vec![],
                     characteristics,
+                    comment: None,
                 }
                 .into(),
             ))
@@ -10677,6 +10680,7 @@ impl<'a> Parser<'a> {
                     on_update,
                     match_kind,
                     characteristics,
+                    comment: None,
                 }
                 .into(),
             ))
@@ -10699,6 +10703,7 @@ impl<'a> Parser<'a> {
                     name: None, // Column-level check constraints don't have names
                     expr: Box::new(expr),
                     enforced,
+                    comment: None,
                 }
                 .into(),
             ))
@@ -11018,6 +11023,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse a trailing Snowflake out-of-line constraint `COMMENT '<text>'`
+    /// clause (no equals sign). Returns `None` for other dialects or when the
+    /// clause is absent.
+    fn parse_optional_constraint_comment(&mut self) -> Result<Option<String>, ParserError> {
+        if dialect_of!(self is SnowflakeDialect) && self.parse_keyword(Keyword::COMMENT) {
+            Ok(Some(self.parse_comment_value()?))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Parse one of the informational constraint properties `{ ENABLE | DISABLE }`,
     /// `{ VALIDATE | NOVALIDATE }` or `{ RELY | NORELY }`, returning whether one was
     /// consumed. Only dialects opting in via
@@ -11126,6 +11142,7 @@ impl<'a> Parser<'a> {
                 let columns = self.parse_parenthesized_index_column_list()?;
                 let index_options = self.parse_index_options()?;
                 let characteristics = self.parse_constraint_characteristics()?;
+                let comment = self.parse_optional_constraint_comment()?;
                 Ok(Some(
                     UniqueConstraint {
                         name,
@@ -11136,6 +11153,7 @@ impl<'a> Parser<'a> {
                         index_options,
                         characteristics,
                         nulls_distinct,
+                        comment,
                     }
                     .into(),
                 ))
@@ -11159,6 +11177,7 @@ impl<'a> Parser<'a> {
                 let columns = self.parse_parenthesized_index_column_list()?;
                 let index_options = self.parse_index_options()?;
                 let characteristics = self.parse_constraint_characteristics()?;
+                let comment = self.parse_optional_constraint_comment()?;
                 Ok(Some(
                     PrimaryKeyConstraint {
                         name,
@@ -11167,6 +11186,7 @@ impl<'a> Parser<'a> {
                         columns,
                         index_options,
                         characteristics,
+                        comment,
                     }
                     .into(),
                 ))
@@ -11198,6 +11218,7 @@ impl<'a> Parser<'a> {
                 }
 
                 let characteristics = self.parse_constraint_characteristics()?;
+                let comment = self.parse_optional_constraint_comment()?;
 
                 Ok(Some(
                     ForeignKeyConstraint {
@@ -11210,6 +11231,7 @@ impl<'a> Parser<'a> {
                         on_update,
                         match_kind,
                         characteristics,
+                        comment,
                     }
                     .into(),
                 ))
@@ -11229,12 +11251,14 @@ impl<'a> Parser<'a> {
                 if dialect_of!(self is SnowflakeDialect) {
                     self.parse_constraint_characteristics()?;
                 }
+                let comment = self.parse_optional_constraint_comment()?;
 
                 Ok(Some(
                     CheckConstraint {
                         name,
                         expr,
                         enforced,
+                        comment,
                     }
                     .into(),
                 ))
@@ -11464,7 +11488,9 @@ impl<'a> Parser<'a> {
     pub fn parse_optional_index_option(&mut self) -> Result<Option<IndexOption>, ParserError> {
         if let Some(index_type) = self.parse_optional_using_then_index_type()? {
             Ok(Some(IndexOption::Using(index_type)))
-        } else if self.parse_keyword(Keyword::COMMENT) {
+        } else if !dialect_of!(self is SnowflakeDialect)
+            && self.parse_keyword(Keyword::COMMENT)
+        {
             let s = self.parse_literal_string()?;
             Ok(Some(IndexOption::Comment(s)))
         } else {

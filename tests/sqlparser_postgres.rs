@@ -6234,6 +6234,7 @@ fn parse_create_domain() {
                 right: Box::new(Expr::Value(test_utils::number("0").into())),
             }),
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6254,6 +6255,7 @@ fn parse_create_domain() {
                 right: Box::new(Expr::Value(test_utils::number("0").into())),
             }),
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6274,6 +6276,7 @@ fn parse_create_domain() {
                 right: Box::new(Expr::Value(test_utils::number("0").into())),
             }),
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6294,6 +6297,7 @@ fn parse_create_domain() {
                 right: Box::new(Expr::Value(test_utils::number("0").into())),
             }),
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6314,6 +6318,7 @@ fn parse_create_domain() {
                 right: Box::new(Expr::Value(test_utils::number("0").into())),
             }),
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -7185,6 +7190,7 @@ fn parse_alter_table_constraint_not_valid() {
                         on_update: None,
                         match_kind: None,
                         characteristics: None,
+                        comment: None,
                     }
                     .into(),
                     not_valid: true,

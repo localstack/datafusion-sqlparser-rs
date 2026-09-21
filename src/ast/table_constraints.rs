@@ -200,6 +200,9 @@ pub struct CheckConstraint {
     /// MySQL-specific `ENFORCED` / `NOT ENFORCED` flag.
     /// <https://dev.mysql.com/doc/refman/8.4/en/create-table.html>
     pub enforced: Option<bool>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    /// `None` for inline constraints, whose `COMMENT` comments the column.
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for CheckConstraint {
@@ -255,6 +258,8 @@ pub struct ForeignKeyConstraint {
     pub match_kind: Option<ConstraintReferenceMatchKind>,
     /// Optional characteristics (e.g., `DEFERRABLE`).
     pub characteristics: Option<ConstraintCharacteristics>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for ForeignKeyConstraint {
@@ -472,6 +477,8 @@ pub struct PrimaryKeyConstraint {
     pub index_options: Vec<IndexOption>,
     /// Optional characteristics like `DEFERRABLE`.
     pub characteristics: Option<ConstraintCharacteristics>,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for PrimaryKeyConstraint {
@@ -537,6 +544,8 @@ pub struct UniqueConstraint {
     pub characteristics: Option<ConstraintCharacteristics>,
     /// Optional Postgres nulls handling: `[ NULLS [ NOT ] DISTINCT ]`
     pub nulls_distinct: NullsDistinctOption,
+    /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for UniqueConstraint {
