@@ -952,6 +952,24 @@ impl Dialect for SnowflakeDialect {
             if parser.parse_keyword(Keyword::STAGE) {
                 // OK - this is CREATE STAGE statement
                 return Some(parse_create_stage(or_replace, or_alter, temporary, parser));
+            } else if parser.peek_keyword(Keyword::VIEW)
+                || (parser.peek_keyword(Keyword::SECURE)
+                    && matches!(parser.peek_nth_token(1).token, Token::Word(ref word) if word.keyword == Keyword::VIEW))
+            {
+                // Snowflake accepts LOCAL/GLOBAL TEMP and VOLATILE as temporary
+                // VIEW spellings. The generic CREATE parser only recognises
+                // TEMP/TEMPORARY, so dispatch here after collapsing the aliases.
+                // LOCAL/GLOBAL without a temporary modifier is not a valid view
+                // form and must continue to the generic error path.
+                if global.is_some() && !temporary {
+                    return Some(parser.expected("TEMP or TEMPORARY", parser.peek_token()));
+                }
+                return Some(parser.parse_create_view(
+                    or_alter,
+                    or_replace,
+                    temporary || volatile,
+                    None,
+                ).map(Into::into));
             } else if parser.parse_keyword(Keyword::TABLE) {
                 return Some(
                     parse_create_table(
