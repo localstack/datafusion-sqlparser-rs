@@ -1554,10 +1554,6 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
     } else {
         let operation = if parser.parse_keyword(Keyword::REFRESH) {
             AlterTableOperation::Refresh { subpath: None }
-        } else if parser.parse_keywords(&[Keyword::SUSPEND, Keyword::RECLUSTER]) {
-            AlterTableOperation::SuspendRecluster
-        } else if parser.parse_keywords(&[Keyword::RESUME, Keyword::RECLUSTER]) {
-            AlterTableOperation::ResumeRecluster
         } else if parser.parse_keyword(Keyword::SUSPEND) {
             AlterTableOperation::Suspend
         } else if parser.parse_keyword(Keyword::RESUME) {
