@@ -6911,6 +6911,7 @@ fn parse_create_domain() {
             }),
             no_inherit: false,
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6932,6 +6933,7 @@ fn parse_create_domain() {
             }),
             no_inherit: false,
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6953,6 +6955,7 @@ fn parse_create_domain() {
             }),
             no_inherit: false,
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6974,6 +6977,7 @@ fn parse_create_domain() {
             }),
             no_inherit: false,
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -6995,6 +6999,7 @@ fn parse_create_domain() {
             }),
             no_inherit: false,
             enforced: None,
+            comment: None,
         }
         .into()],
     });
@@ -7869,6 +7874,7 @@ fn parse_alter_table_constraint_not_valid() {
                         on_update: None,
                         match_kind: None,
                         characteristics: None,
+                        comment: None,
                     }
                     .into(),
                     not_valid: true,
@@ -10526,6 +10532,7 @@ fn parse_alter_table_constraint_check_no_inherit() {
                 operations,
                 vec![AlterTableOperation::AddConstraint {
                     constraint: CheckConstraint {
+                        comment: Default::default(),
                         name: Some("c".into()),
                         expr: Box::new(Expr::BinaryOp {
                             left: Box::new(Expr::Identifier(Ident::new("id"))),
