@@ -3175,11 +3175,16 @@ pub fn parse_create_stage(
         comment,
     } = parse_stage_properties(parser)?;
 
-    // Trailing `WITH TAG (<t> = '<v>' [, ...])`. The property loop above breaks
-    // on the `WITH` keyword, so the clause is naturally trailing-only.
+    // Trailing `[WITH] TAG (<t> = '<v>' [, ...])`. The property loop above
+    // breaks on either keyword, so the clause is naturally trailing-only.
     let mut with_tags = Vec::new();
-    if parser.parse_keyword(Keyword::WITH) {
+    let has_tag_clause = if parser.parse_keyword(Keyword::WITH) {
         parser.expect_keyword(Keyword::TAG)?;
+        true
+    } else {
+        parser.parse_keyword(Keyword::TAG)
+    };
+    if has_tag_clause {
         parser.expect_token(&Token::LParen)?;
         with_tags = parser.parse_comma_separated(Parser::parse_tag)?;
         parser.expect_token(&Token::RParen)?;
