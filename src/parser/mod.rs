@@ -22906,9 +22906,13 @@ impl<'a> Parser<'a> {
         // the create options before the body `AS`. Only the two-keyword
         // `EXECUTE AS` sequence is the rights clause; a standalone `AS`
         // delimits the body below.
-        let execute_as = if self.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+        let execute_as = if self.parse_keyword(Keyword::EXECUTE) {
+            self.expect_keyword_is(Keyword::AS)?;
             if self.parse_keyword(Keyword::CALLER) {
                 Some(ProcedureExecuteAs::Caller)
+            } else if self.parse_keyword(Keyword::RESTRICTED) {
+                self.expect_keyword_is(Keyword::CALLER)?;
+                Some(ProcedureExecuteAs::RestrictedCaller)
             } else {
                 self.expect_keyword_is(Keyword::OWNER)?;
                 Some(ProcedureExecuteAs::Owner)

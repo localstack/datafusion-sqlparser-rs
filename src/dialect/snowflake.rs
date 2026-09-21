@@ -1977,9 +1977,13 @@ fn parse_with_procedure(parser: &mut Parser) -> Result<Statement, ParserError> {
         None
     };
 
-    let execute_as = if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
+    let execute_as = if parser.parse_keyword(Keyword::EXECUTE) {
+        parser.expect_keyword_is(Keyword::AS)?;
         if parser.parse_keyword(Keyword::CALLER) {
             Some(ProcedureExecuteAs::Caller)
+        } else if parser.parse_keyword(Keyword::RESTRICTED) {
+            parser.expect_keyword_is(Keyword::CALLER)?;
+            Some(ProcedureExecuteAs::RestrictedCaller)
         } else {
             parser.expect_keyword_is(Keyword::OWNER)?;
             Some(ProcedureExecuteAs::Owner)
