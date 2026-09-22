@@ -10478,7 +10478,7 @@ impl<'a> Parser<'a> {
 
     /// Parse procedure parameter.
     pub fn parse_procedure_param(&mut self) -> Result<ProcedureParam, ParserError> {
-        let mode = if self.parse_keyword(Keyword::IN) {
+        let prefix_mode = if self.parse_keyword(Keyword::IN) {
             Some(ArgMode::In)
         } else if self.parse_keyword(Keyword::OUT) {
             Some(ArgMode::Out)
@@ -10488,8 +10488,23 @@ impl<'a> Parser<'a> {
             None
         };
         let name = self.parse_identifier()?;
+        let mode = if prefix_mode.is_some() {
+            prefix_mode
+        } else if self.parse_keyword(Keyword::IN) {
+            Some(ArgMode::In)
+        } else if self.parse_keyword(Keyword::INPUT) {
+            Some(ArgMode::Input)
+        } else if self.parse_keyword(Keyword::OUT) {
+            Some(ArgMode::Out)
+        } else if self.parse_keyword(Keyword::OUTPUT) {
+            Some(ArgMode::Output)
+        } else if self.parse_keyword(Keyword::INOUT) {
+            Some(ArgMode::InOut)
+        } else {
+            None
+        };
         let data_type = self.parse_data_type()?;
-        let default = if self.consume_token(&Token::Eq) {
+        let default = if self.parse_keyword(Keyword::DEFAULT) || self.consume_token(&Token::Eq) {
             Some(self.parse_expr()?)
         } else {
             None
@@ -23004,13 +23019,42 @@ impl<'a> Parser<'a> {
             None
         };
 
-        // Snowflake allows a `NOT NULL` nullability annotation on the return
-        // type (mirroring functions). Procedures have no NULL-input behaviour
-        // to influence, so consume and drop it.
-        let _ = self.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+        let return_not_null = self.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+        if !return_not_null {
+            let _ = self.parse_keyword(Keyword::NULL);
+        }
 
         let language = if self.parse_keyword(Keyword::LANGUAGE) {
             Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+
+        let called_on_null = if self.parse_keywords(&[
+            Keyword::CALLED,
+            Keyword::ON,
+            Keyword::NULL,
+            Keyword::INPUT,
+        ]) {
+            Some(FunctionCalledOnNull::CalledOnNullInput)
+        } else if self.parse_keywords(&[
+            Keyword::RETURNS,
+            Keyword::NULL,
+            Keyword::ON,
+            Keyword::NULL,
+            Keyword::INPUT,
+        ]) {
+            Some(FunctionCalledOnNull::ReturnsNullOnNullInput)
+        } else if self.parse_keyword(Keyword::STRICT) {
+            Some(FunctionCalledOnNull::Strict)
+        } else {
+            None
+        };
+
+        let behavior = if self.parse_keyword(Keyword::VOLATILE) {
+            Some(FunctionBehavior::Volatile)
+        } else if self.parse_keyword(Keyword::IMMUTABLE) {
+            Some(FunctionBehavior::Immutable)
         } else {
             None
         };
@@ -23047,7 +23091,10 @@ impl<'a> Parser<'a> {
             params,
             copy_grants,
             returns,
+            return_not_null,
             language,
+            called_on_null,
+            behavior,
             execute_as,
             body,
         })

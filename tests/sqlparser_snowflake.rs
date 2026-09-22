@@ -6603,8 +6603,7 @@ END; $$"#;
 }
 
 /// Snowflake allows a `NOT NULL` nullability annotation on a procedure's
-/// return type. It is consumed (and dropped) so the parsed shape matches the
-/// un-annotated form.
+/// return type and retains it for procedure metadata.
 #[test]
 fn test_create_procedure_returns_not_null() {
     let sql = r#"CREATE OR REPLACE PROCEDURE p() RETURNS BOOLEAN NOT NULL LANGUAGE SQL AS $$
@@ -6614,11 +6613,16 @@ END $$"#;
     let stmts = snowflake()
         .parse_sql_statements(sql)
         .expect("RETURNS <type> NOT NULL procedure should parse");
-    let returns = match &stmts[0] {
-        Statement::CreateProcedure { returns, .. } => returns,
+    let (returns, return_not_null) = match &stmts[0] {
+        Statement::CreateProcedure {
+            returns,
+            return_not_null,
+            ..
+        } => (returns, return_not_null),
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     assert_eq!(returns, &Some(DataType::Boolean));
+    assert!(return_not_null);
 
     // The un-annotated form parses to the same return type.
     let sql_plain = r#"CREATE OR REPLACE PROCEDURE p() RETURNS BOOLEAN LANGUAGE SQL AS $$
@@ -6628,7 +6632,13 @@ END $$"#;
     let stmts_plain = snowflake()
         .parse_sql_statements(sql_plain)
         .expect("RETURNS <type> procedure should parse");
-    assert_eq!(stmts[0], stmts_plain[0]);
+    assert!(matches!(
+        &stmts_plain[0],
+        Statement::CreateProcedure {
+            return_not_null: false,
+            ..
+        }
+    ));
 }
 
 /// `EXECUTE AS { CALLER | OWNER }` rights clause parses, is recoverable from
