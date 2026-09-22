@@ -15891,6 +15891,10 @@ pub enum AlterTaskAction {
     SetManagedWarehouseSize(String),
     /// `UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE`
     UnsetManagedWarehouseSize,
+    /// `SET OVERLAP_POLICY = <policy>`
+    SetOverlapPolicy(String),
+    /// `UNSET OVERLAP_POLICY`
+    UnsetOverlapPolicy,
 }
 
 impl fmt::Display for AlterTaskAction {
@@ -15919,6 +15923,10 @@ impl fmt::Display for AlterTaskAction {
             AlterTaskAction::UnsetManagedWarehouseSize => {
                 write!(f, "UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE")
             }
+            AlterTaskAction::SetOverlapPolicy(policy) => {
+                write!(f, "SET OVERLAP_POLICY = {policy}")
+            }
+            AlterTaskAction::UnsetOverlapPolicy => write!(f, "UNSET OVERLAP_POLICY"),
         }
     }
 }
