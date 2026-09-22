@@ -6039,6 +6039,10 @@ impl<'a> Parser<'a> {
         let mut suspend_task_after_num_failures: Option<u64> = None;
         let mut user_task_timeout_ms: Option<u64> = None;
         let mut user_task_managed_initial_warehouse_size: Option<String> = None;
+        let mut user_task_minimum_trigger_interval_in_seconds: Option<u64> = None;
+        let mut target_completion_interval: Option<String> = None;
+        let mut serverless_task_min_statement_size: Option<String> = None;
+        let mut serverless_task_max_statement_size: Option<String> = None;
         let mut error_integration: Option<Ident> = None;
         let mut allow_overlapping_execution: Option<bool> = None;
         let mut task_auto_retry_attempts: Option<u64> = None;
@@ -6059,6 +6063,10 @@ impl<'a> Parser<'a> {
                     suspend_task_after_num_failures,
                     user_task_timeout_ms,
                     user_task_managed_initial_warehouse_size,
+                    user_task_minimum_trigger_interval_in_seconds,
+                    target_completion_interval,
+                    serverless_task_min_statement_size,
+                    serverless_task_max_statement_size,
                     error_integration,
                     allow_overlapping_execution,
                     task_auto_retry_attempts,
@@ -6088,6 +6096,18 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 self.expect_token(&Token::Eq)?;
                 user_task_managed_initial_warehouse_size = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS) {
+                self.expect_token(&Token::Eq)?;
+                user_task_minimum_trigger_interval_in_seconds = Some(self.parse_literal_uint()?);
+            } else if self.parse_keyword(Keyword::TARGET_COMPLETION_INTERVAL) {
+                self.expect_token(&Token::Eq)?;
+                target_completion_interval = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::SERVERLESS_TASK_MIN_STATEMENT_SIZE) {
+                self.expect_token(&Token::Eq)?;
+                serverless_task_min_statement_size = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::SERVERLESS_TASK_MAX_STATEMENT_SIZE) {
+                self.expect_token(&Token::Eq)?;
+                serverless_task_max_statement_size = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::ERROR_INTEGRATION) {
                 self.expect_token(&Token::Eq)?;
                 error_integration = Some(self.parse_identifier()?);
@@ -12904,6 +12924,18 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 self.expect_token(&Token::Eq)?;
                 AlterTaskAction::SetManagedWarehouseSize(self.parse_literal_string()?)
+            } else if self.parse_keyword(Keyword::USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetMinimumTriggerInterval(self.parse_expr()?.to_string())
+            } else if self.parse_keyword(Keyword::TARGET_COMPLETION_INTERVAL) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetTargetCompletionInterval(self.parse_literal_string()?)
+            } else if self.parse_keyword(Keyword::SERVERLESS_TASK_MIN_STATEMENT_SIZE) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetServerlessMinStatementSize(self.parse_literal_string()?)
+            } else if self.parse_keyword(Keyword::SERVERLESS_TASK_MAX_STATEMENT_SIZE) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetServerlessMaxStatementSize(self.parse_literal_string()?)
             } else if self.parse_keyword(Keyword::OVERLAP_POLICY) {
                 self.expect_token(&Token::Eq)?;
                 AlterTaskAction::SetOverlapPolicy(
@@ -12924,6 +12956,14 @@ impl<'a> Parser<'a> {
                 AlterTaskAction::UnsetWarehouse
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 AlterTaskAction::UnsetManagedWarehouseSize
+            } else if self.parse_keyword(Keyword::USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS) {
+                AlterTaskAction::UnsetMinimumTriggerInterval
+            } else if self.parse_keyword(Keyword::TARGET_COMPLETION_INTERVAL) {
+                AlterTaskAction::UnsetTargetCompletionInterval
+            } else if self.parse_keyword(Keyword::SERVERLESS_TASK_MIN_STATEMENT_SIZE) {
+                AlterTaskAction::UnsetServerlessMinStatementSize
+            } else if self.parse_keyword(Keyword::SERVERLESS_TASK_MAX_STATEMENT_SIZE) {
+                AlterTaskAction::UnsetServerlessMaxStatementSize
             } else if self.parse_keyword(Keyword::OVERLAP_POLICY) {
                 AlterTaskAction::UnsetOverlapPolicy
             } else {

@@ -5247,6 +5247,14 @@ pub enum Statement {
         user_task_timeout_ms: Option<u64>,
         /// Optional initial size for a serverless task's managed warehouse.
         user_task_managed_initial_warehouse_size: Option<String>,
+        /// Optional minimum interval between triggered task executions.
+        user_task_minimum_trigger_interval_in_seconds: Option<u64>,
+        /// Optional target completion interval for serverless tasks.
+        target_completion_interval: Option<String>,
+        /// Optional minimum serverless statement size.
+        serverless_task_min_statement_size: Option<String>,
+        /// Optional maximum serverless statement size.
+        serverless_task_max_statement_size: Option<String>,
         /// Optional task failure notification integration.
         error_integration: Option<Ident>,
         /// Whether task runs may overlap.
@@ -8776,6 +8784,10 @@ impl fmt::Display for Statement {
                 suspend_task_after_num_failures,
                 user_task_timeout_ms,
                 user_task_managed_initial_warehouse_size,
+                user_task_minimum_trigger_interval_in_seconds,
+                target_completion_interval,
+                serverless_task_min_statement_size,
+                serverless_task_max_statement_size,
                 error_integration,
                 allow_overlapping_execution,
                 task_auto_retry_attempts,
@@ -8817,6 +8829,18 @@ impl fmt::Display for Statement {
                 }
                 if let Some(size) = user_task_managed_initial_warehouse_size {
                     write!(f, " USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'")?;
+                }
+                if let Some(n) = user_task_minimum_trigger_interval_in_seconds {
+                    write!(f, " USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS = {n}")?;
+                }
+                if let Some(value) = target_completion_interval {
+                    write!(f, " TARGET_COMPLETION_INTERVAL = '{value}'")?;
+                }
+                if let Some(value) = serverless_task_min_statement_size {
+                    write!(f, " SERVERLESS_TASK_MIN_STATEMENT_SIZE = '{value}'")?;
+                }
+                if let Some(value) = serverless_task_max_statement_size {
+                    write!(f, " SERVERLESS_TASK_MAX_STATEMENT_SIZE = '{value}'")?;
                 }
                 if let Some(integration) = error_integration {
                     write!(f, " ERROR_INTEGRATION = {integration}")?;
@@ -15733,6 +15757,22 @@ pub enum AlterTaskAction {
     SetManagedWarehouseSize(String),
     /// `UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE`
     UnsetManagedWarehouseSize,
+    /// `SET USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS = <value>`
+    SetMinimumTriggerInterval(String),
+    /// `UNSET USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS`
+    UnsetMinimumTriggerInterval,
+    /// `SET TARGET_COMPLETION_INTERVAL = '<interval>'`
+    SetTargetCompletionInterval(String),
+    /// `UNSET TARGET_COMPLETION_INTERVAL`
+    UnsetTargetCompletionInterval,
+    /// `SET SERVERLESS_TASK_MIN_STATEMENT_SIZE = '<size>'`
+    SetServerlessMinStatementSize(String),
+    /// `UNSET SERVERLESS_TASK_MIN_STATEMENT_SIZE`
+    UnsetServerlessMinStatementSize,
+    /// `SET SERVERLESS_TASK_MAX_STATEMENT_SIZE = '<size>'`
+    SetServerlessMaxStatementSize(String),
+    /// `UNSET SERVERLESS_TASK_MAX_STATEMENT_SIZE`
+    UnsetServerlessMaxStatementSize,
     /// `SET OVERLAP_POLICY = <policy>`
     SetOverlapPolicy(String),
     /// `UNSET OVERLAP_POLICY`
@@ -15764,6 +15804,31 @@ impl fmt::Display for AlterTaskAction {
             ),
             AlterTaskAction::UnsetManagedWarehouseSize => {
                 write!(f, "UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE")
+            }
+            AlterTaskAction::SetMinimumTriggerInterval(value) => write!(
+                f,
+                "SET USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS = {value}"
+            ),
+            AlterTaskAction::UnsetMinimumTriggerInterval => {
+                write!(f, "UNSET USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS")
+            }
+            AlterTaskAction::SetTargetCompletionInterval(value) => {
+                write!(f, "SET TARGET_COMPLETION_INTERVAL = '{value}'")
+            }
+            AlterTaskAction::UnsetTargetCompletionInterval => {
+                write!(f, "UNSET TARGET_COMPLETION_INTERVAL")
+            }
+            AlterTaskAction::SetServerlessMinStatementSize(value) => {
+                write!(f, "SET SERVERLESS_TASK_MIN_STATEMENT_SIZE = '{value}'")
+            }
+            AlterTaskAction::UnsetServerlessMinStatementSize => {
+                write!(f, "UNSET SERVERLESS_TASK_MIN_STATEMENT_SIZE")
+            }
+            AlterTaskAction::SetServerlessMaxStatementSize(value) => {
+                write!(f, "SET SERVERLESS_TASK_MAX_STATEMENT_SIZE = '{value}'")
+            }
+            AlterTaskAction::UnsetServerlessMaxStatementSize => {
+                write!(f, "UNSET SERVERLESS_TASK_MAX_STATEMENT_SIZE")
             }
             AlterTaskAction::SetOverlapPolicy(policy) => {
                 write!(f, "SET OVERLAP_POLICY = {policy}")
