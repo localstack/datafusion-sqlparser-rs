@@ -5079,10 +5079,16 @@ pub enum Statement {
         or_alter: bool,
         /// `OR REPLACE` flag (Snowflake / PostgreSQL).
         or_replace: bool,
+        /// `TEMP` / `TEMPORARY` flag (Snowflake).
+        temporary: bool,
+        /// `SECURE` flag (Snowflake).
+        secure: bool,
         /// Procedure name.
         name: ObjectName,
         /// Optional procedure parameters.
         params: Option<Vec<ProcedureParam>>,
+        /// `COPY GRANTS` replacement flag (Snowflake).
+        copy_grants: bool,
         /// Optional return type (e.g. `RETURNS VARCHAR`).
         ///
         /// Present in Snowflake (`CREATE PROCEDURE … RETURNS <type> LANGUAGE SQL`).
@@ -7743,7 +7749,10 @@ impl fmt::Display for Statement {
                 name,
                 or_alter,
                 or_replace,
+                temporary,
+                secure,
                 params,
+                copy_grants,
                 returns,
                 language,
                 execute_as,
@@ -7756,12 +7765,18 @@ impl fmt::Display for Statement {
                 } else {
                     ""
                 };
-                write!(f, "CREATE {modifier}PROCEDURE {name}")?;
+                let temporary = if *temporary { "TEMPORARY " } else { "" };
+                let secure = if *secure { "SECURE " } else { "" };
+                write!(f, "CREATE {modifier}{temporary}{secure}PROCEDURE {name}")?;
 
                 if let Some(p) = params {
                     if !p.is_empty() {
                         write!(f, " ({})", display_comma_separated(p))?;
                     }
+                }
+
+                if *copy_grants {
+                    write!(f, " COPY GRANTS")?;
                 }
 
                 if let Some(ret) = returns {
@@ -11696,6 +11711,11 @@ pub enum GrantObjects {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
+    /// Grant privileges on `FUTURE PROCEDURES IN SCHEMA <schema_name> [, ...]`
+    FutureProceduresInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
     /// Grant privileges on specific databases
     Databases(Vec<ObjectName>),
     /// Grant privileges on specific schemas
@@ -11959,6 +11979,13 @@ impl fmt::Display for GrantObjects {
                 write!(
                     f,
                     "FUTURE FUNCTIONS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::FutureProceduresInSchema { schemas } => {
+                write!(
+                    f,
+                    "FUTURE PROCEDURES IN SCHEMA {}",
                     display_comma_separated(schemas)
                 )
             }
