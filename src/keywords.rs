@@ -278,6 +278,7 @@ define_keywords!(
     CONCURRENTLY,
     CONDITION,
     CONFIGURATION,
+    CONFIG,
     CONFLICT,
     CONNECT,
     CONNECTION,

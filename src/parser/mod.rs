@@ -6221,6 +6221,7 @@ impl<'a> Parser<'a> {
         let name = self.parse_object_name(false)?;
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
+        let mut config: Option<String> = None;
         let mut after: Vec<ObjectName> = Vec::new();
         let mut when_condition: Option<Expr> = None;
         let mut suspend_task_after_num_failures: Option<u64> = None;
@@ -6240,6 +6241,7 @@ impl<'a> Parser<'a> {
                     name,
                     warehouse,
                     schedule,
+                    config,
                     after,
                     when_condition,
                     suspend_task_after_num_failures,
@@ -6258,6 +6260,9 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
                 schedule = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::CONFIG) {
+                self.expect_token(&Token::Eq)?;
+                config = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::AFTER) {
                 after = self.parse_comma_separated(|p| p.parse_object_name(false))?;
             } else if self.parse_keyword(Keyword::WHEN) {
@@ -6285,7 +6290,7 @@ impl<'a> Parser<'a> {
                 comment = Some(self.parse_literal_string()?);
             } else {
                 return self.expected(
-                    "WAREHOUSE, SCHEDULE, AFTER, WHEN, SUSPEND_TASK_AFTER_NUM_FAILURES, COMMENT, or AS in CREATE TASK",
+                    "WAREHOUSE, SCHEDULE, CONFIG, AFTER, WHEN, SUSPEND_TASK_AFTER_NUM_FAILURES, COMMENT, or AS in CREATE TASK",
                     self.peek_token(),
                 );
             }
