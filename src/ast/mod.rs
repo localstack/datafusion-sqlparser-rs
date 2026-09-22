@@ -5391,6 +5391,8 @@ pub enum Statement {
         warehouse: Option<Ident>,
         /// Optional `SCHEDULE = '<string>'` clause (raw inner string).
         schedule: Option<String>,
+        /// Optional `CONFIG = '<json object>'` clause.
+        config: Option<String>,
         /// Optional `AFTER <task>[, <task>, ...]` clause.
         after: Vec<ObjectName>,
         /// Optional `WHEN <expr>` clause.
@@ -8943,6 +8945,7 @@ impl fmt::Display for Statement {
                 name,
                 warehouse,
                 schedule,
+                config,
                 after,
                 when_condition,
                 suspend_task_after_num_failures,
@@ -8965,6 +8968,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(s) = schedule {
                     write!(f, " SCHEDULE = '{s}'")?;
+                }
+                if let Some(c) = config {
+                    write!(f, " CONFIG = '{c}'")?;
                 }
                 if !after.is_empty() {
                     write!(f, " AFTER ")?;
