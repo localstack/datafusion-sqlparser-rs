@@ -138,6 +138,7 @@ fn parse_create_procedure() {
             secure: false,
             copy_grants: false,
             returns: None,
+            return_not_null: false,
             body: ConditionalStatements::BeginEnd(BeginEndStatements {
                 begin_token: AttachedToken::empty(),
                 statements: vec![Statement::Query(Box::new(Query {
@@ -212,6 +213,8 @@ fn parse_create_procedure() {
                 span: Span::empty(),
             }]),
             language: None,
+            called_on_null: None,
+            behavior: None,
             execute_as: None,
         }
     )
