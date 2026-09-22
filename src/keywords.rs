@@ -829,6 +829,7 @@ define_keywords!(
     OVER,
     OVERFLOW,
     OVERLAPS,
+    OVERLAP_POLICY,
     OVERLAY,
     OVERRIDE,
     OVERWRITE,
