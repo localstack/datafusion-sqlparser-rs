@@ -12904,9 +12904,18 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 self.expect_token(&Token::Eq)?;
                 AlterTaskAction::SetManagedWarehouseSize(self.parse_literal_string()?)
+            } else if self.parse_keyword(Keyword::OVERLAP_POLICY) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetOverlapPolicy(
+                    if matches!(self.peek_token().token, Token::SingleQuotedString(_)) {
+                        self.parse_literal_string()?
+                    } else {
+                        self.parse_identifier()?.value
+                    },
+                )
             } else {
                 return self.expected(
-                    "WAREHOUSE or USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE after ALTER TASK SET",
+                    "WAREHOUSE, USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE, or OVERLAP_POLICY after ALTER TASK SET",
                     self.peek_token(),
                 );
             }
@@ -12915,9 +12924,11 @@ impl<'a> Parser<'a> {
                 AlterTaskAction::UnsetWarehouse
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 AlterTaskAction::UnsetManagedWarehouseSize
+            } else if self.parse_keyword(Keyword::OVERLAP_POLICY) {
+                AlterTaskAction::UnsetOverlapPolicy
             } else {
                 return self.expected(
-                    "WAREHOUSE or USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE after ALTER TASK UNSET",
+                    "WAREHOUSE, USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE, or OVERLAP_POLICY after ALTER TASK UNSET",
                     self.peek_token(),
                 );
             }
