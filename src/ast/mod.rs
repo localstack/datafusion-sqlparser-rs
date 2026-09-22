@@ -6892,6 +6892,9 @@ pub enum Statement {
         sequence_options: Vec<SequenceOptions>,
         /// Optional `OWNED BY` target.
         owned_by: Option<ObjectName>,
+        /// Optional `CLONE <source>` target (Snowflake
+        /// `CREATE SEQUENCE <name> CLONE <source>`).
+        clone: Option<ObjectName>,
     },
     /// A `CREATE DOMAIN` statement.
     CreateDomain(CreateDomain),
@@ -8612,6 +8615,7 @@ impl fmt::Display for Statement {
                 data_type,
                 sequence_options,
                 owned_by,
+                clone,
             } => {
                 let as_type: String = if let Some(dt) = data_type.as_ref() {
                     //Cannot use format!(" AS {}", dt), due to format! is not available in --target thumbv6m-none-eabi
@@ -8635,6 +8639,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(ob) = owned_by.as_ref() {
                     write!(f, " OWNED BY {ob}")?;
+                }
+                if let Some(src) = clone.as_ref() {
+                    write!(f, " CLONE {src}")?;
                 }
                 write!(f, "")
             }
