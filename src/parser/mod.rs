@@ -22824,6 +22824,22 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         //name
         let name = self.parse_object_name(false)?;
+        // [ CLONE <source> ] (Snowflake): a cloned sequence takes no other
+        // options, so short-circuit once the source name is parsed.
+        if self.parse_keyword(Keyword::CLONE) {
+            let clone = Some(self.parse_object_name(false)?);
+            return Ok(Statement::CreateSequence {
+                temporary,
+                or_replace,
+                or_alter,
+                if_not_exists,
+                name,
+                data_type: None,
+                sequence_options: vec![],
+                owned_by: None,
+                clone,
+            });
+        }
         //[ AS data_type ]
         let mut data_type: Option<DataType> = None;
         if self.parse_keywords(&[Keyword::AS]) {
@@ -22849,6 +22865,7 @@ impl<'a> Parser<'a> {
             data_type,
             sequence_options,
             owned_by,
+            clone: None,
         })
     }
 
