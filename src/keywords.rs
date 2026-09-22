@@ -276,6 +276,7 @@ define_keywords!(
     COMPUTE,
     CONCURRENTLY,
     CONDITION,
+    CONFIG,
     CONFLICT,
     CONNECT,
     CONNECTION,
