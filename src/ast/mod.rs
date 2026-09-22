@@ -5094,8 +5094,14 @@ pub enum Statement {
         ///
         /// Present in Snowflake (`CREATE PROCEDURE … RETURNS <type> LANGUAGE SQL`).
         returns: Option<DataType>,
+        /// Whether the scalar return type carries `NOT NULL`.
+        return_not_null: bool,
         /// Optional language identifier.
         language: Option<Ident>,
+        /// Procedure behavior for NULL inputs.
+        called_on_null: Option<FunctionCalledOnNull>,
+        /// Declared volatility.
+        behavior: Option<FunctionBehavior>,
         /// Optional `EXECUTE AS { CALLER | OWNER }` rights clause (Snowflake).
         ///
         /// `None` means the clause was omitted, which Snowflake treats as
@@ -7757,7 +7763,10 @@ impl fmt::Display for Statement {
                 params,
                 copy_grants,
                 returns,
+                return_not_null,
                 language,
+                called_on_null,
+                behavior,
                 execute_as,
                 body,
             } => {
@@ -7784,10 +7793,21 @@ impl fmt::Display for Statement {
 
                 if let Some(ret) = returns {
                     write!(f, " RETURNS {ret}")?;
+                    if *return_not_null {
+                        write!(f, " NOT NULL")?;
+                    }
                 }
 
                 if let Some(language) = language {
                     write!(f, " LANGUAGE {language}")?;
+                }
+
+                if let Some(called_on_null) = called_on_null {
+                    write!(f, " {called_on_null}")?;
+                }
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
                 }
 
                 if let Some(execute_as) = execute_as {
@@ -14460,8 +14480,12 @@ impl fmt::Display for OperateFunctionArg {
 pub enum ArgMode {
     /// `IN` mode.
     In,
+    /// Snowflake `INPUT` spelling of `IN`.
+    Input,
     /// `OUT` mode.
     Out,
+    /// Snowflake `OUTPUT` spelling of `OUT`.
+    Output,
     /// `INOUT` mode.
     InOut,
     /// `VARIADIC` mode.
@@ -14472,7 +14496,9 @@ impl fmt::Display for ArgMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ArgMode::In => write!(f, "IN"),
+            ArgMode::Input => write!(f, "INPUT"),
             ArgMode::Out => write!(f, "OUT"),
+            ArgMode::Output => write!(f, "OUTPUT"),
             ArgMode::InOut => write!(f, "INOUT"),
             ArgMode::Variadic => write!(f, "VARIADIC"),
         }
