@@ -5717,8 +5717,10 @@ impl<'a> Parser<'a> {
             self.parse_create_task(or_replace)
         } else if self.parse_keyword(Keyword::ALERT) {
             self.parse_create_alert(or_replace)
+        } else if self.parse_keywords(&[Keyword::SECURE, Keyword::PROCEDURE]) {
+            self.parse_create_procedure(or_alter, or_replace, temporary, true)
         } else if self.parse_keyword(Keyword::PROCEDURE) {
-            self.parse_create_procedure(or_alter, or_replace)
+            self.parse_create_procedure(or_alter, or_replace, temporary, false)
         } else if self.parse_keyword(Keyword::SCHEMA) {
             self.parse_create_schema(or_replace, transient)
         } else if self.parse_keyword(Keyword::ROLE) {
@@ -20218,6 +20220,15 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::FutureFunctionsInSchema {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
+            } else if self.parse_keywords(&[
+                Keyword::FUTURE,
+                Keyword::PROCEDURES,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::FutureProceduresInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
             } else if let Some(objs) = self.parse_grant_extensible_objects()? {
                 Some(objs)
             } else if self.parse_two_word_object("SNOWFLAKE", "INTELLIGENCE") {
@@ -22962,9 +22973,12 @@ impl<'a> Parser<'a> {
         &mut self,
         or_alter: bool,
         or_replace: bool,
+        temporary: bool,
+        secure: bool,
     ) -> Result<Statement, ParserError> {
         let name = self.parse_object_name(false)?;
         let params = self.parse_optional_procedure_parameters()?;
+        let copy_grants = self.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]);
 
         // Snowflake: RETURNS <type> appears before LANGUAGE SQL
         let returns = if self.parse_keyword(Keyword::RETURNS) {
@@ -23011,7 +23025,10 @@ impl<'a> Parser<'a> {
             name,
             or_alter,
             or_replace,
+            temporary,
+            secure,
             params,
+            copy_grants,
             returns,
             language,
             execute_as,

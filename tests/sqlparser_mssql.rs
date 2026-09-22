@@ -129,6 +129,9 @@ fn parse_create_procedure() {
         Statement::CreateProcedure {
             or_alter: true,
             or_replace: false,
+            temporary: false,
+            secure: false,
+            copy_grants: false,
             returns: None,
             body: ConditionalStatements::BeginEnd(BeginEndStatements {
                 begin_token: AttachedToken::empty(),
