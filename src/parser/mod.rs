@@ -6046,6 +6046,8 @@ impl<'a> Parser<'a> {
         let mut serverless_task_min_statement_size: Option<String> = None;
         let mut serverless_task_max_statement_size: Option<String> = None;
         let mut error_integration: Option<Ident> = None;
+        let mut success_integration: Option<Ident> = None;
+        let mut log_level: Option<String> = None;
         let mut allow_overlapping_execution: Option<bool> = None;
         let mut task_auto_retry_attempts: Option<u64> = None;
         let mut comment: Option<String> = None;
@@ -6070,6 +6072,8 @@ impl<'a> Parser<'a> {
                     serverless_task_min_statement_size,
                     serverless_task_max_statement_size,
                     error_integration,
+                    success_integration,
+                    log_level,
                     allow_overlapping_execution,
                     task_auto_retry_attempts,
                     comment,
@@ -6113,6 +6117,12 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::ERROR_INTEGRATION) {
                 self.expect_token(&Token::Eq)?;
                 error_integration = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::SUCCESS_INTEGRATION) {
+                self.expect_token(&Token::Eq)?;
+                success_integration = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::LOG_LEVEL) {
+                self.expect_token(&Token::Eq)?;
+                log_level = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::ALLOW_OVERLAPPING_EXECUTION) {
                 self.expect_token(&Token::Eq)?;
                 allow_overlapping_execution = Some(self.parse_boolean_string()?);
