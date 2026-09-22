@@ -5279,6 +5279,8 @@ pub enum Statement {
         task_auto_retry_attempts: Option<u64>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
+        /// Session parameters applied while the task body executes.
+        session_parameters: KeyValueOptions,
         /// Body executed by the task.
         sql_body: Box<Statement>,
     },
@@ -8840,6 +8842,7 @@ impl fmt::Display for Statement {
                 allow_overlapping_execution,
                 task_auto_retry_attempts,
                 comment,
+                session_parameters,
                 sql_body,
             } => {
                 write!(
@@ -8907,6 +8910,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(c) = comment {
                     write!(f, " COMMENT = '{c}'")?;
+                }
+                if !session_parameters.options.is_empty() {
+                    write!(f, " {session_parameters}")?;
                 }
                 write!(f, " AS {sql_body}")
             }
@@ -15849,6 +15855,10 @@ pub enum AlterTaskAction {
     SetOverlapPolicy(String),
     /// `UNSET OVERLAP_POLICY`
     UnsetOverlapPolicy,
+    /// `SET <session_parameter> = <value> [, ...]`
+    SetSessionParameters(KeyValueOptions),
+    /// `UNSET <session_parameter> [, ...]`
+    UnsetSessionParameters(Vec<Ident>),
 }
 
 impl fmt::Display for AlterTaskAction {
@@ -15906,6 +15916,11 @@ impl fmt::Display for AlterTaskAction {
                 write!(f, "SET OVERLAP_POLICY = {policy}")
             }
             AlterTaskAction::UnsetOverlapPolicy => write!(f, "UNSET OVERLAP_POLICY"),
+            AlterTaskAction::SetSessionParameters(options) => write!(f, "SET {options}"),
+            AlterTaskAction::UnsetSessionParameters(params) => {
+                write!(f, "UNSET ")?;
+                display_comma_separated(params).fmt(f)
+            }
         }
     }
 }

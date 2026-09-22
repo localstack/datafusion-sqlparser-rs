@@ -6051,6 +6051,10 @@ impl<'a> Parser<'a> {
         let mut allow_overlapping_execution: Option<bool> = None;
         let mut task_auto_retry_attempts: Option<u64> = None;
         let mut comment: Option<String> = None;
+        let mut session_parameters = KeyValueOptions {
+            delimiter: KeyValueOptionsDelimiter::Space,
+            options: Vec::new(),
+        };
 
         loop {
             if self.parse_keyword(Keyword::AS) {
@@ -6077,6 +6081,7 @@ impl<'a> Parser<'a> {
                     allow_overlapping_execution,
                     task_auto_retry_attempts,
                     comment,
+                    session_parameters,
                     sql_body,
                 });
             }
@@ -6133,10 +6138,16 @@ impl<'a> Parser<'a> {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
             } else {
-                return self.expected(
-                    "WAREHOUSE, SCHEDULE, CONFIG, AFTER, WHEN, SUSPEND_TASK_AFTER_NUM_FAILURES, COMMENT, or AS in CREATE TASK",
-                    self.peek_token(),
-                );
+                let token = self.next_token();
+                let Token::Word(word) = token.token else {
+                    return self.expected("task property or AS", token);
+                };
+                session_parameters
+                    .options
+                    .push(self.parse_key_value_option(&word, false)?);
+                if self.consume_token(&Token::Comma) {
+                    session_parameters.delimiter = KeyValueOptionsDelimiter::Comma;
+                }
             }
         }
     }
@@ -12973,10 +12984,17 @@ impl<'a> Parser<'a> {
                     },
                 )
             } else {
-                return self.expected(
-                    "WAREHOUSE, USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE, or OVERLAP_POLICY after ALTER TASK SET",
-                    self.peek_token(),
-                );
+                let options = self.parse_comma_separated(|parser| {
+                    let word = parser.next_token();
+                    let Token::Word(word) = word.token else {
+                        return parser.expected("session parameter name", word);
+                    };
+                    parser.parse_key_value_option(&word, false)
+                })?;
+                AlterTaskAction::SetSessionParameters(KeyValueOptions {
+                    delimiter: KeyValueOptionsDelimiter::Comma,
+                    options,
+                })
             }
         } else if self.parse_keyword(Keyword::UNSET) {
             if self.parse_keyword(Keyword::WAREHOUSE) {
@@ -12994,10 +13012,9 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::OVERLAP_POLICY) {
                 AlterTaskAction::UnsetOverlapPolicy
             } else {
-                return self.expected(
-                    "WAREHOUSE, USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE, or OVERLAP_POLICY after ALTER TASK UNSET",
-                    self.peek_token(),
-                );
+                AlterTaskAction::UnsetSessionParameters(
+                    self.parse_comma_separated(|parser| parser.parse_identifier())?,
+                )
             }
         } else {
             return self.expected(
