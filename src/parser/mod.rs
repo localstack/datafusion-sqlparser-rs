@@ -24229,6 +24229,20 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         //name
         let name = self.parse_object_name(false)?;
+        // [ CLONE <source> ] (Snowflake): a cloned sequence takes no other
+        // options, so short-circuit once the source name is parsed.
+        if self.parse_keyword(Keyword::CLONE) {
+            let clone = Some(self.parse_object_name(false)?);
+            return Ok(Statement::CreateSequence {
+                temporary,
+                or_replace,
+                or_alter,
+                if_not_exists,
+                name,
+                sequence_options: vec![],
+                clone,
+            });
+        }
         let sequence_options = self.parse_sequence_options(true)?;
         Ok(Statement::CreateSequence {
             temporary,
@@ -24237,6 +24251,7 @@ impl<'a> Parser<'a> {
             if_not_exists,
             name,
             sequence_options,
+            clone: None,
         })
     }
 

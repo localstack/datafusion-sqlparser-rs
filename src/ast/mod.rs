@@ -6929,6 +6929,9 @@ pub enum Statement {
         name: ObjectName,
         /// Sequence options, in the order they were written.
         sequence_options: Vec<SequenceOptions>,
+        /// Optional `CLONE <source>` target (Snowflake
+        /// `CREATE SEQUENCE <name> CLONE <source>`).
+        clone: Option<ObjectName>,
     },
     /// A `CREATE DOMAIN` statement.
     CreateDomain(CreateDomain),
@@ -8653,6 +8656,7 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 sequence_options,
+                clone,
             } => {
                 write!(
                     f,
@@ -8665,6 +8669,9 @@ impl fmt::Display for Statement {
                 )?;
                 for sequence_option in sequence_options {
                     write!(f, "{sequence_option}")?;
+                }
+                if let Some(src) = clone.as_ref() {
+                    write!(f, " CLONE {src}")?;
                 }
                 Ok(())
             }
