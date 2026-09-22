@@ -5407,6 +5407,10 @@ pub enum Statement {
         serverless_task_max_statement_size: Option<String>,
         /// Optional task failure notification integration.
         error_integration: Option<Ident>,
+        /// Optional task success notification integration.
+        success_integration: Option<Ident>,
+        /// Optional task event logging level.
+        log_level: Option<String>,
         /// Whether task runs may overlap.
         allow_overlapping_execution: Option<bool>,
         /// Optional number of automatic retry attempts.
@@ -8969,6 +8973,8 @@ impl fmt::Display for Statement {
                 serverless_task_min_statement_size,
                 serverless_task_max_statement_size,
                 error_integration,
+                success_integration,
+                log_level,
                 allow_overlapping_execution,
                 task_auto_retry_attempts,
                 comment,
@@ -9024,6 +9030,12 @@ impl fmt::Display for Statement {
                 }
                 if let Some(integration) = error_integration {
                     write!(f, " ERROR_INTEGRATION = {integration}")?;
+                }
+                if let Some(integration) = success_integration {
+                    write!(f, " SUCCESS_INTEGRATION = {integration}")?;
+                }
+                if let Some(level) = log_level {
+                    write!(f, " LOG_LEVEL = '{level}'")?;
                 }
                 if let Some(allow) = allow_overlapping_execution {
                     write!(f, " ALLOW_OVERLAPPING_EXECUTION = {allow}")?;
