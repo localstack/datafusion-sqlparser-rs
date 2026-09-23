@@ -17202,6 +17202,8 @@ pub enum RefreshModeKind {
     Full,
     /// Incremental refresh mode (`INCREMENTAL`).
     Incremental,
+    /// Custom incremental refresh mode (`CUSTOM_INCREMENTAL`).
+    CustomIncremental,
     /// An unsupported value retained for Snowflake-compatible validation.
     Invalid(String),
 }
@@ -17213,8 +17215,47 @@ impl fmt::Display for RefreshModeKind {
             RefreshModeKind::Auto => write!(f, "AUTO"),
             RefreshModeKind::Full => write!(f, "FULL"),
             RefreshModeKind::Incremental => write!(f, "INCREMENTAL"),
+            RefreshModeKind::CustomIncremental => write!(f, "CUSTOM_INCREMENTAL"),
             RefreshModeKind::Invalid(value) => write!(f, "{value}"),
         }
+    }
+}
+
+/// Seed anchor for a custom-incremental dynamic table.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum DynamicTableStartAt {
+    /// A stream seed.
+    Stream(Expr),
+    /// A timestamp seed.
+    Timestamp(Expr),
+    /// A statement seed.
+    Statement(Expr),
+    /// A relative offset seed.
+    Offset(Expr),
+}
+
+/// Parser data carried by custom-incremental dynamic table clauses.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct DynamicTableCustomRefresh {
+    /// The `REFRESH USING` DML body.
+    pub using: Option<Box<Query>>,
+    /// The `START AT` seed anchor.
+    pub start_at: Option<Box<DynamicTableStartAt>>,
+}
+
+impl fmt::Display for DynamicTableStartAt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (kind, expr) = match self {
+            Self::Stream(expr) => ("STREAM", expr),
+            Self::Timestamp(expr) => ("TIMESTAMP", expr),
+            Self::Statement(expr) => ("STATEMENT", expr),
+            Self::Offset(expr) => ("OFFSET", expr),
+        };
+        write!(f, "START AT ({kind} => {expr})")
     }
 }
 

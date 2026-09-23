@@ -27,7 +27,7 @@ use sqlparser_derive::{Visit, VisitMut};
 use crate::ast::helpers::key_value_options::KeyValueOptions;
 use crate::ast::{
     ClusteredBy, ColumnDef, CommentDef, CreateTable, CreateTableLikeKind, CreateTableOptions,
-    DistStyle, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat, Ident,
+    DistStyle, DynamicTableCustomRefresh, DynamicTableStartAt, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat, Ident,
     InitializeKind, ObjectName, OnCommit, OneOrManyWithParens, Query, RefreshModeKind,
     RowAccessPolicy, Statement, StorageLifecyclePolicy, StorageSerializationPolicy,
     TableConstraint, TableVersion, Tag, WrappedCollection,
@@ -202,6 +202,10 @@ pub struct CreateTableBuilder {
     pub backfill_from: Option<ObjectName>,
     /// Optional refresh mode for materialized tables.
     pub refresh_mode: Option<RefreshModeKind>,
+    /// Optional custom refresh DML body.
+    pub refresh_using: Option<Box<Query>>,
+    /// Optional custom refresh seed anchor.
+    pub start_at: Option<Box<DynamicTableStartAt>>,
     /// Optional initialization kind for the table.
     pub initialize: Option<InitializeKind>,
     /// Whether operations require a user identity.
@@ -298,6 +302,8 @@ impl CreateTableBuilder {
             immutable_where: None,
             backfill_from: None,
             refresh_mode: None,
+            refresh_using: None,
+            start_at: None,
             initialize: None,
             require_user: false,
             diststyle: None,
@@ -647,6 +653,16 @@ impl CreateTableBuilder {
         self.refresh_mode = refresh_mode;
         self
     }
+    /// Set the custom refresh DML body.
+    pub fn refresh_using(mut self, refresh_using: Option<Box<Query>>) -> Self {
+        self.refresh_using = refresh_using;
+        self
+    }
+    /// Set the custom refresh seed anchor.
+    pub fn start_at(mut self, start_at: Option<Box<DynamicTableStartAt>>) -> Self {
+        self.start_at = start_at;
+        self
+    }
     /// Set initialization mode for the table.
     pub fn initialize(mut self, initialize: Option<InitializeKind>) -> Self {
         self.initialize = initialize;
@@ -773,6 +789,14 @@ impl CreateTableBuilder {
             immutable_where: self.immutable_where,
             backfill_from: self.backfill_from,
             refresh_mode: self.refresh_mode,
+            custom_refresh: if self.refresh_using.is_some() || self.start_at.is_some() {
+                Some(Box::new(DynamicTableCustomRefresh {
+                    using: self.refresh_using,
+                    start_at: self.start_at,
+                }))
+            } else {
+                None
+            },
             initialize: self.initialize,
             require_user: self.require_user,
             diststyle: self.diststyle,
@@ -874,6 +898,8 @@ impl From<CreateTable> for CreateTableBuilder {
             immutable_where: table.immutable_where,
             backfill_from: table.backfill_from,
             refresh_mode: table.refresh_mode,
+            refresh_using: table.custom_refresh.as_ref().and_then(|value| value.using.clone()),
+            start_at: table.custom_refresh.and_then(|value| value.start_at),
             initialize: table.initialize,
             require_user: table.require_user,
             diststyle: table.diststyle,

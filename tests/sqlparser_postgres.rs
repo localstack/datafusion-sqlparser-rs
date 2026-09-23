@@ -6753,6 +6753,7 @@ fn parse_trigger_related_functions() {
             warehouse: None,
             version: None,
             refresh_mode: None,
+            custom_refresh: None,
             initialize: None,
             require_user: false,
             diststyle: None,

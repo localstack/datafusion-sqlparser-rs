@@ -798,6 +798,7 @@ fn test_duckdb_union_datatype() {
             warehouse: None,
             version: None,
             refresh_mode: None,
+            custom_refresh: None,
             initialize: None,
             require_user: Default::default(),
             diststyle: Default::default(),

@@ -47,9 +47,9 @@ use crate::ast::{
     IdentityPropertyOrder, InitializeKind, Insert,
     MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
     MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
-    OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
+    DynamicTableStartAt, OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
     ShowKeysKind, ShowObjects, ShowPolicyEntity, ShowSemanticElementKind,
-    ShowStatementFilterPosition, ShowStatementOptions, SqlOption, Statement,
+    Query, SetExpr, ShowStatementFilterPosition, ShowStatementOptions, SqlOption, Statement,
     StorageLifecyclePolicy,
     StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
     WrappedCollection,
@@ -2982,9 +2982,16 @@ pub fn parse_create_table(
                         "AUTO" => Some(RefreshModeKind::Auto),
                         "FULL" => Some(RefreshModeKind::Full),
                         "INCREMENTAL" => Some(RefreshModeKind::Incremental),
+                        "CUSTOM_INCREMENTAL" => Some(RefreshModeKind::CustomIncremental),
                         _ => Some(RefreshModeKind::Invalid(value.to_string())),
                     };
                     builder = builder.refresh_mode(refresh_mode);
+                }
+                Keyword::REFRESH => {
+                    builder = builder.refresh_using(Some(parse_refresh_using(parser)?));
+                }
+                Keyword::START => {
+                    builder = builder.start_at(Some(parse_dynamic_table_start_at(parser)?));
                 }
                 Keyword::INITIALIZE => {
                     parser.expect_token(&Token::Eq)?;
@@ -3054,6 +3061,40 @@ pub fn parse_create_table(
     }
 
     Ok(builder.build())
+}
+
+fn parse_refresh_using(parser: &mut Parser) -> Result<Box<Query>, ParserError> {
+    parser.expect_keyword_is(Keyword::USING)?;
+    parser.expect_token(&Token::LParen)?;
+    let query = parser.parse_query()?;
+    if !matches!(query.body.as_ref(), SetExpr::Insert(_) | SetExpr::Merge(_)) {
+        return parser.expected("an INSERT or MERGE statement", parser.peek_token());
+    }
+    parser.expect_token(&Token::RParen)?;
+    Ok(query)
+}
+
+fn parse_dynamic_table_start_at(
+    parser: &mut Parser,
+) -> Result<Box<DynamicTableStartAt>, ParserError> {
+    parser.expect_keyword_is(Keyword::AT)?;
+    parser.expect_token(&Token::LParen)?;
+    let key_token = parser.next_token();
+    let key = match &key_token.token {
+        Token::Word(word) => word.value.to_ascii_uppercase(),
+        _ => return parser.expected("STREAM, TIMESTAMP, STATEMENT or OFFSET", key_token),
+    };
+    parser.expect_token(&Token::RArrow)?;
+    let expr = parser.parse_expr()?;
+    parser.expect_token(&Token::RParen)?;
+    let start_at = match key.as_str() {
+        "STREAM" => DynamicTableStartAt::Stream(expr),
+        "TIMESTAMP" => DynamicTableStartAt::Timestamp(expr),
+        "STATEMENT" => DynamicTableStartAt::Statement(expr),
+        "OFFSET" => DynamicTableStartAt::Offset(expr),
+        _ => return parser.expected("STREAM, TIMESTAMP, STATEMENT or OFFSET", key_token),
+    };
+    Ok(Box::new(start_at))
 }
 
 /// Parse snowflake create database statement.

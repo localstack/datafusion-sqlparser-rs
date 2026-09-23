@@ -1603,6 +1603,91 @@ fn parse_create_dynamic_table() {
         " REQUIRE USER",
         " AS SELECT product_id, product_name FROM staging_table"
     ));
+    let merge_sql = concat!(
+        "CREATE DYNAMIC TABLE dt REFRESH_MODE=CUSTOM_INCREMENTAL ",
+        "REFRESH USING (MERGE INTO SELF t USING ",
+        "(SELECT * FROM src CHANGES(INFORMATION => APPEND_ONLY)) s ",
+        "ON t.id = s.id WHEN MATCHED THEN UPDATE SET value = s.value) ",
+        "START AT (STREAM => 'seed_stream')"
+    );
+    match snowflake().verified_stmt(merge_sql) {
+        Statement::CreateTable(table) => {
+            assert_eq!(Some(RefreshModeKind::CustomIncremental), table.refresh_mode);
+            let custom_refresh = table.custom_refresh.as_deref().unwrap();
+            assert!(matches!(
+                custom_refresh.using.as_deref().map(|query| query.body.as_ref()),
+                Some(SetExpr::Merge(_))
+            ));
+            assert!(matches!(
+                custom_refresh.start_at.as_deref(),
+                Some(DynamicTableStartAt::Stream(Expr::Value(_)))
+            ));
+            assert!(table.query.is_none());
+        }
+        _ => unreachable!(),
+    }
+
+    snowflake().one_statement_parses_to(
+        "CREATE DYNAMIC TABLE dt REFRESH_MODE=custom_incremental AS SELECT 1",
+        "CREATE DYNAMIC TABLE dt REFRESH_MODE=CUSTOM_INCREMENTAL AS SELECT 1",
+    );
+
+    let insert_sql = concat!(
+        "CREATE DYNAMIC TABLE dt REFRESH_MODE=CUSTOM_INCREMENTAL ",
+        "REFRESH USING (INSERT INTO SELF (id, value) SELECT id, value FROM src) ",
+        "START AT (TIMESTAMP => CURRENT_TIMESTAMP())"
+    );
+    match snowflake().verified_stmt(insert_sql) {
+        Statement::CreateTable(table) => {
+            let custom_refresh = table.custom_refresh.as_deref().unwrap();
+            assert!(matches!(
+                custom_refresh.using.as_deref().map(|query| query.body.as_ref()),
+                Some(SetExpr::Insert(_))
+            ));
+            assert!(matches!(
+                custom_refresh.start_at.as_deref(),
+                Some(DynamicTableStartAt::Timestamp(Expr::Function(_)))
+            ));
+        }
+        _ => unreachable!(),
+    }
+
+    for (sql, expected) in [
+        ("START AT (STATEMENT => 'query-id')", "STATEMENT"),
+        ("START AT (OFFSET => -60)", "OFFSET"),
+    ] {
+        let statement = snowflake().verified_stmt(&format!(
+            "CREATE DYNAMIC TABLE dt REFRESH_MODE=CUSTOM_INCREMENTAL REFRESH USING (INSERT INTO SELF SELECT 1) {sql}"
+        ));
+        let Statement::CreateTable(table) = statement else {
+            unreachable!()
+        };
+        assert_eq!(
+            expected,
+            match table.custom_refresh.as_deref().and_then(|value| value.start_at.as_deref()) {
+                Some(DynamicTableStartAt::Statement(_)) => "STATEMENT",
+                Some(DynamicTableStartAt::Offset(_)) => "OFFSET",
+                _ => unreachable!(),
+            }
+        );
+    }
+    for body in [
+        "SELECT 1",
+        "UPDATE SELF SET value = 1",
+        "DELETE FROM SELF",
+        "INSERT INTO SELF SELECT 1; INSERT INTO SELF SELECT 2",
+    ] {
+        let sql = format!("CREATE DYNAMIC TABLE dt REFRESH USING ({body})");
+        snowflake().parse_sql_statements(&sql).unwrap_err();
+    }
+
+    for sql in [
+        "CREATE DYNAMIC TABLE dt REFRESH USING INSERT INTO SELF SELECT 1)",
+        "CREATE DYNAMIC TABLE dt REFRESH USING (INSERT INTO SELF SELECT 1",
+        "CREATE DYNAMIC TABLE dt REFRESH USING",
+    ] {
+        snowflake().parse_sql_statements(sql).unwrap_err();
+    }
 }
 
 #[test]

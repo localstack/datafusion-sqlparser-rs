@@ -19,7 +19,7 @@ use crate::{
     ast::{
         ddl::AlterSchema, query::SelectItemQualifiedWildcardKind, AlterSchemaOperation, AlterTable,
         ColumnOptions, CreateFunction, CreateFunctionBody, CreateOperator, CreateOperatorClass,
-        CreateOperatorFamily, CreateView, ExportData, ExternalFunctionHeader,
+        CreateOperatorFamily, CreateView, DynamicTableStartAt, ExportData, ExternalFunctionHeader,
         ExternalFunctionParams, Owner, TypedString,
     },
     tokenizer::TokenWithSpan,
@@ -701,6 +701,17 @@ impl Spanned for Use {
     }
 }
 
+impl Spanned for DynamicTableStartAt {
+    fn span(&self) -> Span {
+        match self {
+            Self::Stream(expr)
+            | Self::Timestamp(expr)
+            | Self::Statement(expr)
+            | Self::Offset(expr) => expr.span(),
+        }
+    }
+}
+
 impl Spanned for CreateTable {
     fn span(&self) -> Span {
         let CreateTable {
@@ -772,6 +783,7 @@ impl Spanned for CreateTable {
             backfill_from: _,
             version: _,
             refresh_mode: _,
+            custom_refresh,
             initialize: _,
             require_user: _,
             diststyle: _,
@@ -791,6 +803,13 @@ impl Spanned for CreateTable {
                 .chain(columns.iter().map(|i| i.span()))
                 .chain(constraints.iter().map(|i| i.span()))
                 .chain(query.iter().map(|i| i.span()))
+                .chain(custom_refresh.iter().flat_map(|value| {
+                    value
+                        .using
+                        .iter()
+                        .map(|query| query.span())
+                        .chain(value.start_at.iter().map(|anchor| anchor.span()))
+                }))
                 .chain(clone.iter().map(|i| i.span()))
                 .chain(partition_of.iter().map(|i| i.span()))
                 .chain(for_values.iter().map(|i| i.span())),
