@@ -18793,8 +18793,13 @@ fn key_value_option_statements_do_not_swallow_following_statement() {
         "ALTER USER user1 SET x = 'y'; SELECT 1",
         "ALTER USER user1 SET TAG t = 'v'; SELECT 1",
     ] {
-        let statements = dialects.parse_sql_statements(sql).unwrap();
-        assert_eq!(statements.len(), 2, "{sql}");
+        // Checked per dialect: Snowflake parses the TAG form into `SetTags`
+        // rather than `AlterUser`, so the cross-dialect AST comparison of
+        // `parse_sql_statements` does not apply; the statement count does.
+        for dialect in &dialects.dialects {
+            let statements = Parser::parse_sql(&**dialect, sql).unwrap();
+            assert_eq!(statements.len(), 2, "{sql}");
+        }
     }
 }
 
@@ -19430,7 +19435,12 @@ fn test_parse_alter_user() {
     dialects.verified_stmt("ALTER USER u1 UNSET PASSWORD POLICY");
     dialects.verified_stmt("ALTER USER u1 UNSET SESSION POLICY");
 
-    let stmt = dialects.verified_stmt("ALTER USER u1 SET TAG k1='v1'");
+    // Snowflake routes `ALTER USER … SET/UNSET TAG` through its shared object-tag
+    // interceptor (producing `Statement::SetTags`, covered in the Snowflake
+    // suite), so exclude it from the generic `AlterUser` tag assertions here.
+    let non_snowflake =
+        || all_dialects_except(|d| d.supports_alter_user_as_alter_role() || d.is::<SnowflakeDialect>());
+    let stmt = non_snowflake().verified_stmt("ALTER USER u1 SET TAG k1='v1'");
     match stmt {
         Statement::AlterUser(alter) => {
             assert_eq!(
@@ -19445,15 +19455,15 @@ fn test_parse_alter_user() {
         }
         _ => unreachable!(),
     }
-    dialects.verified_stmt("ALTER USER u1 SET TAG k1='v1', k2='v2'");
-    let stmt = dialects.verified_stmt("ALTER USER u1 UNSET TAG k1");
+    non_snowflake().verified_stmt("ALTER USER u1 SET TAG k1='v1', k2='v2'");
+    let stmt = non_snowflake().verified_stmt("ALTER USER u1 UNSET TAG k1");
     match stmt {
         Statement::AlterUser(alter) => {
             assert_eq!(alter.unset_tag, vec!["k1".to_string()]);
         }
         _ => unreachable!(),
     }
-    dialects.verified_stmt("ALTER USER u1 UNSET TAG k1, k2, k3");
+    non_snowflake().verified_stmt("ALTER USER u1 UNSET TAG k1, k2, k3");
 
     let bool_dialects = all_dialects_where(|d| {
         d.supports_boolean_literals() && !d.supports_alter_user_as_alter_role()
