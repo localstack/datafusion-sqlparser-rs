@@ -18498,9 +18498,14 @@ impl<'a> Parser<'a> {
                 };
                 let mut relation = self.parse_table_factor()?;
 
-                if !self
-                    .dialect
-                    .supports_left_associative_joins_without_parens()
+                // A NATURAL join carries no deferred constraint, so a following
+                // parens-less join is a sibling, not a right-nested group: real
+                // Snowflake resolves `a NATURAL JOIN b JOIN c …` left-associatively.
+                // Only the deferred-`ON` form (`a JOIN b JOIN c ON … ON …`) nests.
+                if !natural
+                    && !self
+                        .dialect
+                        .supports_left_associative_joins_without_parens()
                     && self.peek_parens_less_nested_join()
                 {
                     let joins = self.parse_joins()?;

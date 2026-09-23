@@ -17437,25 +17437,25 @@ fn column_check_enforced() {
 
 #[test]
 fn join_precedence() {
-    all_dialects_except(|d| !d.supports_left_associative_joins_without_parens())
-        .verified_query_with_canonical(
-        "SELECT *
-         FROM t1
-         NATURAL JOIN t5
-         INNER JOIN t0 ON (t0.v1 + t5.v0) > 0
-         WHERE t0.v1 = t1.v0",
-        // canonical string without parentheses
-        "SELECT * FROM t1 NATURAL JOIN t5 INNER JOIN t0 ON (t0.v1 + t5.v0) > 0 WHERE t0.v1 = t1.v0",
-    );
-    all_dialects_except(|d| d.supports_left_associative_joins_without_parens()).verified_query_with_canonical(
-        "SELECT *
-         FROM t1
-         NATURAL JOIN t5
-         INNER JOIN t0 ON (t0.v1 + t5.v0) > 0
-         WHERE t0.v1 = t1.v0",
-        // canonical string with parentheses
-        "SELECT * FROM t1 NATURAL JOIN (t5 INNER JOIN t0 ON (t0.v1 + t5.v0) > 0) WHERE t0.v1 = t1.v0",
-    );
+    // A NATURAL join carries no deferred constraint, so a following parens-less
+    // join is a sibling in every dialect — the chain is left-associative and its
+    // canonical form needs no parentheses. Right-nesting under
+    // `!supports_left_associative_joins_without_parens()` applies only to the
+    // deferred-`ON` form (`a JOIN b JOIN c ON … ON …`), covered elsewhere.
+    for dialect in [
+        all_dialects_except(|d| !d.supports_left_associative_joins_without_parens()),
+        all_dialects_except(|d| d.supports_left_associative_joins_without_parens()),
+    ] {
+        dialect.verified_query_with_canonical(
+            "SELECT *
+             FROM t1
+             NATURAL JOIN t5
+             INNER JOIN t0 ON (t0.v1 + t5.v0) > 0
+             WHERE t0.v1 = t1.v0",
+            // canonical string without parentheses
+            "SELECT * FROM t1 NATURAL JOIN t5 INNER JOIN t0 ON (t0.v1 + t5.v0) > 0 WHERE t0.v1 = t1.v0",
+        );
+    }
 }
 
 #[test]
