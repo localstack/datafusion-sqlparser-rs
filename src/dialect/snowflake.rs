@@ -2869,6 +2869,10 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder.base_location = Some(parser.parse_literal_string()?);
                 }
+                Keyword::PARTITION => {
+                    parser.expect_keyword_is(Keyword::BY)?;
+                    builder = builder.partition_by(Some(Box::new(parser.parse_expr()?)));
+                }
                 Keyword::METADATA_FILE_PATH => {
                     parser.expect_token(&Token::Eq)?;
                     builder.metadata_file_path = Some(parser.parse_literal_string()?);
@@ -3050,6 +3054,7 @@ pub fn parse_create_table(
         .as_deref()
         .is_some_and(|c| !c.eq_ignore_ascii_case("SNOWFLAKE"));
     if iceberg
+        && !dynamic
         && builder.base_location.is_none()
         && builder.catalog_table_name.is_none()
         && builder.metadata_file_path.is_none()
