@@ -12964,10 +12964,22 @@ impl<'a> Parser<'a> {
                 self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
             )
         } else if self.parse_keyword(Keyword::REMOVE) {
-            self.expect_keyword(Keyword::AFTER)?;
-            AlterTaskAction::RemoveAfter(
-                self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
-            )
+            if self.parse_keyword(Keyword::WHEN) {
+                AlterTaskAction::RemoveWhen
+            } else {
+                self.expect_keyword(Keyword::AFTER)?;
+                AlterTaskAction::RemoveAfter(
+                    self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+                )
+            }
+        } else if self.parse_keyword(Keyword::MODIFY) {
+            if self.parse_keyword(Keyword::AS) {
+                AlterTaskAction::ModifyAs(Box::new(self.parse_statement()?))
+            } else if self.parse_keyword(Keyword::WHEN) {
+                AlterTaskAction::ModifyWhen(self.parse_expr()?)
+            } else {
+                return self.expected("AS or WHEN after ALTER TASK MODIFY", self.peek_token());
+            }
         } else if self.parse_keyword(Keyword::SET) {
             if self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
@@ -13031,7 +13043,7 @@ impl<'a> Parser<'a> {
             }
         } else {
             return self.expected(
-                "RESUME, SUSPEND, ADD AFTER, REMOVE AFTER, SET, or UNSET after ALTER TASK",
+                "RESUME, SUSPEND, ADD AFTER, REMOVE AFTER, MODIFY, SET, or UNSET after ALTER TASK",
                 self.peek_token(),
             );
         };

@@ -15834,6 +15834,12 @@ pub enum AlterTaskAction {
     AddAfter(Vec<ObjectName>),
     /// `REMOVE AFTER <task> [, <task> ...]`
     RemoveAfter(Vec<ObjectName>),
+    /// `MODIFY AS <statement>`
+    ModifyAs(Box<Statement>),
+    /// `MODIFY WHEN <boolean_expr>`
+    ModifyWhen(Expr),
+    /// `REMOVE WHEN`
+    RemoveWhen,
     /// `SET WAREHOUSE = <warehouse>`
     SetWarehouse(ObjectName),
     /// `UNSET WAREHOUSE`
@@ -15883,6 +15889,9 @@ impl fmt::Display for AlterTaskAction {
                 "REMOVE AFTER {}",
                 display_comma_separated(tasks)
             ),
+            AlterTaskAction::ModifyAs(statement) => write!(f, "MODIFY AS {statement}"),
+            AlterTaskAction::ModifyWhen(condition) => write!(f, "MODIFY WHEN {condition}"),
+            AlterTaskAction::RemoveWhen => write!(f, "REMOVE WHEN"),
             AlterTaskAction::SetWarehouse(warehouse) => {
                 write!(f, "SET WAREHOUSE = {warehouse}")
             }
