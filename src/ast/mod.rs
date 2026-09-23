@@ -4147,6 +4147,9 @@ pub enum Statement {
         name: ObjectName,
         /// Optional `COMMENT = '...'` clause.
         comment: Option<String>,
+        /// Optional `CLONE <source>` clause: the (optionally database-qualified)
+        /// source database role this one is cloned from.
+        clone: Option<ObjectName>,
     },
     /// ```sql
     /// CREATE SECRET
@@ -7823,6 +7826,7 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 comment,
+                clone,
             } => {
                 write!(
                     f,
@@ -7830,6 +7834,9 @@ impl fmt::Display for Statement {
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
+                if let Some(clone) = clone {
+                    write!(f, " CLONE {clone}")?;
+                }
                 if let Some(comment) = comment {
                     write!(
                         f,

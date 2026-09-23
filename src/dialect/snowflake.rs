@@ -153,182 +153,20 @@ const RESERVED_KEYWORDS_FOR_TABLE_FACTOR: &[Keyword] = &[
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SnowflakeDialect;
 
-impl Dialect for SnowflakeDialect {
-    // see https://docs.snowflake.com/en/sql-reference/identifiers-syntax.html
-    fn is_identifier_start(&self, ch: char) -> bool {
-        ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_'
-    }
-
-    fn supports_projection_trailing_commas(&self) -> bool {
-        true
-    }
-
-    fn supports_explain_using_format(&self) -> bool {
-        true
-    }
-
-    fn supports_snowflake_interval_type(&self) -> bool {
-        true
-    }
-
-    fn supports_from_trailing_commas(&self) -> bool {
-        true
-    }
-
-    fn supports_create_table_optional_column_type(&self) -> bool {
-        true
-    }
-
-    // Snowflake supports double-dot notation when the schema name is not specified
-    // In this case the default PUBLIC schema is used
-    //
-    // see https://docs.snowflake.com/en/sql-reference/name-resolution#resolution-when-schema-omitted-double-dot-notation
-    fn supports_object_name_double_dot_notation(&self) -> bool {
-        true
-    }
-
-    fn is_identifier_part(&self, ch: char) -> bool {
-        ch.is_ascii_lowercase()
-            || ch.is_ascii_uppercase()
-            || ch.is_ascii_digit()
-            || ch == '$'
-            || ch == '_'
-    }
-
-    // See https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#escape_sequences
-    fn supports_string_literal_backslash_escape(&self) -> bool {
-        true
-    }
-
-    // See https://docs.snowflake.com/en/sql-reference/data-types-text#escape-sequences-in-single-quoted-string-constants
-    fn supports_snowflake_string_literal_escapes(&self) -> bool {
-        true
-    }
-
-    fn supports_within_after_array_aggregation(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.snowflake.com/en/sql-reference/constructs/where#joins-in-the-where-clause>
-    fn supports_outer_join_operator(&self) -> bool {
-        true
-    }
-
-    fn supports_connect_by(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-immediate>
-    fn supports_execute_immediate(&self) -> bool {
-        true
-    }
-
-    /// Snowflake scripting accepts `SELECT ... INTO :var` where the target is a
-    /// local variable placeholder rather than a table name.
-    fn supports_select_into_placeholder_target(&self) -> bool {
-        true
-    }
-
-    /// Snowflake scripting accepts `CALL p(...) INTO :var` to capture a
-    /// procedure result into local variables.
-    fn supports_call_into(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
-    fn supports_for_loop_over_cursor(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
-    fn supports_show_in_resultset_cursor(&self) -> bool {
-        true
-    }
-
-    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/resultsets>
-    fn supports_call_in_resultset(&self) -> bool {
-        true
-    }
-
-    fn supports_match_recognize(&self) -> bool {
-        true
-    }
-
-    // Snowflake uses this syntax for "object constants" (the values of which
-    // are not actually required to be constants).
-    //
-    // https://docs.snowflake.com/en/sql-reference/data-types-semistructured#label-object-constant
-    fn supports_dictionary_syntax(&self) -> bool {
-        true
-    }
-
-    // Snowflake doesn't document this but `FIRST_VALUE(arg, { IGNORE | RESPECT } NULLS)`
-    // works (i.e. inside the argument list instead of after).
-    fn supports_window_function_null_treatment_arg(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/set#syntax)
-    fn supports_parenthesized_set_variables(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/comment)
-    fn supports_comment_on(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/functions/extract)
-    fn supports_extract_comma_syntax(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/functions/flatten)
-    fn supports_subquery_as_function_arg(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/create-view#optional-parameters)
-    fn supports_create_view_comment_syntax(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-semistructured#array)
-    fn supports_array_typedef_without_element_type(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
-    fn supports_parens_around_table_factor(&self) -> bool {
-        true
-    }
-
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/values)
-    fn supports_values_as_table_factor(&self) -> bool {
-        true
-    }
-
-    fn parse_statement(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
-        if parser.parse_keyword(Keyword::BEGIN) {
-            // Snowflake supports both `BEGIN TRANSACTION` and `BEGIN ... END` blocks.
-            // If the next keyword indicates a transaction statement, let the
-            // standard parse_begin() handle it. `BEGIN <kw> := …`, however, is a
-            // scripting block assigning to a variable that happens to be named
-            // after a transaction keyword — an immediately following `:=` keeps
-            // the block on the scripting path.
-            let begins_transaction = parser
-                .peek_one_of_keywords(&[Keyword::TRANSACTION, Keyword::WORK, Keyword::NAME])
-                .is_some()
-                && parser.peek_nth_token_ref(1).token != Token::Assignment;
-            if begins_transaction
-                || matches!(parser.peek_token_ref().token, Token::SemiColon | Token::EOF)
-            {
-                parser.prev_token();
-                return None;
-            }
-            return Some(parser.parse_begin_exception_end());
-        }
-
+impl SnowflakeDialect {
+    /// The Snowflake statement grammar minus the `BEGIN … END` scripting block.
+    ///
+    /// Deliberately kept out of [`Dialect::parse_statement`]: a scripting block
+    /// recurses `parse_statement` -> `parse_begin_exception_end` ->
+    /// `parse_scripting_statement_list` -> `parse_statement`, so every byte of
+    /// the `parse_statement` frame is paid once per nesting level. An
+    /// unoptimized build reserves a slot for each `maybe_parse` interceptor's
+    /// `Statement`-sized result for the whole frame, taken branch or not, and
+    /// there are dozens of them below. Holding them in a frame that is *not*
+    /// live across the recursion is what keeps `MAX_SCRIPTING_BLOCK_DEPTH`
+    /// levels of nesting inside a PostgreSQL backend stack.
+    #[inline(never)]
+    fn parse_statement_tail(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
         // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
         // direction and no FROM/IN, so it can't go through the ISO parser.
         // Intercept only that shape; anything else falls through untouched.
@@ -426,6 +264,16 @@ impl Dialect for SnowflakeDialect {
             return Some(Ok(stmt));
         }
 
+        // ALTER DATABASE ROLE [IF EXISTS] <name> { SET TAG | UNSET TAG } —
+        // intercept only the tag form; must win before the ALTER DATABASE tag
+        // form below, which unconditionally consumes ALTER DATABASE.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::DATABASE, Keyword::ROLE])?;
+            parse_alter_object_set_tags(p, ObjectType::DatabaseRole)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATABASE]) {
             // ALTER DATABASE <name> { SET TAG | UNSET TAG }
             return Some(parse_alter_object_set_tags(parser, ObjectType::Database));
@@ -461,6 +309,17 @@ impl Dialect for SnowflakeDialect {
         if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
             p.expect_keywords(&[Keyword::ALTER, Keyword::ROLE])?;
             parse_alter_object_set_tags(p, ObjectType::Role)
+        }) {
+            return Some(Ok(stmt));
+        }
+
+        // ALTER USER [IF EXISTS] <name> { SET TAG | UNSET TAG } — intercept only
+        // the tag form so it rides the shared object-tag machinery; every other
+        // ALTER USER form fails the closure and falls through to the generic
+        // parse_alter_user grammar.
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::USER])?;
+            parse_alter_object_set_tags(p, ObjectType::User)
         }) {
             return Some(Ok(stmt));
         }
@@ -1194,6 +1053,186 @@ impl Dialect for SnowflakeDialect {
         }
 
         None
+    }
+}
+
+impl Dialect for SnowflakeDialect {
+    // see https://docs.snowflake.com/en/sql-reference/identifiers-syntax.html
+    fn is_identifier_start(&self, ch: char) -> bool {
+        ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_'
+    }
+
+    fn supports_projection_trailing_commas(&self) -> bool {
+        true
+    }
+
+    fn supports_explain_using_format(&self) -> bool {
+        true
+    }
+
+    fn supports_snowflake_interval_type(&self) -> bool {
+        true
+    }
+
+    fn supports_from_trailing_commas(&self) -> bool {
+        true
+    }
+
+    fn supports_create_table_optional_column_type(&self) -> bool {
+        true
+    }
+
+    // Snowflake supports double-dot notation when the schema name is not specified
+    // In this case the default PUBLIC schema is used
+    //
+    // see https://docs.snowflake.com/en/sql-reference/name-resolution#resolution-when-schema-omitted-double-dot-notation
+    fn supports_object_name_double_dot_notation(&self) -> bool {
+        true
+    }
+
+    fn is_identifier_part(&self, ch: char) -> bool {
+        ch.is_ascii_lowercase()
+            || ch.is_ascii_uppercase()
+            || ch.is_ascii_digit()
+            || ch == '$'
+            || ch == '_'
+    }
+
+    // See https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#escape_sequences
+    fn supports_string_literal_backslash_escape(&self) -> bool {
+        true
+    }
+
+    // See https://docs.snowflake.com/en/sql-reference/data-types-text#escape-sequences-in-single-quoted-string-constants
+    fn supports_snowflake_string_literal_escapes(&self) -> bool {
+        true
+    }
+
+    fn supports_within_after_array_aggregation(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/where#joins-in-the-where-clause>
+    fn supports_outer_join_operator(&self) -> bool {
+        true
+    }
+
+    fn supports_connect_by(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-immediate>
+    fn supports_execute_immediate(&self) -> bool {
+        true
+    }
+
+    /// Snowflake scripting accepts `SELECT ... INTO :var` where the target is a
+    /// local variable placeholder rather than a table name.
+    fn supports_select_into_placeholder_target(&self) -> bool {
+        true
+    }
+
+    /// Snowflake scripting accepts `CALL p(...) INTO :var` to capture a
+    /// procedure result into local variables.
+    fn supports_call_into(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
+    fn supports_for_loop_over_cursor(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
+    fn supports_show_in_resultset_cursor(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/resultsets>
+    fn supports_call_in_resultset(&self) -> bool {
+        true
+    }
+
+    fn supports_match_recognize(&self) -> bool {
+        true
+    }
+
+    // Snowflake uses this syntax for "object constants" (the values of which
+    // are not actually required to be constants).
+    //
+    // https://docs.snowflake.com/en/sql-reference/data-types-semistructured#label-object-constant
+    fn supports_dictionary_syntax(&self) -> bool {
+        true
+    }
+
+    // Snowflake doesn't document this but `FIRST_VALUE(arg, { IGNORE | RESPECT } NULLS)`
+    // works (i.e. inside the argument list instead of after).
+    fn supports_window_function_null_treatment_arg(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/set#syntax)
+    fn supports_parenthesized_set_variables(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/comment)
+    fn supports_comment_on(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/functions/extract)
+    fn supports_extract_comma_syntax(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/functions/flatten)
+    fn supports_subquery_as_function_arg(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/sql/create-view#optional-parameters)
+    fn supports_create_view_comment_syntax(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-semistructured#array)
+    fn supports_array_typedef_without_element_type(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
+    fn supports_parens_around_table_factor(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/values)
+    fn supports_values_as_table_factor(&self) -> bool {
+        true
+    }
+
+    fn parse_statement(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        if parser.parse_keyword(Keyword::BEGIN) {
+            // Snowflake supports both `BEGIN TRANSACTION` and `BEGIN ... END` blocks.
+            // If the next keyword indicates a transaction statement, let the
+            // standard parse_begin() handle it. `BEGIN <kw> := …`, however, is a
+            // scripting block assigning to a variable that happens to be named
+            // after a transaction keyword — an immediately following `:=` keeps
+            // the block on the scripting path.
+            let begins_transaction = parser
+                .peek_one_of_keywords(&[Keyword::TRANSACTION, Keyword::WORK, Keyword::NAME])
+                .is_some()
+                && parser.peek_nth_token_ref(1).token != Token::Assignment;
+            if begins_transaction
+                || matches!(parser.peek_token_ref().token, Token::SemiColon | Token::EOF)
+            {
+                parser.prev_token();
+                return None;
+            }
+            return Some(parser.parse_begin_exception_end());
+        }
+
+        Self::parse_statement_tail(parser)
     }
 
     fn parse_column_option(

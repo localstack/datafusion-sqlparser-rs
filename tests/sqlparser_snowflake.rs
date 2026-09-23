@@ -10612,6 +10612,35 @@ fn parse_sf_alter_role_set_tag_still_intercepted() {
 }
 
 #[test]
+fn parse_sf_alter_user_set_tag_still_intercepted() {
+    // The tag interceptor wins for the SET/UNSET TAG forms — they become
+    // `Statement::SetTags`, not `Statement::AlterUser` — so a (qualified) tag
+    // key parses, which the generic `parse_alter_user` grammar cannot handle.
+    match snowflake().verified_stmt("ALTER USER u SET TAG t1='v1'") {
+        Statement::SetTags {
+            object_type,
+            unset,
+            ..
+        } => {
+            assert_eq!(object_type, ObjectType::User);
+            assert!(!unset);
+        }
+        _ => unreachable!(),
+    }
+    match snowflake().verified_stmt("ALTER USER u UNSET TAG t1") {
+        Statement::SetTags {
+            object_type,
+            unset,
+            ..
+        } => {
+            assert_eq!(object_type, ObjectType::User);
+            assert!(unset);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn parse_sf_alter_security_integration_set() {
     match snowflake().verified_stmt("ALTER SECURITY INTEGRATION i SET ENABLED=false") {
         Statement::AlterSecurityIntegration {
@@ -11146,13 +11175,13 @@ fn scripting_block_nesting_is_bounded_separately_from_expressions() {
     // the cycle `parse_statement` -> `SnowflakeDialect::parse_statement` ->
     // `parse_begin_exception_end` -> `parse_scripting_statement_list` ->
     // `parse_statement` carries several `Statement`-sized values per frame and
-    // costs ~660 kB of stack. The 50-level expression budget is far too
-    // permissive to keep an 8 MB PostgreSQL backend stack alive, so
+    // costs ~82 kB of stack unoptimised. The 50-level expression budget is far
+    // too permissive to keep an 8 MB PostgreSQL backend stack alive, so
     // `MAX_SCRIPTING_BLOCK_DEPTH` bounds block nesting at 8 separately.
     //
-    // Parsing at that limit needs ~5.3 MB, and the test harness hands each test
-    // a 2 MB thread - which is itself the measurement, so ask for a stack that
-    // fits rather than trimming the assertion.
+    // Parsing at that limit needs ~1.4 MB, which does fit the 2 MB thread the
+    // harness hands each test - but only just, so ask for a stack with room to
+    // spare and let the assertion be about the depth bound, not the harness.
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(|| {

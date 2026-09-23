@@ -18554,7 +18554,11 @@ fn test_parse_alter_user() {
     verified_stmt("ALTER USER u1 UNSET PASSWORD POLICY");
     verified_stmt("ALTER USER u1 UNSET SESSION POLICY");
 
-    let stmt = verified_stmt("ALTER USER u1 SET TAG k1='v1'");
+    // Snowflake routes `ALTER USER … SET/UNSET TAG` through its shared object-tag
+    // interceptor (producing `Statement::SetTags`, covered in the Snowflake
+    // suite), so exclude it from the generic `AlterUser` tag assertions here.
+    let non_snowflake = || all_dialects_except(|d| d.is::<SnowflakeDialect>());
+    let stmt = non_snowflake().verified_stmt("ALTER USER u1 SET TAG k1='v1'");
     match stmt {
         Statement::AlterUser(alter) => {
             assert_eq!(
@@ -18569,15 +18573,15 @@ fn test_parse_alter_user() {
         }
         _ => unreachable!(),
     }
-    verified_stmt("ALTER USER u1 SET TAG k1='v1', k2='v2'");
-    let stmt = verified_stmt("ALTER USER u1 UNSET TAG k1");
+    non_snowflake().verified_stmt("ALTER USER u1 SET TAG k1='v1', k2='v2'");
+    let stmt = non_snowflake().verified_stmt("ALTER USER u1 UNSET TAG k1");
     match stmt {
         Statement::AlterUser(alter) => {
             assert_eq!(alter.unset_tag, vec!["k1".to_string()]);
         }
         _ => unreachable!(),
     }
-    verified_stmt("ALTER USER u1 UNSET TAG k1, k2, k3");
+    non_snowflake().verified_stmt("ALTER USER u1 UNSET TAG k1, k2, k3");
 
     let dialects = all_dialects_where(|d| d.supports_boolean_literals());
     dialects.one_statement_parses_to(

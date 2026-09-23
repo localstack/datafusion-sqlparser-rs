@@ -247,20 +247,27 @@ const DEFAULT_REMAINING_DEPTH: usize = 50;
 /// frames; one scripting-block level is the cycle `parse_statement` ->
 /// `Dialect::parse_statement` -> `parse_begin_exception_end` ->
 /// `parse_scripting_statement_list` -> `parse_statement`, whose frames carry
-/// several `Statement`-sized values. Measured against a live PostgreSQL backend
-/// on an 8 MB stack, unoptimised as CI's instrumented build also is:
-/// **660 kB per level** - 11 levels survive, 12 segfaults the backend.
+/// several `Statement`-sized values. It used to cost **660 kB per level**
+/// unoptimised - 11 levels survived a live PostgreSQL backend on an 8 MB
+/// stack, 12 segfaulted it - because the whole Snowflake statement grammar
+/// sat in `SnowflakeDialect::parse_statement`, and an unoptimised build
+/// reserves a slot for every `maybe_parse` interceptor's `Statement`-sized
+/// result for the entire frame, taken branch or not. Moving that grammar into
+/// `SnowflakeDialect::parse_statement_tail`, which is not live across the
+/// recursion, cut it to **~82 kB per level** (binary-searched thread stack,
+/// unoptimised, `BEGIN`xN `RETURN 1;` `END;`xN: 783 kB at depth 1, 1359 kB at
+/// depth 8).
 ///
 /// A segfault here is silent. The parser runs inside a cdylib, so `std::rt::init`
 /// never installs Rust's stack-overflow handler, and PostgreSQL sees only a
 /// backend vanish - which SIGQUITs every other backend and takes the cluster
 /// into crash recovery (`docs/backend-crash-forensics.md`).
 ///
-/// Eight caps one parse at roughly 5.3 MB, leaving ~2.7 MB of an 8 MB backend
-/// stack for the PL/pgSQL, SPI and executor frames the parse sits on top of.
-/// It is also well above the deepest nesting the compatibility suite produces
-/// (three), and exceeding it is an ordinary parse error rather than a dead
-/// cluster.
+/// Eight now caps one parse at roughly 1.4 MB rather than 5.3 MB, leaving most
+/// of an 8 MB backend stack for the PL/pgSQL, SPI and executor frames the parse
+/// sits on top of. The bound stays where it is: it is already well above the
+/// deepest nesting the compatibility suite produces (three), and exceeding it
+/// is an ordinary parse error rather than a dead cluster.
 ///
 /// The server process hit the same recursion first and escaped it by giving
 /// tokio workers a 16 MB stack (`crates/server/src/main.rs`). A PostgreSQL
@@ -8010,6 +8017,11 @@ impl<'a> Parser<'a> {
     ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
+        let clone = if self.parse_keyword(Keyword::CLONE) {
+            Some(self.parse_object_name(false)?)
+        } else {
+            None
+        };
         let comment = if self.parse_keyword(Keyword::COMMENT) {
             self.expect_token(&Token::Eq)?;
             Some(self.parse_literal_string()?)
@@ -8021,6 +8033,7 @@ impl<'a> Parser<'a> {
             if_not_exists,
             name,
             comment,
+            clone,
         })
     }
 
