@@ -5068,6 +5068,8 @@ pub enum Statement {
         if_not_exists: bool,
         /// Stage name.
         name: ObjectName,
+        /// Source stage for `CREATE STAGE ... CLONE ...`.
+        clone: Option<ObjectName>,
         /// Stage parameters.
         stage_params: StageParamsObject,
         /// Directory table parameters.
@@ -8595,6 +8597,7 @@ impl fmt::Display for Statement {
                 temporary,
                 if_not_exists,
                 name,
+                clone,
                 stage_params,
                 directory_table_params,
                 file_format,
@@ -8605,11 +8608,12 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}{or_alter}{temp}STAGE {if_not_exists}{name}{stage_params}",
+                    "CREATE {or_replace}{or_alter}{temp}STAGE {if_not_exists}{name}{clone}{stage_params}",
                     temp = if *temporary { "TEMPORARY " } else { "" },
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    clone = clone.as_ref().map_or(String::new(), |source| format!(" CLONE {source}")),
                 )?;
                 if !directory_table_params.options.is_empty() {
                     write!(f, " DIRECTORY=({directory_table_params})")?;

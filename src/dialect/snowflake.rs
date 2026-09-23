@@ -3277,6 +3277,11 @@ pub fn parse_create_stage(
     //[ IF NOT EXISTS ]
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    let clone = if parser.parse_keyword(Keyword::CLONE) {
+        Some(parser.parse_object_name(false)?)
+    } else {
+        None
+    };
 
     let StageProperties {
         stage_params,
@@ -3307,6 +3312,7 @@ pub fn parse_create_stage(
         temporary,
         if_not_exists,
         name,
+        clone,
         stage_params,
         directory_table_params,
         file_format,
