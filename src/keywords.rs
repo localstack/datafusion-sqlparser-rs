@@ -465,6 +465,7 @@ define_keywords!(
     FILL,
     FILTER,
     FINAL,
+    FINALIZE,
     FIRST,
     FIRST_NAME,
     FIRST_VALUE,

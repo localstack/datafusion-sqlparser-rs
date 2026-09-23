@@ -6044,6 +6044,7 @@ impl<'a> Parser<'a> {
         let mut schedule: Option<String> = None;
         let mut config: Option<String> = None;
         let mut after: Vec<ObjectName> = Vec::new();
+        let mut finalize: Option<ObjectName> = None;
         let mut when_condition: Option<Expr> = None;
         let mut suspend_task_after_num_failures: Option<u64> = None;
         let mut user_task_timeout_ms: Option<u64> = None;
@@ -6074,6 +6075,7 @@ impl<'a> Parser<'a> {
                     schedule,
                     config,
                     after,
+                    finalize,
                     when_condition,
                     suspend_task_after_num_failures,
                     user_task_timeout_ms,
@@ -6103,6 +6105,11 @@ impl<'a> Parser<'a> {
                 config = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::AFTER) {
                 after = self.parse_comma_separated(|p| p.parse_object_name(false))?;
+            } else if self.peek_keyword(Keyword::FINALIZE) && !after.is_empty() {
+                return self.expected("AS", self.peek_token());
+            } else if self.parse_keyword(Keyword::FINALIZE) {
+                self.expect_token(&Token::Eq)?;
+                finalize = Some(self.parse_object_name(false)?);
             } else if self.parse_keyword(Keyword::WHEN) {
                 when_condition = Some(self.parse_expr()?);
             } else if self.parse_keyword(Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES) {
@@ -12981,7 +12988,10 @@ impl<'a> Parser<'a> {
                 return self.expected("AS or WHEN after ALTER TASK MODIFY", self.peek_token());
             }
         } else if self.parse_keyword(Keyword::SET) {
-            if self.parse_keyword(Keyword::WAREHOUSE) {
+            if self.parse_keyword(Keyword::FINALIZE) {
+                self.expect_token(&Token::Eq)?;
+                AlterTaskAction::SetFinalize(self.parse_object_name(false)?)
+            } else if self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
                 AlterTaskAction::SetWarehouse(self.parse_object_name(false)?)
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
@@ -13022,7 +13032,9 @@ impl<'a> Parser<'a> {
                 })
             }
         } else if self.parse_keyword(Keyword::UNSET) {
-            if self.parse_keyword(Keyword::WAREHOUSE) {
+            if self.parse_keyword(Keyword::FINALIZE) {
+                AlterTaskAction::UnsetFinalize
+            } else if self.parse_keyword(Keyword::WAREHOUSE) {
                 AlterTaskAction::UnsetWarehouse
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 AlterTaskAction::UnsetManagedWarehouseSize
