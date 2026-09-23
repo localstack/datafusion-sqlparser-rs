@@ -52,6 +52,7 @@ use crate::ast::{
     ResetConfig, RowAccessPolicy, SequenceOptions, Spanned, SqlOption, StorageLifecyclePolicy,
     StorageSerializationPolicy, TableVersion, Tag, TriggerEvent, TriggerExecBody, TriggerObject,
     TriggerPeriod, TriggerReferencing, Value, ValueWithSpan, WrappedCollection,
+    DynamicTableCustomRefresh,
 };
 use crate::display_utils::{DisplayCommaSeparated, Indent, NewLine, SpaceOrNewline};
 use crate::keywords::Keyword;
@@ -4184,6 +4185,8 @@ pub struct CreateTable {
     /// Snowflake "REFRESH_MODE" clause for dybamic tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub refresh_mode: Option<RefreshModeKind>,
+    /// Snowflake custom-incremental refresh clauses.
+    pub custom_refresh: Option<Box<DynamicTableCustomRefresh>>,
     /// Snowflake "INITIALIZE" clause for dybamic tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-dynamic-table>
     pub initialize: Option<InitializeKind>,
@@ -4306,6 +4309,7 @@ impl fmt::Display for CreateTable {
             NewLine.fmt(f)?;
             f.write_str(")")?;
         } else if self.query.is_none()
+            && self.custom_refresh.is_none()
             && self.like.is_none()
             && self.clone.is_none()
             && self.partition_of.is_none()
@@ -4620,6 +4624,15 @@ impl fmt::Display for CreateTable {
 
         if let Some(refresh_mode) = &self.refresh_mode {
             write!(f, " REFRESH_MODE={refresh_mode}")?;
+        }
+
+        if let Some(custom_refresh) = &self.custom_refresh {
+            if let Some(using) = &custom_refresh.using {
+                write!(f, " REFRESH USING ({using})")?;
+            }
+            if let Some(start_at) = &custom_refresh.start_at {
+                write!(f, " {start_at}")?;
+            }
         }
 
         if let Some(initialize) = &self.initialize {
