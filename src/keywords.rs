@@ -480,6 +480,7 @@ define_keywords!(
     FINALFUNC,
     FINALFUNC_EXTRA,
     FINALFUNC_MODIFY,
+    FINALIZE,
     FIRST,
     FIRST_NAME,
     FIRST_VALUE,

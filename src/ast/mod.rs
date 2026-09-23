@@ -5392,6 +5392,8 @@ pub enum Statement {
         config: Option<String>,
         /// Optional `AFTER <task>[, <task>, ...]` clause.
         after: Vec<ObjectName>,
+        /// Optional `FINALIZE = <root task>` clause.
+        finalize: Option<ObjectName>,
         /// Optional `WHEN <expr>` clause.
         when_condition: Option<Expr>,
         /// Optional `SUSPEND_TASK_AFTER_NUM_FAILURES = <num>` clause.
@@ -8973,6 +8975,7 @@ impl fmt::Display for Statement {
                 schedule,
                 config,
                 after,
+                finalize,
                 when_condition,
                 suspend_task_after_num_failures,
                 user_task_timeout_ms,
@@ -9013,6 +9016,9 @@ impl fmt::Display for Statement {
                         }
                         write!(f, "{n}")?;
                     }
+                }
+                if let Some(task) = finalize {
+                    write!(f, " FINALIZE = {task}")?;
                 }
                 if let Some(expr) = when_condition {
                     write!(f, " WHEN {expr}")?;
@@ -16069,6 +16075,10 @@ pub enum AlterTaskAction {
     AddAfter(Vec<ObjectName>),
     /// `REMOVE AFTER <task> [, <task> ...]`
     RemoveAfter(Vec<ObjectName>),
+    /// `SET FINALIZE = <task>`
+    SetFinalize(ObjectName),
+    /// `UNSET FINALIZE`
+    UnsetFinalize,
     /// `MODIFY AS <statement>`
     ModifyAs(Box<Statement>),
     /// `MODIFY WHEN <boolean_expr>`
@@ -16124,6 +16134,8 @@ impl fmt::Display for AlterTaskAction {
                 "REMOVE AFTER {}",
                 display_comma_separated(tasks)
             ),
+            AlterTaskAction::SetFinalize(task) => write!(f, "SET FINALIZE = {task}"),
+            AlterTaskAction::UnsetFinalize => write!(f, "UNSET FINALIZE"),
             AlterTaskAction::ModifyAs(statement) => write!(f, "MODIFY AS {statement}"),
             AlterTaskAction::ModifyWhen(condition) => write!(f, "MODIFY WHEN {condition}"),
             AlterTaskAction::RemoveWhen => write!(f, "REMOVE WHEN"),
