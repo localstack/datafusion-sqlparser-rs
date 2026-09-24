@@ -20594,6 +20594,40 @@ impl<'a> Parser<'a> {
             }
         }
 
+        fn parse_words(parser: &mut Parser, words: &[&str]) -> bool {
+            if !words.iter().enumerate().all(|(i, expected)| {
+                matches!(&parser.peek_nth_token_ref(i).token, Token::Word(word)
+                    if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(expected))
+            }) {
+                return false;
+            }
+            for _ in words {
+                parser.next_token();
+            }
+            true
+        }
+
+        for privilege in [
+            "CREATE LISTING",
+            "CREATE PREVIEW APPLICATION",
+            "IMPORT ORGANIZATION LISTING",
+            "MANAGE APPLICATION SPECIFICATIONS",
+            "MANAGE VISIBILITY",
+            "READ UNREDACTED ERROR TABLE",
+            "USE AI FUNCTIONS",
+            "APPLY STORAGE LIFECYCLE POLICY",
+            "APPLY CONTACT",
+        ] {
+            if parse_words(self, &privilege.split_whitespace().collect::<Vec<_>>()) {
+                return Ok(Action::SnowflakePrivilege(privilege.to_string()));
+            }
+        }
+        if parse_words(self, &["USE", "AI", "FUNCTION"]) {
+            return Ok(Action::UseAiFunction {
+                name: self.parse_object_name(false)?,
+            });
+        }
+
         // Multi-word privileges
         if self.parse_keywords(&[Keyword::IMPORTED, Keyword::PRIVILEGES]) {
             Ok(Action::ImportedPrivileges)

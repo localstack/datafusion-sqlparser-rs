@@ -11096,6 +11096,13 @@ pub enum Action {
     Write,
     /// Read session-level access.
     ReadSession,
+    /// A Snowflake account privilege whose spelling is stored verbatim.
+    SnowflakePrivilege(String),
+    /// Use a named AI function.
+    UseAiFunction {
+        /// The function name.
+        name: ObjectName,
+    },
     /// References with optional column list.
     References {
         /// Optional list of referenced column identifiers.
@@ -11191,6 +11198,8 @@ impl fmt::Display for Action {
             Action::Read => f.write_str("READ")?,
             Action::Write => f.write_str("WRITE")?,
             Action::ReadSession => f.write_str("READ SESSION")?,
+            Action::SnowflakePrivilege(privilege) => f.write_str(privilege)?,
+            Action::UseAiFunction { name } => write!(f, "USE AI FUNCTION {name}")?,
             Action::References { .. } => f.write_str("REFERENCES")?,
             Action::ReferenceUsage => f.write_str("REFERENCE_USAGE")?,
             Action::Replicate => f.write_str("REPLICATE")?,
