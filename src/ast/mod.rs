@@ -15862,6 +15862,17 @@ pub enum AlterTaskAction {
     SetManagedWarehouseSize(String),
     /// `UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE`
     UnsetManagedWarehouseSize,
+    /// `SET` one or more task execution properties.
+    SetExecutionProperties {
+        /// Per-run timeout in milliseconds.
+        user_task_timeout_ms: Option<String>,
+        /// Consecutive scheduled failures before suspension.
+        suspend_task_after_num_failures: Option<String>,
+        /// Automatic retry attempts.
+        task_auto_retry_attempts: Option<String>,
+    },
+    /// `UNSET` one or more task execution properties.
+    UnsetExecutionProperties(Vec<String>),
     /// `SET USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS = <value>`
     SetMinimumTriggerInterval(String),
     /// `UNSET USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS`
@@ -15918,6 +15929,26 @@ impl fmt::Display for AlterTaskAction {
             ),
             AlterTaskAction::UnsetManagedWarehouseSize => {
                 write!(f, "UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE")
+            }
+            AlterTaskAction::SetExecutionProperties {
+                user_task_timeout_ms,
+                suspend_task_after_num_failures,
+                task_auto_retry_attempts,
+            } => {
+                write!(f, "SET")?;
+                for (name, value) in [
+                    ("USER_TASK_TIMEOUT_MS", user_task_timeout_ms),
+                    ("SUSPEND_TASK_AFTER_NUM_FAILURES", suspend_task_after_num_failures),
+                    ("TASK_AUTO_RETRY_ATTEMPTS", task_auto_retry_attempts),
+                ] {
+                    if let Some(value) = value {
+                        write!(f, " {name} = {value}")?;
+                    }
+                }
+                Ok(())
+            }
+            AlterTaskAction::UnsetExecutionProperties(properties) => {
+                write!(f, "UNSET {}", properties.join(" "))
             }
             AlterTaskAction::SetMinimumTriggerInterval(value) => write!(
                 f,

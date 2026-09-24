@@ -12988,7 +12988,36 @@ impl<'a> Parser<'a> {
                 return self.expected("AS or WHEN after ALTER TASK MODIFY", self.peek_token());
             }
         } else if self.parse_keyword(Keyword::SET) {
-            if self.parse_keyword(Keyword::FINALIZE) {
+            if matches!(
+                self.peek_token().token,
+                Token::Word(ref word)
+                    if matches!(word.keyword,
+                        Keyword::USER_TASK_TIMEOUT_MS
+                        | Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES
+                        | Keyword::TASK_AUTO_RETRY_ATTEMPTS)
+            ) {
+                let mut timeout = None;
+                let mut suspend = None;
+                let mut retry = None;
+                loop {
+                    let target = if self.parse_keyword(Keyword::USER_TASK_TIMEOUT_MS) {
+                        &mut timeout
+                    } else if self.parse_keyword(Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES) {
+                        &mut suspend
+                    } else if self.parse_keyword(Keyword::TASK_AUTO_RETRY_ATTEMPTS) {
+                        &mut retry
+                    } else {
+                        break;
+                    };
+                    self.expect_token(&Token::Eq)?;
+                    *target = Some(self.parse_expr()?.to_string());
+                }
+                AlterTaskAction::SetExecutionProperties {
+                    user_task_timeout_ms: timeout,
+                    suspend_task_after_num_failures: suspend,
+                    task_auto_retry_attempts: retry,
+                }
+            } else if self.parse_keyword(Keyword::FINALIZE) {
                 self.expect_token(&Token::Eq)?;
                 AlterTaskAction::SetFinalize(self.parse_object_name(false)?)
             } else if self.parse_keyword(Keyword::WAREHOUSE) {
@@ -13032,7 +13061,30 @@ impl<'a> Parser<'a> {
                 })
             }
         } else if self.parse_keyword(Keyword::UNSET) {
-            if self.parse_keyword(Keyword::FINALIZE) {
+            if matches!(
+                self.peek_token().token,
+                Token::Word(ref word)
+                    if matches!(word.keyword,
+                        Keyword::USER_TASK_TIMEOUT_MS
+                        | Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES
+                        | Keyword::TASK_AUTO_RETRY_ATTEMPTS)
+            ) {
+                let mut properties = Vec::new();
+                loop {
+                    let property = if self.parse_keyword(Keyword::USER_TASK_TIMEOUT_MS) {
+                        "USER_TASK_TIMEOUT_MS"
+                    } else if self.parse_keyword(Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES) {
+                        "SUSPEND_TASK_AFTER_NUM_FAILURES"
+                    } else if self.parse_keyword(Keyword::TASK_AUTO_RETRY_ATTEMPTS) {
+                        "TASK_AUTO_RETRY_ATTEMPTS"
+                    } else {
+                        break;
+                    };
+                    properties.push(property.to_string());
+                    let _ = self.consume_token(&Token::Comma);
+                }
+                AlterTaskAction::UnsetExecutionProperties(properties)
+            } else if self.parse_keyword(Keyword::FINALIZE) {
                 AlterTaskAction::UnsetFinalize
             } else if self.parse_keyword(Keyword::WAREHOUSE) {
                 AlterTaskAction::UnsetWarehouse
