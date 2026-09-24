@@ -20743,6 +20743,58 @@ impl<'a> Parser<'a> {
     }
 
     fn maybe_parse_action_create_object_type(&mut self) -> Option<ActionCreateObjectType> {
+        // Schema privileges include object types that are not ordinary CREATE
+        // statement keywords. Match their complete token sequence before the
+        // existing single-word alternatives can consume a prefix.
+        const SCHEMA_TYPES: &[&str] = &[
+            "AGENT", "ALERT", "APPLICATION SERVICE", "ARTIFACT REPOSITORY",
+            "CONTACT", "CORTEX SEARCH SERVICE", "DATA METRIC FUNCTION",
+            "DATASET", "DBT PROJECT", "EVENT TABLE", "EXPERIMENT",
+            "FILE FORMAT", "FUNCTION", "GATEWAY", "GIT REPOSITORY",
+            "IMAGE REPOSITORY", "MCP SERVER", "MODEL", "NETWORK RULE",
+            "NOTEBOOK", "PIPE", "PROCEDURE", "AGGREGATION POLICY",
+            "AUTHENTICATION POLICY", "MASKING POLICY", "PACKAGES POLICY",
+            "PASSWORD POLICY", "PRIVACY POLICY", "PROJECTION POLICY",
+            "ROW ACCESS POLICY", "SESSION POLICY", "STORAGE LIFECYCLE POLICY",
+            "SECRET", "SEQUENCE", "SERVICE", "SNAPSHOT", "SNAPSHOT POLICY",
+            "SNAPSHOT SET", "STAGE", "STREAM", "STREAMLIT",
+            "SNOWFLAKE.CORE.BUDGET", "SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE",
+            "SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER",
+            "SNOWFLAKE.ML.ANOMALY_DETECTION", "SNOWFLAKE.ML.CLASSIFICATION",
+            "SNOWFLAKE.ML.FORECAST", "SNOWFLAKE.ML.TOP_INSIGHTS",
+            "SNOWFLAKE.ML.DOCUMENT_INTELLIGENCE", "TABLE", "DYNAMIC TABLE",
+            "EXTERNAL TABLE", "HYBRID TABLE", "ICEBERG TABLE",
+            "INTERACTIVE TABLE", "ONLINE FEATURE TABLE", "TAG", "TASK",
+            "TYPE", "WORKSPACE", "VIEW", "MATERIALIZED VIEW", "SEMANTIC VIEW",
+        ];
+        let mut phrase = String::new();
+        let mut count = 0;
+        while count < 8 {
+            match &self.peek_nth_token_ref(count).token {
+                Token::Word(word) if word.keyword == Keyword::ON => break,
+                Token::Word(word) => {
+                    if !phrase.is_empty() && !phrase.ends_with('.') {
+                        phrase.push(' ');
+                    }
+                    phrase.push_str(&word.value.to_ascii_uppercase());
+                }
+                Token::Period => phrase.push('.'),
+                _ => break,
+            }
+            count += 1;
+        }
+        if count > 0
+            && matches!(&self.peek_nth_token_ref(count).token, Token::Word(word) if word.keyword == Keyword::ON)
+            && matches!(&self.peek_nth_token_ref(count + 1).token, Token::Word(word) if word.keyword == Keyword::SCHEMA)
+            && SCHEMA_TYPES.contains(&phrase.as_str())
+        {
+            for _ in 0..count {
+                self.next_token();
+            }
+            return Some(ActionCreateObjectType::Class(ObjectName(vec![
+                ObjectNamePart::Identifier(Ident::new(phrase)),
+            ])));
+        }
         // Multi-word object types
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             Some(ActionCreateObjectType::ApplicationPackage)
