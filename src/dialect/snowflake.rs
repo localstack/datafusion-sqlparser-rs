@@ -3391,6 +3391,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
     };
     let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
     let mut encryption = empty_options();
+    let mut encryption_specified = false;
     let mut credentials = empty_options();
     let mut directory_table_params = Vec::new();
     let mut file_format = Vec::new();
@@ -3420,6 +3421,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             parser.expect_token(&Token::Eq)?;
             credentials.options = parser.parse_key_value_options(true, &[], false)?.options;
         } else if encryption.options.is_empty() && parser.parse_keyword(Keyword::ENCRYPTION) {
+            encryption_specified = true;
             parser.expect_token(&Token::Eq)?;
             encryption.options = parser.parse_key_value_options(true, &[], false)?.options;
         } else if directory_table_params.is_empty() && parser.parse_keyword(Keyword::DIRECTORY) {
@@ -3461,6 +3463,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
         stage_params: StageParamsObject {
             url,
             encryption,
+            encryption_specified,
             endpoint,
             storage_integration,
             credentials,
@@ -3672,6 +3675,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
             options: vec![],
             delimiter: KeyValueOptionsDelimiter::Space,
         },
+        encryption_specified: false,
         endpoint: None,
         storage_integration: None,
         credentials: KeyValueOptions {
@@ -3950,6 +3954,7 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
                 options: vec![],
                 delimiter: KeyValueOptionsDelimiter::Space,
             },
+            encryption_specified: false,
             endpoint: None,
             storage_integration: None,
             credentials: KeyValueOptions {
@@ -4141,7 +4146,8 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
     }
 
     // ENCRYPTION
-    if parser.parse_keyword(Keyword::ENCRYPTION) {
+    let encryption_specified = parser.parse_keyword(Keyword::ENCRYPTION);
+    if encryption_specified {
         parser.expect_token(&Token::Eq)?;
         encryption = KeyValueOptions {
             options: parser.parse_key_value_options(true, &[], false)?.options,
@@ -4152,6 +4158,7 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
     Ok(StageParamsObject {
         url,
         encryption,
+        encryption_specified,
         endpoint,
         storage_integration,
         credentials,
