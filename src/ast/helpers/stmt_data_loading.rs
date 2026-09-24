@@ -40,6 +40,8 @@ pub struct StageParamsObject {
     pub url: Option<String>,
     /// Encryption-related key/value options.
     pub encryption: KeyValueOptions,
+    /// Whether an ENCRYPTION clause was present, including an empty bag.
+    pub encryption_specified: bool,
     /// Optional endpoint string.
     pub endpoint: Option<String>,
     /// Optional storage integration identifier.
