@@ -784,6 +784,14 @@ impl SnowflakeDialect {
                 _ => {}
             }
 
+            // `CREATE [OR REPLACE] TRANSIENT ICEBERG TABLE` — the TRANSIENT
+            // modifier may precede ICEBERG (mirrors TRANSIENT DYNAMIC above);
+            // the modifier group only matches one keyword, so pick up ICEBERG
+            // here after a leading TRANSIENT.
+            if transient && !iceberg && parser.parse_keyword(Keyword::ICEBERG) {
+                iceberg = true;
+            }
+
             if scoped && !temporary {
                 return Some(parser.expected("TEMPORARY after SCOPED", parser.peek_token()));
             }
@@ -3087,13 +3095,15 @@ pub fn parse_create_table(
 
     // Snowflake-managed Iceberg tables require BASE_LOCATION. Tables bound to
     // an external catalog integration (an explicit non-SNOWFLAKE CATALOG, or
-    // CATALOG_TABLE_NAME for externally-managed reads) do not.
+    // CATALOG_TABLE_NAME for externally-managed reads) do not, and neither does
+    // a clone (CREATE ICEBERG TABLE … CLONE inherits the source's location).
     let external_catalog = builder
         .catalog
         .as_deref()
         .is_some_and(|c| !c.eq_ignore_ascii_case("SNOWFLAKE"));
     if iceberg
         && !dynamic
+        && builder.clone.is_none()
         && builder.base_location.is_none()
         && builder.catalog_table_name.is_none()
         && builder.metadata_file_path.is_none()
