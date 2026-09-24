@@ -17677,7 +17677,11 @@ impl<'a> Parser<'a> {
                     connect_token: self.token_at(idx).clone().into(),
                     nocycle: self.parse_keyword(Keyword::NOCYCLE),
                     relationships: self.with_state(ParserState::ConnectBy, |parser| {
-                        parser.parse_comma_separated(Parser::parse_expr)
+                        if dialect_of!(parser is SnowflakeDialect) {
+                            Ok(vec![parser.parse_expr()?])
+                        } else {
+                            parser.parse_comma_separated(Parser::parse_expr)
+                        }
                     })?,
                 });
             } else {
