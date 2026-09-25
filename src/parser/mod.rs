@@ -22084,7 +22084,9 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::Routines(
                     self.parse_comma_separated(Parser::parse_function_desc)?,
                 ))
-            } else if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+            } else if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE])
+                || self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE])
+            {
                 Some(GrantObjects::Tables(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
