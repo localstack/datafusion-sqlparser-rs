@@ -6075,7 +6075,27 @@ impl<'a> Parser<'a> {
 
         loop {
             if self.parse_keyword(Keyword::AS) {
-                let sql_body = Box::new(self.parse_statement()?);
+                let declaration = if self.peek_keyword(Keyword::DECLARE) {
+                    Some(self.parse_statement()?)
+                } else {
+                    None
+                };
+                if declaration.is_some() {
+                    self.expect_token(&Token::SemiColon)?;
+                }
+                let mut sql_body = self.parse_statement()?;
+                if let Some(declaration) = declaration {
+                    match &mut sql_body {
+                        Statement::StartTransaction {
+                            begin: true,
+                            has_end_keyword: true,
+                            statements,
+                            ..
+                        } => statements.insert(0, declaration),
+                        _ => return self.expected("BEGIN ... END", self.peek_token()),
+                    }
+                }
+                let sql_body = Box::new(sql_body);
                 return Ok(Statement::CreateTask {
                     or_replace,
                     if_not_exists,
