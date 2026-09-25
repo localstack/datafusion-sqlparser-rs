@@ -22084,6 +22084,10 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::Routines(
                     self.parse_comma_separated(Parser::parse_function_desc)?,
                 ))
+            } else if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+                Some(GrantObjects::Tables(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else if self.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 Some(GrantObjects::FileFormats(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
