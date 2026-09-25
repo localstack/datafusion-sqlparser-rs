@@ -9630,6 +9630,34 @@ fn test_select_into_placeholder_target() {
 }
 
 #[test]
+fn test_select_into_multiple_targets() {
+    // Snowflake scripting assigns each projected value to its INTO target by
+    // position; colon and bare targets may be mixed.
+    let stmt = snowflake().verified_stmt("SELECT 1, 2 INTO :v, w FROM tbl");
+    let Statement::Query(query) = stmt else {
+        unreachable!()
+    };
+    let SetExpr::Select(select) = *query.body else {
+        unreachable!()
+    };
+    let into = select.into.expect("expected SELECT ... INTO clause");
+    assert_eq!(into.name.to_string(), ":v");
+    let rest: Vec<String> = into
+        .additional_targets
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(rest, vec!["w".to_string()]);
+
+    // The parenthesized statement form keeps its target list.
+    snowflake().verified_stmt("(SELECT 1, 2 INTO :v, :w)");
+
+    // Other dialects keep a single table target: the comma is a syntax error.
+    let pg = sqlparser::dialect::PostgreSqlDialect {};
+    assert!(Parser::parse_sql(&pg, "SELECT 1 INTO t, u FROM tbl").is_err());
+}
+
+#[test]
 fn test_fetch_cursor_into_variables() {
     // Snowflake scripting FETCH has no direction and no FROM/IN; it binds the
     // current cursor row into one or more local variables.

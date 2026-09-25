@@ -1135,9 +1135,9 @@ pub trait Dialect: Debug + Any {
         false
     }
 
-    /// Returns true if this dialect accepts a colon placeholder as a
-    /// `SELECT ... INTO` target, e.g. `SELECT ... INTO :var` in Snowflake
-    /// scripting, where the target is a local variable rather than a table.
+    /// Returns true if this dialect accepts Snowflake scripting variable
+    /// targets for `SELECT ... INTO`: a colon placeholder (`INTO :var`) and a
+    /// comma-separated target list (`INTO :a, :b`).
     fn supports_select_into_placeholder_target(&self) -> bool {
         false
     }

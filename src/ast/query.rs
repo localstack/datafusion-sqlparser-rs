@@ -3863,6 +3863,10 @@ pub struct SelectInto {
     pub table: bool,
     /// Name of the target table.
     pub name: ObjectName,
+    /// Further targets after `name`, e.g. `INTO :a, :b` in Snowflake
+    /// scripting, where every target is a variable. Always empty for a table
+    /// target.
+    pub additional_targets: Vec<ObjectName>,
 }
 
 impl fmt::Display for SelectInto {
@@ -3871,7 +3875,11 @@ impl fmt::Display for SelectInto {
         let unlogged = if self.unlogged { " UNLOGGED" } else { "" };
         let table = if self.table { " TABLE" } else { "" };
 
-        write!(f, "INTO{}{}{} {}", temporary, unlogged, table, self.name)
+        write!(f, "INTO{}{}{} {}", temporary, unlogged, table, self.name)?;
+        for target in &self.additional_targets {
+            write!(f, ", {target}")?;
+        }
+        Ok(())
     }
 }
 

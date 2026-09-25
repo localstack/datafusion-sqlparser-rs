@@ -22907,12 +22907,20 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_object_name(false)?
         };
+        // Snowflake scripting: `SELECT a, b INTO :x, :y` assigns by position.
+        let mut additional_targets = vec![];
+        if self.dialect.supports_select_into_placeholder_target() {
+            while self.consume_token(&Token::Comma) {
+                additional_targets.push(self.parse_scripting_into_target()?);
+            }
+        }
 
         Ok(SelectInto {
             temporary,
             unlogged,
             table,
             name,
+            additional_targets,
         })
     }
 

@@ -1119,6 +1119,7 @@ fn parse_select_into() {
             unlogged: false,
             table: false,
             name: ObjectName::from(vec![Ident::new("table0")]),
+            additional_targets: vec![],
         },
         only(&select.into)
     );

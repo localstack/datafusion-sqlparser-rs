@@ -2759,9 +2759,10 @@ impl Spanned for SelectInto {
             unlogged: _,  // bool
             table: _,     // bool
             name,
+            additional_targets,
         } = self;
 
-        name.span()
+        union_spans(iter::once(name.span()).chain(additional_targets.iter().map(|t| t.span())))
     }
 }
 
