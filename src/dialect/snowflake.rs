@@ -2529,7 +2529,24 @@ fn parse_create_external_table(
             builder = builder.location(Some(parse_external_table_location(parser)?));
         } else if parser.parse_keyword(Keyword::FILE_FORMAT) {
             parser.expect_token(&Token::Eq)?;
-            let options = parser.parse_key_value_options(true, &[], false)?;
+            // `FILE_FORMAT=(...)` is the inline / FORMAT_NAME option bag; Snowflake
+            // also accepts a bare `FILE_FORMAT=<db.schema.name>` reference to a
+            // named file format (the form GET_DDL renders), which is normalised to
+            // a single `FORMAT_NAME` option so downstream reads treat both alike.
+            let options = if parser.peek_token_ref().token == Token::LParen {
+                parser.parse_key_value_options(true, &[], false)?
+            } else {
+                let name = parser.parse_object_name(false)?;
+                KeyValueOptions {
+                    options: vec![KeyValueOption {
+                        option_name: "FORMAT_NAME".to_string(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::SingleQuotedString(name.to_string()).into(),
+                        ),
+                    }],
+                    delimiter: KeyValueOptionsDelimiter::Space,
+                }
+            };
             builder = builder.stage_file_format(Some(options));
         } else if parser.parse_keyword(Keyword::PATTERN) {
             let _ = parser.consume_token(&Token::Eq);
