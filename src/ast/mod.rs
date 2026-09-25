@@ -5241,6 +5241,18 @@ pub enum Statement {
     ///   AS <statement>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-task>
+    /// `CREATE [OR REPLACE] TASK <name> CLONE <source>`.
+    CreateTaskClone {
+        /// Replace an existing destination task.
+        or_replace: bool,
+        /// Preserve an existing destination task.
+        if_not_exists: bool,
+        /// Destination task name.
+        name: ObjectName,
+        /// Source task name.
+        source: ObjectName,
+    },
+    /// `CREATE TASK ... AS <statement>`.
     CreateTask {
         /// `OR REPLACE` flag.
         or_replace: bool,
@@ -8833,6 +8845,17 @@ impl fmt::Display for Statement {
                 )?;
                 Ok(())
             }
+            Statement::CreateTaskClone {
+                or_replace,
+                if_not_exists,
+                name,
+                source,
+            } => write!(
+                f,
+                "CREATE {}TASK {}{name} CLONE {source}",
+                if *or_replace { "OR REPLACE " } else { "" },
+                if *if_not_exists { "IF NOT EXISTS " } else { "" }
+            ),
             Statement::CreateTask {
                 or_replace,
                 if_not_exists,

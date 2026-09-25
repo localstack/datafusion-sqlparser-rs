@@ -6040,6 +6040,15 @@ impl<'a> Parser<'a> {
     fn parse_create_task(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
+        if self.parse_keyword(Keyword::CLONE) {
+            let source = self.parse_object_name(false)?;
+            return Ok(Statement::CreateTaskClone {
+                or_replace,
+                if_not_exists,
+                name,
+                source,
+            });
+        }
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
         let mut config: Option<String> = None;
