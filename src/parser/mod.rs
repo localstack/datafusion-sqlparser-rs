@@ -11755,15 +11755,20 @@ impl<'a> Parser<'a> {
     }
 
     /// Peek whether the upcoming tokens are a bare `<identifier> COMMENT ...`
+    /// or `<identifier> UNSET COMMENT`
     /// continuation of a comma-separated `ALTER COLUMN ... COMMENT` list, i.e.
     /// with the `COLUMN` keyword omitted. This shape is unambiguous against
     /// every other `ALTER TABLE` operation, which are all keyword-led.
     fn peek_bare_column_comment_continuation(&self) -> bool {
         matches!(self.peek_nth_token(0).token, Token::Word(_))
-            && matches!(
+            && (matches!(
                 self.peek_nth_token(1).token,
                 Token::Word(w) if w.keyword == Keyword::COMMENT
-            )
+            ) || matches!(
+                (self.peek_nth_token(1).token, self.peek_nth_token(2).token),
+                (Token::Word(unset), Token::Word(comment))
+                    if unset.keyword == Keyword::UNSET && comment.keyword == Keyword::COMMENT
+            ))
     }
 
     /// Parse a Snowflake named or kind-and-column constraint target.
@@ -12217,7 +12222,23 @@ impl<'a> Parser<'a> {
             } else {
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
             let col_name = self.parse_identifier()?;
-            if let Some(op) = self.maybe_parse_column_masking_policy()? {
+            if self.dialect.supports_alter_column_comment()
+                && self.parse_keyword(Keyword::COMMENT)
+            {
+                AlterTableOperation::AlterColumn {
+                    column_name: col_name,
+                    op: AlterColumnOperation::Comment {
+                        comment: self.parse_literal_string()?,
+                    },
+                }
+            } else if self.dialect.supports_alter_column_comment()
+                && self.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT])
+            {
+                AlterTableOperation::AlterColumn {
+                    column_name: col_name,
+                    op: AlterColumnOperation::UnsetComment,
+                }
+            } else if let Some(op) = self.maybe_parse_column_masking_policy()? {
                 AlterTableOperation::AlterColumn {
                     column_name: col_name,
                     op,
@@ -12248,13 +12269,15 @@ impl<'a> Parser<'a> {
             // and Snowflake also accepts the bare form with `COLUMN` omitted:
             // `... ALTER c1 COMMENT 's1', c2 COMMENT 's2'`.
             let column_name = self.parse_identifier()?;
-            self.expect_keyword_is(Keyword::COMMENT)?;
-            AlterTableOperation::AlterColumn {
-                column_name,
-                op: AlterColumnOperation::Comment {
+            let op = if self.parse_keyword(Keyword::COMMENT) {
+                AlterColumnOperation::Comment {
                     comment: self.parse_literal_string()?,
-                },
-            }
+                }
+            } else {
+                self.expect_keywords(&[Keyword::UNSET, Keyword::COMMENT])?;
+                AlterColumnOperation::UnsetComment
+            };
+            AlterTableOperation::AlterColumn { column_name, op }
         } else if self.parse_keyword(Keyword::ALTER) {
             if self.peek_keyword(Keyword::SORTKEY) {
                 self.prev_token();
@@ -13274,9 +13297,19 @@ impl<'a> Parser<'a> {
         let only = self.parse_keyword(Keyword::ONLY); // [ ONLY ]
         let table_name = self.parse_object_name(false)?;
         let on_cluster = self.parse_optional_on_cluster()?;
+        let wrapped_column_actions = self.dialect.supports_alter_column_comment()
+            && self.peek_one_of_keywords(&[Keyword::MODIFY, Keyword::ALTER]).is_some()
+            && self.peek_nth_token(1).token == Token::LParen;
+        if wrapped_column_actions {
+            self.next_token();
+            self.expect_token(&Token::LParen)?;
+        }
         let operations = self.with_state(ParserState::AlterTable, |parser| {
             parser.parse_comma_separated(Parser::parse_alter_table_operation)
         })?;
+        if wrapped_column_actions {
+            self.expect_token(&Token::RParen)?;
+        }
 
         let mut location = None;
         if self.parse_keyword(Keyword::LOCATION) {

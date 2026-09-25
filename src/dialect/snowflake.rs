@@ -3110,10 +3110,8 @@ pub fn parse_create_table(
 
     builder = builder.table_options(table_options);
 
-    // Snowflake-managed Iceberg tables require BASE_LOCATION. Tables bound to
-    // an external catalog integration (an explicit non-SNOWFLAKE CATALOG, or
-    // CATALOG_TABLE_NAME for externally-managed reads) do not, and neither does
-    // a clone (CREATE ICEBERG TABLE … CLONE inherits the source's location).
+    // Keep the legacy missing-location error for an unconfigured managed table;
+    // with an external volume, Snowflake assigns the storage location.
     let external_catalog = builder
         .catalog
         .as_deref()
@@ -3122,6 +3120,7 @@ pub fn parse_create_table(
         && !dynamic
         && builder.clone.is_none()
         && builder.base_location.is_none()
+        && builder.external_volume.is_none()
         && builder.catalog_table_name.is_none()
         && builder.metadata_file_path.is_none()
         && !external_catalog
