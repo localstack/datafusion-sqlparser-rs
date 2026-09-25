@@ -11207,13 +11207,21 @@ impl<'a> Parser<'a> {
             self.expect_token(&Token::RParen)?;
             let no_inherit = self.parse_keywords(&[Keyword::NO, Keyword::INHERIT]);
 
-            let enforced = if self.parse_keyword(Keyword::ENFORCED) {
+            let mut enforced = if self.parse_keyword(Keyword::ENFORCED) {
                 Some(true)
             } else if self.parse_keywords(&[Keyword::NOT, Keyword::ENFORCED]) {
                 Some(false)
             } else {
                 None
             };
+            if dialect_of!(self is SnowflakeDialect) {
+                enforced = self
+                    .parse_constraint_characteristics()?
+                    .and_then(|characteristics| {
+                        characteristics.enforced.or(characteristics.enabled)
+                    })
+                    .or(enforced);
+            }
 
             Ok(Some(
                 CheckConstraint {
@@ -11764,7 +11772,7 @@ impl<'a> Parser<'a> {
                 self.expect_token(&Token::RParen)?;
                 let no_inherit = self.parse_keywords(&[Keyword::NO, Keyword::INHERIT]);
 
-                let enforced = if self.parse_keyword(Keyword::ENFORCED) {
+                let mut enforced = if self.parse_keyword(Keyword::ENFORCED) {
                     Some(true)
                 } else if self.parse_keywords(&[Keyword::NOT, Keyword::ENFORCED]) {
                     Some(false)
@@ -11772,7 +11780,12 @@ impl<'a> Parser<'a> {
                     None
                 };
                 if dialect_of!(self is SnowflakeDialect) {
-                    self.parse_constraint_characteristics()?;
+                    enforced = self
+                        .parse_constraint_characteristics()?
+                        .and_then(|characteristics| {
+                            characteristics.enforced.or(characteristics.enabled)
+                        })
+                        .or(enforced);
                 }
                 let comment = self.parse_optional_constraint_comment()?;
 
