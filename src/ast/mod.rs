@@ -11249,6 +11249,12 @@ pub enum ActionCreateObjectType {
     McpServer,
     /// A data exchange listing.
     DataExchangeListing,
+    /// A listing.
+    Listing,
+    /// An organization profile.
+    OrganizationProfile,
+    /// A preview application.
+    PreviewApplication,
     /// A class object identified by a qualified name, e.g.
     /// `CREATE SNOWFLAKE.ML.ANOMALY_DETECTION`.
     Class(ObjectName),
@@ -11303,6 +11309,9 @@ impl fmt::Display for ActionCreateObjectType {
             ActionCreateObjectType::ComputePool => write!(f, "COMPUTE POOL"),
             ActionCreateObjectType::McpServer => write!(f, "MCP SERVER"),
             ActionCreateObjectType::DataExchangeListing => write!(f, "DATA EXCHANGE LISTING"),
+            ActionCreateObjectType::Listing => write!(f, "LISTING"),
+            ActionCreateObjectType::OrganizationProfile => write!(f, "ORGANIZATION PROFILE"),
+            ActionCreateObjectType::PreviewApplication => write!(f, "PREVIEW APPLICATION"),
             ActionCreateObjectType::Class(name) => write!(f, "{name}"),
             ActionCreateObjectType::Database => write!(f, "DATABASE"),
             ActionCreateObjectType::DatabaseRole => write!(f, "DATABASE ROLE"),
@@ -11339,6 +11348,8 @@ pub enum ActionApplyType {
     AuthenticationPolicy,
     /// Apply a join policy.
     JoinPolicy,
+    /// Apply a contact.
+    Contact,
     /// Apply a masking policy.
     MaskingPolicy,
     /// Apply a packages policy.
@@ -11351,6 +11362,8 @@ pub enum ActionApplyType {
     RowAccessPolicy,
     /// Apply a session policy.
     SessionPolicy,
+    /// Apply a storage lifecycle policy.
+    StorageLifecyclePolicy,
     /// Apply a tag.
     Tag,
 }
@@ -11361,12 +11374,14 @@ impl fmt::Display for ActionApplyType {
             ActionApplyType::AggregationPolicy => write!(f, "AGGREGATION POLICY"),
             ActionApplyType::AuthenticationPolicy => write!(f, "AUTHENTICATION POLICY"),
             ActionApplyType::JoinPolicy => write!(f, "JOIN POLICY"),
+            ActionApplyType::Contact => write!(f, "CONTACT"),
             ActionApplyType::MaskingPolicy => write!(f, "MASKING POLICY"),
             ActionApplyType::PackagesPolicy => write!(f, "PACKAGES POLICY"),
             ActionApplyType::PasswordPolicy => write!(f, "PASSWORD POLICY"),
             ActionApplyType::ProjectionPolicy => write!(f, "PROJECTION POLICY"),
             ActionApplyType::RowAccessPolicy => write!(f, "ROW ACCESS POLICY"),
             ActionApplyType::SessionPolicy => write!(f, "SESSION POLICY"),
+            ActionApplyType::StorageLifecyclePolicy => write!(f, "STORAGE LIFECYCLE POLICY"),
             ActionApplyType::Tag => write!(f, "TAG"),
         }
     }
