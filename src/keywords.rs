@@ -919,6 +919,7 @@ define_keywords!(
     PREPARE,
     PRESERVE,
     PRESET,
+    PREVIEW,
     PREWHERE,
     PRIMARY,
     PRINT,
