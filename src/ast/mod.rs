@@ -11759,6 +11759,10 @@ pub enum GrantObjects {
     Tables(Vec<ObjectName>),
     /// Grant privileges on specific views
     Views(Vec<ObjectName>),
+    /// Grant privileges on specific materialized views
+    MaterializedViews(Vec<ObjectName>),
+    /// Grant privileges on specific semantic views
+    SemanticViews(Vec<ObjectName>),
     /// Grant privileges on specific warehouses
     Warehouses(Vec<ObjectName>),
     /// Grant privileges on specific integrations
@@ -11854,6 +11858,12 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::Views(views) => {
                 write!(f, "VIEW {}", display_comma_separated(views))
+            }
+            GrantObjects::MaterializedViews(views) => {
+                write!(f, "MATERIALIZED VIEW {}", display_comma_separated(views))
+            }
+            GrantObjects::SemanticViews(views) => {
+                write!(f, "SEMANTIC VIEW {}", display_comma_separated(views))
             }
             GrantObjects::Warehouses(warehouses) => {
                 write!(f, "WAREHOUSE {}", display_comma_separated(warehouses))

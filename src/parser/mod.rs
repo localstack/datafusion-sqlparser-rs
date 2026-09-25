@@ -20478,6 +20478,14 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::Alerts(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
+            } else if self.parse_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW]) {
+                Some(GrantObjects::MaterializedViews(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
+            } else if self.parse_keywords(&[Keyword::SEMANTIC, Keyword::VIEW]) {
+                Some(GrantObjects::SemanticViews(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else {
                 let object_type = self.parse_one_of_keywords(&[
                     Keyword::SEQUENCE,
