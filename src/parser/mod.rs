@@ -21334,8 +21334,12 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::FailoverGroup)
         } else if self.parse_keywords(&[Keyword::NETWORK, Keyword::POLICY]) {
             Some(ActionCreateObjectType::NetworkPolicy)
+        } else if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::PROFILE]) {
+            Some(ActionCreateObjectType::OrganizationProfile)
         } else if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::LISTING]) {
             Some(ActionCreateObjectType::OrganiationListing)
+        } else if self.parse_keywords(&[Keyword::PREVIEW, Keyword::APPLICATION]) {
+            Some(ActionCreateObjectType::PreviewApplication)
         } else if self.parse_keywords(&[Keyword::REPLICATION, Keyword::GROUP]) {
             Some(ActionCreateObjectType::ReplicationGroup)
         } else if self.parse_keywords(&[Keyword::DATABASE, Keyword::ROLE]) {
@@ -21358,6 +21362,8 @@ impl<'a> Parser<'a> {
             Some(ActionCreateObjectType::Procedure)
         } else if self.parse_keyword(Keyword::INTEGRATION) {
             Some(ActionCreateObjectType::Integration)
+        } else if self.parse_keyword(Keyword::LISTING) {
+            Some(ActionCreateObjectType::Listing)
         } else if self.parse_keyword(Keyword::ROLE) {
             Some(ActionCreateObjectType::Role)
         } else if self.parse_keyword(Keyword::SCHEMA) {
@@ -21406,6 +21412,10 @@ impl<'a> Parser<'a> {
             Ok(ActionApplyType::RowAccessPolicy)
         } else if self.parse_keywords(&[Keyword::SESSION, Keyword::POLICY]) {
             Ok(ActionApplyType::SessionPolicy)
+        } else if self.parse_keywords(&[Keyword::STORAGE, Keyword::LIFECYCLE, Keyword::POLICY]) {
+            Ok(ActionApplyType::StorageLifecyclePolicy)
+        } else if self.parse_keyword(Keyword::CONTACT) {
+            Ok(ActionApplyType::Contact)
         } else if self.parse_keyword(Keyword::TAG) {
             Ok(ActionApplyType::Tag)
         } else {
