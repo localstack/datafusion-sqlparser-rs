@@ -20487,6 +20487,15 @@ impl<'a> Parser<'a> {
     /// The store spelling is what real Snowflake reports in `SHOW FUTURE GRANTS`
     /// / `SHOW GRANTS` (e.g. `CORTEX_AGENT` for `AGENTS`).
     const BULK_GRANT_KINDS: &'static [(&'static str, &'static [&'static str], &'static str)] = &[
+        ("VIEWS", &["VIEWS"], "VIEW"),
+        ("SEQUENCES", &["SEQUENCES"], "SEQUENCE"),
+        ("STAGES", &["STAGES"], "STAGE"),
+        ("FILE FORMATS", &["FILE", "FORMATS"], "FILE_FORMAT"),
+        ("SECRETS", &["SECRETS"], "SECRET"),
+        ("FUNCTIONS", &["FUNCTIONS"], "FUNCTION"),
+        ("PROCEDURES", &["PROCEDURES"], "PROCEDURE"),
+        ("MATERIALIZED VIEWS", &["MATERIALIZED", "VIEWS"], "MATERIALIZED_VIEW"),
+        ("EXTERNAL TABLES", &["EXTERNAL", "TABLES"], "EXTERNAL_TABLE"),
         ("STREAMLITS", &["STREAMLITS"], "STREAMLIT"),
         ("DATASETS", &["DATASETS"], "DATASET"),
         ("IMAGE REPOSITORIES", &["IMAGE", "REPOSITORIES"], "IMAGE_REPOSITORY"),
