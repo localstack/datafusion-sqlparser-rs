@@ -20631,6 +20631,7 @@ impl<'a> Parser<'a> {
             "MANAGE APPLICATION SPECIFICATIONS",
             "MANAGE VISIBILITY",
             "READ UNREDACTED ERROR TABLE",
+            "SELECT ERROR TABLE",
             "USE AI FUNCTIONS",
             "APPLY STORAGE LIFECYCLE POLICY",
             "APPLY CONTACT",
