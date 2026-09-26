@@ -5292,7 +5292,7 @@ pub enum Statement {
         /// Optional initial size for a serverless task's managed warehouse.
         user_task_managed_initial_warehouse_size: Option<String>,
         /// Optional minimum interval between triggered task executions.
-        user_task_minimum_trigger_interval_in_seconds: Option<u64>,
+        user_task_minimum_trigger_interval_in_seconds: Option<String>,
         /// Optional target completion interval for serverless tasks.
         target_completion_interval: Option<String>,
         /// Optional minimum serverless statement size.

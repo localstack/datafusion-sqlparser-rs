@@ -6062,7 +6062,7 @@ impl<'a> Parser<'a> {
         let mut suspend_task_after_num_failures: Option<u64> = None;
         let mut user_task_timeout_ms: Option<u64> = None;
         let mut user_task_managed_initial_warehouse_size: Option<String> = None;
-        let mut user_task_minimum_trigger_interval_in_seconds: Option<u64> = None;
+        let mut user_task_minimum_trigger_interval_in_seconds: Option<String> = None;
         let mut target_completion_interval: Option<String> = None;
         let mut serverless_task_min_statement_size: Option<String> = None;
         let mut serverless_task_max_statement_size: Option<String> = None;
@@ -6162,7 +6162,7 @@ impl<'a> Parser<'a> {
                 user_task_managed_initial_warehouse_size = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS) {
                 self.expect_token(&Token::Eq)?;
-                user_task_minimum_trigger_interval_in_seconds = Some(self.parse_literal_uint()?);
+                user_task_minimum_trigger_interval_in_seconds = Some(self.parse_expr()?.to_string());
             } else if self.parse_keyword(Keyword::TARGET_COMPLETION_INTERVAL) {
                 self.expect_token(&Token::Eq)?;
                 target_completion_interval = Some(self.parse_literal_string()?);
