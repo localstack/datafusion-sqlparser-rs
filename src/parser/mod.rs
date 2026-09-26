@@ -5721,7 +5721,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::ACCOUNT) {
             self.parse_create_account()
         } else if self.parse_keyword(Keyword::TASK) {
-            self.parse_create_task(or_replace)
+            self.parse_create_task(or_replace, or_alter)
         } else if self.parse_keyword(Keyword::ALERT) {
             self.parse_create_alert(or_replace)
         } else if self.parse_keywords(&[Keyword::SECURE, Keyword::PROCEDURE]) {
@@ -6037,10 +6037,13 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse `CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name> ... AS <statement>`.
-    fn parse_create_task(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+    fn parse_create_task(&mut self, or_replace: bool, or_alter: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         if self.parse_keyword(Keyword::CLONE) {
+            if or_alter {
+                return self.expected("AS", self.peek_token());
+            }
             let source = self.parse_object_name(false)?;
             return Ok(Statement::CreateTaskClone {
                 or_replace,
@@ -6051,6 +6054,7 @@ impl<'a> Parser<'a> {
         }
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
+        let mut execute_as_user: Option<Ident> = None;
         let mut config: Option<String> = None;
         let mut after: Vec<ObjectName> = Vec::new();
         let mut finalize: Option<ObjectName> = None;
@@ -6099,10 +6103,12 @@ impl<'a> Parser<'a> {
                 let sql_body = Box::new(sql_body);
                 return Ok(Statement::CreateTask {
                     or_replace,
+                    or_alter,
                     if_not_exists,
                     name,
                     warehouse,
                     schedule,
+                    execute_as_user,
                     config,
                     after,
                     finalize,
@@ -6131,6 +6137,8 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
                 schedule = Some(self.parse_literal_string()?);
+            } else if self.parse_keywords(&[Keyword::EXECUTE, Keyword::AS, Keyword::USER]) {
+                execute_as_user = Some(self.parse_identifier()?);
             } else if self.parse_keyword(Keyword::CONFIG) {
                 self.expect_token(&Token::Eq)?;
                 config = Some(self.parse_literal_string()?);
