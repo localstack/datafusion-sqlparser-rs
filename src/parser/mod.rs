@@ -18220,11 +18220,40 @@ impl<'a> Parser<'a> {
             && (self.peek_nth_keyword(2, Keyword::FUNCTION)
                 || self.peek_nth_keyword(2, Keyword::PROCEDURE))
         {
-            self.parse_show_grants_on_routine()
+            let show = self.parse_show_grants_on_routine()?;
+            self.parse_show_grants_limit(show)
+        } else if self.peek_nth_keyword(0, Keyword::GRANTS)
+            || (self.peek_nth_keyword(0, Keyword::FUTURE)
+                && self.peek_nth_keyword(1, Keyword::GRANTS))
+        {
+            let mut variable = vec![];
+            loop {
+                let token = self.peek_token_ref();
+                match &token.token {
+                    Token::Word(w) if w.keyword == Keyword::LIMIT && w.quote_style.is_none() => break,
+                    Token::Word(w) => variable.push(w.to_ident(token.span)),
+                    Token::EOF | Token::Eq | Token::SemiColon | Token::VerticalBarRightAngleBracket => break,
+                    _ => {}
+                }
+                self.advance_token();
+            }
+            self.parse_show_grants_limit(Statement::ShowVariable { variable })
         } else {
             Ok(Statement::ShowVariable {
                 variable: self.parse_identifiers()?,
             })
+        }
+    }
+
+    fn parse_show_grants_limit(&mut self, show: Statement) -> Result<Statement, ParserError> {
+        if self.parse_keyword(Keyword::LIMIT) {
+            let limit = self.parse_expr()?;
+            Ok(Statement::ShowGrantsLimited {
+                show: Box::new(show),
+                limit,
+            })
+        } else {
+            Ok(show)
         }
     }
 

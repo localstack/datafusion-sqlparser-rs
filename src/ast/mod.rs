@@ -4618,6 +4618,13 @@ pub enum Statement {
         /// Variable name as one or more identifiers.
         variable: Vec<Ident>,
     },
+    /// A SHOW GRANTS reader with a row limit.
+    ShowGrantsLimited {
+        /// The unbounded SHOW GRANTS statement.
+        show: Box<Statement>,
+        /// Maximum number of rows.
+        limit: Expr,
+    },
     /// ```sql
     /// SHOW GRANTS ON FUNCTION|PROCEDURE <name> [ ( [<arg_type>, ...] ) ]
     /// ```
@@ -8113,6 +8120,9 @@ impl fmt::Display for Statement {
                     write!(f, " {}", display_separated(variable, " "))?;
                 }
                 Ok(())
+            }
+            Statement::ShowGrantsLimited { show, limit } => {
+                write!(f, "{show} LIMIT {limit}")
             }
             Statement::ShowGrantsOnRoutine {
                 is_procedure,

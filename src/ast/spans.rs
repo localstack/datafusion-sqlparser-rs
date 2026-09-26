@@ -457,6 +457,7 @@ impl Spanned for Statement {
             Statement::Unset { .. } => Span::empty(),
             Statement::ShowFunctions { .. } => Span::empty(),
             Statement::ShowVariable { .. } => Span::empty(),
+            Statement::ShowGrantsLimited { .. } => Span::empty(),
             Statement::ShowGrantsOnRoutine { .. } => Span::empty(),
             Statement::ShowStatus { .. } => Span::empty(),
             Statement::ShowVariables { .. } => Span::empty(),
