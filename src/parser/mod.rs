@@ -6066,6 +6066,7 @@ impl<'a> Parser<'a> {
         let mut success_integration: Option<Ident> = None;
         let mut log_level: Option<String> = None;
         let mut allow_overlapping_execution: Option<bool> = None;
+        let mut overlap_policy: Option<String> = None;
         let mut task_auto_retry_attempts: Option<u64> = None;
         let mut comment: Option<String> = None;
         let mut session_parameters = KeyValueOptions {
@@ -6117,6 +6118,7 @@ impl<'a> Parser<'a> {
                     success_integration,
                     log_level,
                     allow_overlapping_execution,
+                    overlap_policy,
                     task_auto_retry_attempts,
                     comment,
                     session_parameters,
@@ -6174,6 +6176,15 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::ALLOW_OVERLAPPING_EXECUTION) {
                 self.expect_token(&Token::Eq)?;
                 allow_overlapping_execution = Some(self.parse_boolean_string()?);
+            } else if self.parse_keyword(Keyword::OVERLAP_POLICY) {
+                self.expect_token(&Token::Eq)?;
+                overlap_policy = Some(
+                    if matches!(self.peek_token().token, Token::SingleQuotedString(_)) {
+                        self.parse_literal_string()?
+                    } else {
+                        self.parse_identifier()?.value
+                    },
+                );
             } else if self.parse_keyword(Keyword::TASK_AUTO_RETRY_ATTEMPTS) {
                 self.expect_token(&Token::Eq)?;
                 task_auto_retry_attempts = Some(self.parse_literal_uint()?);
