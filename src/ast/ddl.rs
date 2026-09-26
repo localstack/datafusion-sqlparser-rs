@@ -1695,6 +1695,8 @@ pub struct SemanticViewTable {
     pub primary_key: Vec<Ident>,
     /// Zero or more `UNIQUE ( ... )` column groups.
     pub unique: Vec<Vec<Ident>>,
+    /// `CONSTRAINT [name] DISTINCT RANGE BETWEEN start AND end EXCLUSIVE`.
+    pub distinct_ranges: Vec<SemanticViewDistinctRange>,
     /// `WITH SYNONYMS ( ... )` values (empty if absent).
     pub synonyms: Vec<String>,
     /// `WITH TAG ( ... )` entries (empty if absent).
@@ -1715,6 +1717,9 @@ impl fmt::Display for SemanticViewTable {
         for unique in &self.unique {
             write!(f, " UNIQUE ({})", display_comma_separated(unique))?;
         }
+        for range in &self.distinct_ranges {
+            write!(f, " {range}")?;
+        }
         if !self.synonyms.is_empty() {
             fmt_semantic_view_synonyms(f, &self.synonyms)?;
         }
@@ -1725,6 +1730,29 @@ impl fmt::Display for SemanticViewTable {
             write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// A logical-table DISTINCT RANGE constraint.
+pub struct SemanticViewDistinctRange {
+    /// Optional constraint name.
+    pub name: Option<Ident>,
+    /// Start endpoint column.
+    pub start: Ident,
+    /// End endpoint column.
+    pub end: Ident,
+}
+
+impl fmt::Display for SemanticViewDistinctRange {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("CONSTRAINT")?;
+        if let Some(name) = &self.name {
+            write!(f, " {name}")?;
+        }
+        write!(f, " DISTINCT RANGE BETWEEN {} AND {} EXCLUSIVE", self.start, self.end)
     }
 }
 

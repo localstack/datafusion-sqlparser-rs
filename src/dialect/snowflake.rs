@@ -34,7 +34,7 @@ use crate::ast::{
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
     AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewCortexSearch,
-    SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
+    SemanticViewDistinctRange, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -5382,6 +5382,7 @@ fn parse_semantic_view_table(parser: &mut Parser) -> Result<SemanticViewTable, P
 
     let mut primary_key = Vec::new();
     let mut unique = Vec::new();
+    let mut distinct_ranges = Vec::new();
     let mut synonyms = Vec::new();
     let mut tags = Vec::new();
     let mut comment = None;
@@ -5390,6 +5391,23 @@ fn parse_semantic_view_table(parser: &mut Parser) -> Result<SemanticViewTable, P
             primary_key = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
         } else if parser.parse_keyword(Keyword::UNIQUE) {
             unique.push(parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?);
+        } else if parser.peek_keyword(Keyword::CONSTRAINT)
+            || parser.peek_keyword(Keyword::DISTINCT)
+        {
+            let name = if parser.parse_keyword(Keyword::CONSTRAINT) {
+                if parser.peek_keyword(Keyword::DISTINCT) {
+                    return parser.expected("constraint name", parser.peek_token());
+                }
+                Some(parser.parse_identifier()?)
+            } else {
+                None
+            };
+            parser.expect_keywords(&[Keyword::DISTINCT, Keyword::RANGE, Keyword::BETWEEN])?;
+            let start = parser.parse_identifier()?;
+            parser.expect_keyword(Keyword::AND)?;
+            let end = parser.parse_identifier()?;
+            parser.expect_keyword(Keyword::EXCLUSIVE)?;
+            distinct_ranges.push(SemanticViewDistinctRange { name, start, end });
         } else if synonyms.is_empty()
             && (parser.parse_keywords(&[Keyword::WITH, Keyword::SYNONYMS])
                 || parser.parse_keyword(Keyword::SYNONYMS))
@@ -5413,6 +5431,7 @@ fn parse_semantic_view_table(parser: &mut Parser) -> Result<SemanticViewTable, P
         name,
         primary_key,
         unique,
+        distinct_ranges,
         synonyms,
         tags,
         comment,

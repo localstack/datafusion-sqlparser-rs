@@ -89,7 +89,7 @@ pub use self::ddl::{
     Owner, Partition, PartitionBoundValue, ProcedureExecuteAs, ProcedureParam, ReferentialAction,
     RenameTableNameKind, ReplicaIdentity, CreateSemanticView, SemanticViewClause,
     SemanticViewColumnAccess, SemanticViewCortexSearch, SemanticViewExpr,
-    SemanticViewRelationship, SemanticViewTable,
+    SemanticViewDistinctRange, SemanticViewRelationship, SemanticViewTable,
     TagsColumnOption, TriggerObjectKind, Truncate,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
