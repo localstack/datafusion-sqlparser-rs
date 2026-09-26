@@ -10536,22 +10536,15 @@ impl<'a> Parser<'a> {
             if let Some(constraint) = self.parse_optional_table_constraint()? {
                 constraints.push(constraint);
             } else if let Token::Word(_) = &self.peek_token_ref().token {
-                // A bare column name with no data type (`CREATE TABLE t(id) AS
-                // SELECT ...`) is only accepted when the dialect opts in and the
-                // name is immediately followed by a column-list terminator, so a
-                // genuinely malformed data type still surfaces its own error.
+                // A column without a type is accepted only before a list
+                // terminator or COMMENT, so malformed types still surface an error.
                 if self.dialect.supports_create_table_optional_column_type()
-                    && matches!(
+                    && (matches!(
                         self.peek_nth_token_ref(1).token,
                         Token::Comma | Token::RParen
-                    )
+                    ) || self.peek_nth_keyword(1, Keyword::COMMENT))
                 {
-                    let name = self.parse_identifier()?;
-                    columns.push(ColumnDef {
-                        name,
-                        data_type: DataType::Unspecified,
-                        options: vec![],
-                    });
+                    columns.push(self.parse_column_def_inner(true)?);
                 } else {
                     columns.push(self.parse_column_def()?);
                 }
@@ -10635,7 +10628,9 @@ impl<'a> Parser<'a> {
         optional_data_type: bool,
     ) -> Result<ColumnDef, ParserError> {
         let col_name = self.parse_identifier()?;
-        let data_type = if self.is_column_type_sqlite_unspecified() {
+        let data_type = if self.is_column_type_sqlite_unspecified()
+            || (optional_data_type && self.peek_keyword(Keyword::COMMENT))
+        {
             DataType::Unspecified
         } else if optional_data_type {
             self.maybe_parse(|parser| parser.parse_data_type())?
