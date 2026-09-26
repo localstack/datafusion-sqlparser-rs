@@ -100,6 +100,7 @@ pub use self::ddl::{
     AlterSnowflakeSecretOperation,
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
     SemanticViewCortexSearch,
+    SemanticViewDistinctRange,
     ProcedureExecuteAs,
 };
 pub use self::dml::{
