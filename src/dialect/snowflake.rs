@@ -700,9 +700,9 @@ impl SnowflakeDialect {
                 return Some(parse_create_password_policy(or_replace, parser));
             }
 
-            // CREATE [OR REPLACE] SEMANTIC VIEW
+            // CREATE [OR REPLACE | OR ALTER] SEMANTIC VIEW
             if parser.parse_keywords(&[Keyword::SEMANTIC, Keyword::VIEW]) {
-                return Some(parse_create_semantic_view(or_replace, parser));
+                return Some(parse_create_semantic_view(or_replace, or_alter, parser));
             }
 
             // CREATE [OR REPLACE] SESSION POLICY
@@ -5561,12 +5561,13 @@ fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<Semanti
     })
 }
 
-/// Parse `CREATE [OR REPLACE] SEMANTIC VIEW [IF NOT EXISTS] <name>
+/// Parse `CREATE [OR REPLACE | OR ALTER] SEMANTIC VIEW [IF NOT EXISTS] <name>
 ///   TABLES ( ... ) [ RELATIONSHIPS ( ... ) ] [ FACTS ( ... ) ]
 ///   [ DIMENSIONS ( ... ) ] [ METRICS ( ... ) ] [ COMMENT = '...' ]`.
 /// The clauses are captured in declaration order (ADR 100 §1).
 fn parse_create_semantic_view(
     or_replace: bool,
+    or_alter: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -5637,6 +5638,7 @@ fn parse_create_semantic_view(
 
     Ok(Statement::CreateSemanticView(Box::new(CreateSemanticView {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         clauses,
