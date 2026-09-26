@@ -5439,6 +5439,8 @@ pub enum Statement {
         log_level: Option<String>,
         /// Whether task runs may overlap.
         allow_overlapping_execution: Option<bool>,
+        /// Root task graph overlap policy.
+        overlap_policy: Option<String>,
         /// Optional number of automatic retry attempts.
         task_auto_retry_attempts: Option<u64>,
         /// Optional `COMMENT = '<string>'` clause.
@@ -9025,6 +9027,7 @@ impl fmt::Display for Statement {
                 success_integration,
                 log_level,
                 allow_overlapping_execution,
+                overlap_policy,
                 task_auto_retry_attempts,
                 comment,
                 session_parameters,
@@ -9092,6 +9095,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(allow) = allow_overlapping_execution {
                     write!(f, " ALLOW_OVERLAPPING_EXECUTION = {allow}")?;
+                }
+                if let Some(policy) = overlap_policy {
+                    write!(f, " OVERLAP_POLICY = {policy}")?;
                 }
                 if let Some(n) = task_auto_retry_attempts {
                     write!(f, " TASK_AUTO_RETRY_ATTEMPTS = {n}")?;
