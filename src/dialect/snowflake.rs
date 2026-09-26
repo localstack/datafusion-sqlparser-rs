@@ -5455,13 +5455,24 @@ fn parse_semantic_view_relationship(
     let columns = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
     parser.expect_keyword(Keyword::REFERENCES)?;
     let ref_table = parser.parse_object_name(false)?;
-    let ref_columns = parser.parse_parenthesized_column_list(IsOptional::Optional, false)?;
+    let marked_columns = if parser.consume_token(&Token::LParen) {
+        let columns = parser.parse_comma_separated(|p| {
+            Ok((p.parse_keyword(Keyword::ASOF), p.parse_identifier()?))
+        })?;
+        parser.expect_token(&Token::RParen)?;
+        columns
+    } else {
+        Vec::new()
+    };
+    let asof_columns = marked_columns.iter().map(|(asof, _)| *asof).collect();
+    let ref_columns = marked_columns.into_iter().map(|(_, column)| column).collect();
     Ok(SemanticViewRelationship {
         identifier,
         table,
         columns,
         ref_table,
         ref_columns,
+        asof_columns,
     })
 }
 

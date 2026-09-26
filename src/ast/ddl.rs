@@ -1771,6 +1771,8 @@ pub struct SemanticViewRelationship {
     pub ref_table: ObjectName,
     /// The referenced columns (empty when omitted).
     pub ref_columns: Vec<Ident>,
+    /// `ASOF` markers aligned with the referenced columns.
+    pub asof_columns: Vec<bool>,
 }
 
 impl fmt::Display for SemanticViewRelationship {
@@ -1786,7 +1788,17 @@ impl fmt::Display for SemanticViewRelationship {
             self.ref_table
         )?;
         if !self.ref_columns.is_empty() {
-            write!(f, " ({})", display_comma_separated(&self.ref_columns))?;
+            write!(f, " (")?;
+            for (index, column) in self.ref_columns.iter().enumerate() {
+                if index > 0 {
+                    write!(f, ", ")?;
+                }
+                if self.asof_columns.get(index) == Some(&true) {
+                    write!(f, "ASOF ")?;
+                }
+                write!(f, "{column}")?;
+            }
+            write!(f, ")")?;
         }
         Ok(())
     }

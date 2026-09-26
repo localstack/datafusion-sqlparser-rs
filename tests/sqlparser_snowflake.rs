@@ -10978,6 +10978,7 @@ fn parse_create_semantic_view() {
         "CREATE OR REPLACE SEMANTIC VIEW sv TABLES (o AS orders) METRICS (o.total AS SUM(o.amount))",
         "CREATE SEMANTIC VIEW IF NOT EXISTS db.sc.sv TABLES (o AS orders) DIMENSIONS (o.region AS region) COMMENT = 'a view'",
         "CREATE SEMANTIC VIEW sv TABLES (o AS orders PRIMARY KEY (id) UNIQUE (a, b) WITH SYNONYMS ('ord') WITH TAG (t='v') COMMENT = 'tbl') RELATIONSHIPS (rel AS o (cust_id) REFERENCES customers (id)) FACTS (o.amount AS amount) DIMENSIONS (o.region AS region) METRICS (o.total AS SUM(amount))",
+        "CREATE SEMANTIC VIEW sv TABLES (o AS orders, p AS prices) RELATIONSHIPS (o (shop, time, sku) REFERENCES p (shop, ASOF time, sku)) DIMENSIONS (o.id AS id, p.price AS price)",
     ] {
         snowflake().verified_stmt(sql);
     }
