@@ -6177,10 +6177,28 @@ impl<'a> Parser<'a> {
                 error_integration = Some(self.parse_identifier()?);
             } else if self.parse_keyword(Keyword::SUCCESS_INTEGRATION) {
                 self.expect_token(&Token::Eq)?;
-                success_integration = Some(self.parse_identifier()?);
+                success_integration = Some(if let Token::Number(value, _) = self.peek_token().token.clone() {
+                    self.next_token();
+                    Ident::new(value)
+                } else {
+                    let first = self.parse_identifier()?;
+                    if self.consume_token(&Token::Period) {
+                        let schema = self.parse_identifier()?;
+                        self.expect_token(&Token::Period)?;
+                        let name = self.parse_identifier()?;
+                        Ident::new(format!("{first}.{schema}.{name}"))
+                    } else {
+                        first
+                    }
+                });
             } else if self.parse_keyword(Keyword::LOG_LEVEL) {
                 self.expect_token(&Token::Eq)?;
-                log_level = Some(self.parse_literal_string()?);
+                log_level = Some(if let Token::Number(value, _) = self.peek_token().token.clone() {
+                    self.next_token();
+                    value
+                } else {
+                    self.parse_literal_string()?
+                });
             } else if self.parse_keyword(Keyword::ALLOW_OVERLAPPING_EXECUTION) {
                 self.expect_token(&Token::Eq)?;
                 allow_overlapping_execution = Some(self.parse_boolean_string()?);
