@@ -5401,6 +5401,8 @@ pub enum Statement {
     CreateTask {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Task name.
@@ -5409,6 +5411,10 @@ pub enum Statement {
         warehouse: Option<Ident>,
         /// Optional `SCHEDULE = '<string>'` clause (raw inner string).
         schedule: Option<String>,
+        /// Optional task overlap policy.
+        overlap_policy: Option<String>,
+        /// Optional execution user.
+        execute_as_user: Option<Ident>,
         /// Optional `CONFIG = '<json object>'` clause.
         config: Option<String>,
         /// Optional `AFTER <task>[, <task>, ...]` clause.
@@ -5439,8 +5445,6 @@ pub enum Statement {
         log_level: Option<String>,
         /// Whether task runs may overlap.
         allow_overlapping_execution: Option<bool>,
-        /// Root task graph overlap policy.
-        overlap_policy: Option<String>,
         /// Optional number of automatic retry attempts.
         task_auto_retry_attempts: Option<u64>,
         /// Optional `COMMENT = '<string>'` clause.
@@ -9008,10 +9012,12 @@ impl fmt::Display for Statement {
             ),
             Statement::CreateTask {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 warehouse,
                 schedule,
+                execute_as_user,
                 config,
                 after,
                 finalize,
@@ -9035,8 +9041,9 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}TASK {if_not_exists}{name}",
+                    "CREATE {or_replace}{or_alter}TASK {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if let Some(wh) = warehouse {
@@ -9044,6 +9051,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(s) = schedule {
                     write!(f, " SCHEDULE = '{s}'")?;
+                }
+                if let Some(user) = execute_as_user {
+                    write!(f, " EXECUTE AS USER {user}")?;
                 }
                 if let Some(c) = config {
                     write!(f, " CONFIG = '{c}'")?;
