@@ -5529,7 +5529,7 @@ fn parse_semantic_view_relationship(
 /// Parse a fact, dimension, or metric semantic expression:
 /// `[ PRIVATE | PUBLIC ] <name> [ AS <sql_expr> ] [ WITH SYNONYMS ( ... ) ]
 ///  [ [WITH] TAG ( ... ) ] [ COMMENT = '...' ]`.
-fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, ParserError> {
+fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<SemanticViewExpr, ParserError> {
     let access = if parser.parse_keyword(Keyword::PRIVATE) {
         Some(SemanticViewColumnAccess::Private)
     } else if parser.parse_keyword(Keyword::PUBLIC) {
@@ -5538,6 +5538,11 @@ fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, Par
         None
     };
     let name = parser.parse_object_name(false)?;
+    let using_relationships = if metric && parser.parse_keyword(Keyword::USING) {
+        parse_semantic_view_paren_list(parser, |p| p.parse_identifier())?
+    } else {
+        Vec::new()
+    };
     let expr = if parser.parse_keyword(Keyword::AS) {
         Some(parser.parse_expr()?)
     } else {
@@ -5585,6 +5590,7 @@ fn parse_semantic_view_expr(parser: &mut Parser) -> Result<SemanticViewExpr, Par
     Ok(SemanticViewExpr {
         access,
         name,
+        using_relationships,
         expr,
         synonyms,
         tags,
@@ -5625,16 +5631,16 @@ fn parse_create_semantic_view(
         } else if parser.parse_keyword(Keyword::FACTS) {
             clauses.push(SemanticViewClause::Facts(parse_semantic_view_paren_list(
                 parser,
-                parse_semantic_view_expr,
+                |p| parse_semantic_view_expr(p, false),
             )?));
         } else if parser.parse_keyword(Keyword::DIMENSIONS) {
             clauses.push(SemanticViewClause::Dimensions(
-                parse_semantic_view_paren_list(parser, parse_semantic_view_expr)?,
+                parse_semantic_view_paren_list(parser, |p| parse_semantic_view_expr(p, false))?,
             ));
         } else if parser.parse_keyword(Keyword::METRICS) {
             clauses.push(SemanticViewClause::Metrics(parse_semantic_view_paren_list(
                 parser,
-                parse_semantic_view_expr,
+                |p| parse_semantic_view_expr(p, true),
             )?));
         } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
             parser.expect_token(&Token::Eq)?;
