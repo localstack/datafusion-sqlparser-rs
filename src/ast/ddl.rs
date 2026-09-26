@@ -1914,6 +1914,8 @@ pub struct CreateSemanticView {
     pub name: ObjectName,
     /// The clause lists in declaration order.
     pub clauses: Vec<SemanticViewClause>,
+    /// `[WITH] TAG ( ... )` assignments on the semantic view.
+    pub tags: Vec<Tag>,
     /// `COMMENT = '...'`.
     pub comment: Option<String>,
     /// `MAX_STALENESS = '<interval>'` — carried opaquely (ADR 101 §7). Real
@@ -1941,6 +1943,9 @@ impl fmt::Display for CreateSemanticView {
         )?;
         for clause in &self.clauses {
             write!(f, " {clause}")?;
+        }
+        if !self.tags.is_empty() {
+            write!(f, " WITH TAG ({})", display_comma_separated(&self.tags))?;
         }
         if let Some(comment) = &self.comment {
             write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
