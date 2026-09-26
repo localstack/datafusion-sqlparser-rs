@@ -5459,23 +5459,35 @@ fn parse_semantic_view_relationship(
     let columns = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
     parser.expect_keyword(Keyword::REFERENCES)?;
     let ref_table = parser.parse_object_name(false)?;
-    let marked_columns = if parser.consume_token(&Token::LParen) {
-        let columns = parser.parse_comma_separated(|p| {
-            Ok((p.parse_keyword(Keyword::ASOF), p.parse_identifier()?))
-        })?;
-        parser.expect_token(&Token::RParen)?;
-        columns
+    let (ref_columns, asof_columns, range) = if parser.consume_token(&Token::LParen) {
+        if parser.parse_keyword(Keyword::BETWEEN) {
+            let start = parser.parse_identifier()?;
+            parser.expect_keyword(Keyword::AND)?;
+            let end = parser.parse_identifier()?;
+            parser.expect_keyword(Keyword::EXCLUSIVE)?;
+            parser.expect_token(&Token::RParen)?;
+            (Vec::new(), Vec::new(), vec![start, end])
+        } else {
+            let columns = parser.parse_comma_separated(|p| {
+                Ok((p.parse_keyword(Keyword::ASOF), p.parse_identifier()?))
+            })?;
+            parser.expect_token(&Token::RParen)?;
+            (
+                columns.iter().map(|(_, column)| column.clone()).collect(),
+                columns.iter().map(|(asof, _)| *asof).collect(),
+                Vec::new(),
+            )
+        }
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new(), Vec::new())
     };
-    let asof_columns = marked_columns.iter().map(|(asof, _)| *asof).collect();
-    let ref_columns = marked_columns.into_iter().map(|(_, column)| column).collect();
     Ok(SemanticViewRelationship {
         identifier,
         table,
         columns,
         ref_table,
         ref_columns,
+        range,
         asof_columns,
     })
 }
