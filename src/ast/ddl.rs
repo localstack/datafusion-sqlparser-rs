@@ -1936,13 +1936,15 @@ impl fmt::Display for SemanticViewClause {
     }
 }
 
-/// The payload of a `CREATE [OR REPLACE] SEMANTIC VIEW` statement.
+/// The payload of a `CREATE [OR REPLACE | OR ALTER] SEMANTIC VIEW` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct CreateSemanticView {
     /// `OR REPLACE` flag.
     pub or_replace: bool,
+    /// `OR ALTER` flag.
+    pub or_alter: bool,
     /// `IF NOT EXISTS` flag.
     pub if_not_exists: bool,
     /// The semantic view name.
@@ -1971,8 +1973,9 @@ impl fmt::Display for CreateSemanticView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "CREATE {or_replace}SEMANTIC VIEW {if_not_exists}{name}",
+            "CREATE {or_replace}{or_alter}SEMANTIC VIEW {if_not_exists}{name}",
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
+            or_alter = if self.or_alter { "OR ALTER " } else { "" },
             if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
             name = self.name,
         )?;
