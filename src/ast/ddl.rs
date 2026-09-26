@@ -1840,6 +1840,8 @@ pub struct SemanticViewExpr {
     pub access: Option<SemanticViewColumnAccess>,
     /// The (optionally table-qualified) element name.
     pub name: ObjectName,
+    /// Named relationship edges selected by an ordinary metric.
+    pub using_relationships: Vec<Ident>,
     /// The `AS <sql_expr>` definition, when present.
     pub expr: Option<Expr>,
     /// `WITH SYNONYMS ( ... )` values (empty if absent).
@@ -1858,6 +1860,9 @@ impl fmt::Display for SemanticViewExpr {
             write!(f, "{access} ")?;
         }
         write!(f, "{}", self.name)?;
+        if !self.using_relationships.is_empty() {
+            write!(f, " USING ({})", display_comma_separated(&self.using_relationships))?;
+        }
         if let Some(expr) = &self.expr {
             write!(f, " AS {expr}")?;
         }
