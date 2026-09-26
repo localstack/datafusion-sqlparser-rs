@@ -97,6 +97,7 @@ pub use self::ddl::{
     AlterSnowflakeSecretOperation,
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
     SemanticViewCortexSearch,
+    SemanticViewDistinctRange,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
     UserDefinedTypeStorage, ViewColumnDef, WithData,
