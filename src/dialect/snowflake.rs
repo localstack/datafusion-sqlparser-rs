@@ -5548,6 +5548,7 @@ fn parse_create_semantic_view(
     let name = parser.parse_object_name(false)?;
 
     let mut clauses = Vec::new();
+    let mut tags = Vec::new();
     let mut comment = None;
     let mut max_staleness = None;
     let mut ai_sql_generation = None;
@@ -5597,6 +5598,11 @@ fn parse_create_semantic_view(
             && consume_semantic_word(parser, "AI_VERIFIED_QUERIES")
         {
             ai_verified_queries = Some(parse_semantic_view_opaque_paren(parser)?);
+        } else if tags.is_empty()
+            && (parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                || parser.parse_keyword(Keyword::TAG))
+        {
+            tags = parse_semantic_view_tag_list(parser)?;
         } else if !copy_grants && parser.parse_keywords(&[Keyword::COPY, Keyword::GRANTS]) {
             copy_grants = true;
         } else {
@@ -5609,6 +5615,7 @@ fn parse_create_semantic_view(
         if_not_exists,
         name,
         clauses,
+        tags,
         comment,
         max_staleness,
         ai_sql_generation,
