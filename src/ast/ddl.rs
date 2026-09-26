@@ -1771,6 +1771,8 @@ pub struct SemanticViewRelationship {
     pub ref_table: ObjectName,
     /// The referenced columns (empty when omitted).
     pub ref_columns: Vec<Ident>,
+    /// Range endpoints for `REFERENCES table (BETWEEN start AND end EXCLUSIVE)`.
+    pub range: Vec<Ident>,
     /// `ASOF` markers aligned with the referenced columns.
     pub asof_columns: Vec<bool>,
 }
@@ -1787,7 +1789,9 @@ impl fmt::Display for SemanticViewRelationship {
             display_comma_separated(&self.columns),
             self.ref_table
         )?;
-        if !self.ref_columns.is_empty() {
+        if let [start, end] = self.range.as_slice() {
+            write!(f, " (BETWEEN {start} AND {end} EXCLUSIVE)")?;
+        } else if !self.ref_columns.is_empty() {
             write!(f, " (")?;
             for (index, column) in self.ref_columns.iter().enumerate() {
                 if index > 0 {
