@@ -110,6 +110,7 @@ pub use self::ddl::{
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
     SemanticViewCortexSearch,
     SemanticViewDistinctRange,
+    SemanticViewNonAdditiveDimension,
     ProcedureExecuteAs,
 };
 pub use self::dml::{
