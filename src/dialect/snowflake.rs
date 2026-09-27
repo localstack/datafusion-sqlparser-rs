@@ -5504,6 +5504,15 @@ fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<Semanti
         None
     };
     let name = parser.parse_object_name(false)?;
+    let filter_label = if !metric && consume_semantic_word(parser, "LABELS") {
+        parser.expect_token(&Token::Eq)?;
+        parser.expect_token(&Token::LParen)?;
+        parser.expect_keyword(Keyword::FILTER)?;
+        parser.expect_token(&Token::RParen)?;
+        true
+    } else {
+        false
+    };
     let using_relationships = if metric && parser.parse_keyword(Keyword::USING) {
         parse_semantic_view_paren_list(parser, |p| p.parse_identifier())?
     } else {
@@ -5556,6 +5565,7 @@ fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<Semanti
     Ok(SemanticViewExpr {
         access,
         name,
+        filter_label,
         using_relationships,
         expr,
         synonyms,

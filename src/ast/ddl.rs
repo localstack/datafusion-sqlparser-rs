@@ -1854,6 +1854,8 @@ pub struct SemanticViewExpr {
     pub access: Option<SemanticViewColumnAccess>,
     /// The (optionally table-qualified) element name.
     pub name: ObjectName,
+    /// `LABELS = (FILTER)` on a Boolean fact or dimension.
+    pub filter_label: bool,
     /// Named relationship edges selected by an ordinary metric.
     pub using_relationships: Vec<Ident>,
     /// The `AS <sql_expr>` definition, when present.
@@ -1874,6 +1876,9 @@ impl fmt::Display for SemanticViewExpr {
             write!(f, "{access} ")?;
         }
         write!(f, "{}", self.name)?;
+        if self.filter_label {
+            write!(f, " LABELS = (FILTER)")?;
+        }
         if !self.using_relationships.is_empty() {
             write!(f, " USING ({})", display_comma_separated(&self.using_relationships))?;
         }
