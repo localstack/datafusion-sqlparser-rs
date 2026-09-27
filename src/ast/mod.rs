@@ -98,6 +98,7 @@ pub use self::ddl::{
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
     SemanticViewCortexSearch,
     SemanticViewDistinctRange,
+    SemanticViewNonAdditiveDimension,
     UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
     UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
     UserDefinedTypeStorage, ViewColumnDef, WithData,

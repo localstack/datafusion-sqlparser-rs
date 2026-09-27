@@ -1858,6 +1858,8 @@ pub struct SemanticViewExpr {
     pub filter_label: bool,
     /// Named relationship edges selected by an ordinary metric.
     pub using_relationships: Vec<Ident>,
+    /// Ordered dimensions whose last sorted snapshot contributes to the metric.
+    pub non_additive_by: Vec<SemanticViewNonAdditiveDimension>,
     /// The `AS <sql_expr>` definition, when present.
     pub expr: Option<Expr>,
     /// `WITH SYNONYMS ( ... )` values (empty if absent).
@@ -1882,6 +1884,9 @@ impl fmt::Display for SemanticViewExpr {
         if !self.using_relationships.is_empty() {
             write!(f, " USING ({})", display_comma_separated(&self.using_relationships))?;
         }
+        if !self.non_additive_by.is_empty() {
+            write!(f, " NON ADDITIVE BY ({})", display_comma_separated(&self.non_additive_by))?;
+        }
         if let Some(expr) = &self.expr {
             write!(f, " AS {expr}")?;
         }
@@ -1898,6 +1903,27 @@ impl fmt::Display for SemanticViewExpr {
             write!(f, " {cortex}")?;
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// One ordered dimension of a semi-additive metric.
+pub struct SemanticViewNonAdditiveDimension {
+    /// Qualified semantic dimension name.
+    pub name: ObjectName,
+    /// Whether descending order was requested.
+    pub descending: bool,
+    /// Whether NULL values sort before non-NULL values.
+    pub nulls_first: bool,
+}
+
+impl fmt::Display for SemanticViewNonAdditiveDimension {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {} NULLS {}", self.name,
+            if self.descending { "DESC" } else { "ASC" },
+            if self.nulls_first { "FIRST" } else { "LAST" })
     }
 }
 

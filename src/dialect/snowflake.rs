@@ -34,7 +34,8 @@ use crate::ast::{
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
     AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewCortexSearch,
-    SemanticViewDistinctRange, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
+    SemanticViewDistinctRange, SemanticViewExpr, SemanticViewNonAdditiveDimension,
+    SemanticViewRelationship, SemanticViewTable,
     AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
     AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
     CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
@@ -5518,6 +5519,34 @@ fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<Semanti
     } else {
         Vec::new()
     };
+    let non_additive_by = if metric && consume_semantic_word(parser, "NON") {
+        if !consume_semantic_word(parser, "ADDITIVE") {
+            return parser.expected_ref("ADDITIVE", parser.peek_token_ref());
+        }
+        parser.expect_keyword(Keyword::BY)?;
+        parse_semantic_view_paren_list(parser, |p| {
+            let name = p.parse_object_name(false)?;
+            let descending = if p.parse_keyword(Keyword::DESC) {
+                true
+            } else {
+                let _ = p.parse_keyword(Keyword::ASC);
+                false
+            };
+            let nulls_first = if p.parse_keyword(Keyword::NULLS) {
+                if p.parse_keyword(Keyword::FIRST) {
+                    true
+                } else {
+                    p.expect_keyword(Keyword::LAST)?;
+                    false
+                }
+            } else {
+                descending
+            };
+            Ok(SemanticViewNonAdditiveDimension { name, descending, nulls_first })
+        })?
+    } else {
+        Vec::new()
+    };
     let expr = if parser.parse_keyword(Keyword::AS) {
         Some(parser.parse_expr()?)
     } else {
@@ -5567,6 +5596,7 @@ fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<Semanti
         name,
         filter_label,
         using_relationships,
+        non_additive_by,
         expr,
         synonyms,
         tags,
