@@ -2447,6 +2447,8 @@ pub struct WindowSpec {
     pub window_name: Option<Ident>,
     /// `OVER (PARTITION BY ...)`
     pub partition_by: Vec<Expr>,
+    /// In semantic-view metrics, partition by selected dimensions except these.
+    pub partition_by_excluding: bool,
     /// `OVER (ORDER BY ...)`
     pub order_by: Vec<OrderByExpr>,
     /// `OVER (window frame)`
@@ -2470,7 +2472,8 @@ impl fmt::Display for WindowSpec {
             is_first = false;
             write!(
                 f,
-                "PARTITION BY {}",
+                "PARTITION BY {}{}",
+                if self.partition_by_excluding { "EXCLUDING " } else { "" },
                 display_comma_separated(&self.partition_by)
             )?;
         }
