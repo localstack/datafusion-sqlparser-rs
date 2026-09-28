@@ -3353,6 +3353,7 @@ fn parse_select_qualify() {
                 over: Some(WindowType::WindowSpec(WindowSpec {
                     window_name: None,
                     partition_by: vec![Expr::Identifier(Ident::new("p"))],
+                    partition_by_excluding: false,
                     order_by: vec![OrderByExpr {
                         expr: Expr::Identifier(Ident::new("o")),
                         options: OrderByOptions {
@@ -6108,6 +6109,7 @@ fn parse_window_functions() {
             over: Some(WindowType::WindowSpec(WindowSpec {
                 window_name: None,
                 partition_by: vec![],
+                partition_by_excluding: false,
                 order_by: vec![OrderByExpr {
                     expr: Expr::Identifier(Ident::new("dt")),
                     options: OrderByOptions {
@@ -6330,6 +6332,7 @@ fn test_parse_named_window() {
                 NamedWindowExpr::WindowSpec(WindowSpec {
                     window_name: None,
                     partition_by: vec![],
+                    partition_by_excluding: false,
                     order_by: vec![OrderByExpr {
                         expr: Expr::Identifier(Ident {
                             value: "C12".to_string(),
@@ -6358,6 +6361,7 @@ fn test_parse_named_window() {
                         quote_style: None,
                         span: Span::empty(),
                     })],
+                    partition_by_excluding: false,
                     order_by: vec![],
                     window_frame: None,
                 }),

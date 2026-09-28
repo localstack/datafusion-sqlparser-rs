@@ -443,6 +443,7 @@ fn parse_window_function_with_filter() {
                 over: Some(WindowType::WindowSpec(WindowSpec {
                     window_name: None,
                     partition_by: vec![],
+                    partition_by_excluding: false,
                     order_by: vec![],
                     window_frame: None,
                 })),
