@@ -25328,7 +25328,9 @@ impl<'a> Parser<'a> {
             _ => None,
         };
 
-        let partition_by = if self.parse_keywords(&[Keyword::PARTITION, Keyword::BY]) {
+        let has_partition_by = self.parse_keywords(&[Keyword::PARTITION, Keyword::BY]);
+        let partition_by_excluding = has_partition_by && self.parse_keyword(Keyword::EXCLUDING);
+        let partition_by = if has_partition_by {
             self.parse_comma_separated(Parser::parse_expr)?
         } else {
             vec![]
@@ -25349,6 +25351,7 @@ impl<'a> Parser<'a> {
         Ok(WindowSpec {
             window_name,
             partition_by,
+            partition_by_excluding,
             order_by,
             window_frame,
         })
