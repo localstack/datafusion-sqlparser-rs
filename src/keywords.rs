@@ -1116,6 +1116,7 @@ define_keywords!(
     STORED,
     STRAIGHT_JOIN,
     STREAM,
+    STREAMLIT,
     STREAMS,
     STRICT,
     STRING,

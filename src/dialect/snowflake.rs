@@ -535,6 +535,11 @@ impl SnowflakeDialect {
             return Some(parse_drop_network_rule(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::STREAMLIT]) {
+            // DROP STREAMLIT
+            return Some(parse_drop_streamlit(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::SECRET]) {
             // DROP SECRET
             return Some(parse_drop_secret(parser));
@@ -729,6 +734,11 @@ impl SnowflakeDialect {
             // CREATE [OR REPLACE] SECRET
             if parser.parse_keyword(Keyword::SECRET) {
                 return Some(parse_create_secret(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE] STREAMLIT
+            if parser.parse_keyword(Keyword::STREAMLIT) {
+                return Some(parse_create_streamlit(or_replace, parser));
             }
 
             // CREATE OR REPLACE INDEX (secondary index on a hybrid table).
@@ -6185,6 +6195,47 @@ fn parse_create_secret(or_replace: bool, parser: &mut Parser) -> Result<Statemen
         name,
         options,
     })
+}
+
+/// Parse `CREATE [OR REPLACE] STREAMLIT [IF NOT EXISTS] <name> [FROM '<source>']
+/// [<property> = <value> ...]`. A property value is an expression or a
+/// parenthesised, possibly empty, list (`IMPORTS = ('@s/a.py')`,
+/// `SECRETS = ('alias' = db.sc.secret)`, `EXTERNAL_ACCESS_INTEGRATIONS = ()`).
+fn parse_create_streamlit(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let from = if parser.parse_keyword(Keyword::FROM) {
+        Some(parser.parse_literal_string()?)
+    } else {
+        None
+    };
+    let mut options = Vec::new();
+    while matches!(parser.peek_token_ref().token, Token::Word(_)) {
+        let key = parser.parse_identifier()?;
+        parser.expect_token(&Token::Eq)?;
+        let value = if parser.consume_token(&Token::LParen) {
+            let values = parser.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
+            parser.expect_token(&Token::RParen)?;
+            Expr::Tuple(values)
+        } else {
+            parser.parse_expr()?
+        };
+        options.push(SqlOption::KeyValue { key, value });
+    }
+    Ok(Statement::CreateStreamlit {
+        or_replace,
+        if_not_exists,
+        name,
+        from,
+        options,
+    })
+}
+
+/// Parse `DROP STREAMLIT [IF EXISTS] <name>`.
+fn parse_drop_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropStreamlit { if_exists, name })
 }
 
 /// Parse `ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }`.
