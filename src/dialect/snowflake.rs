@@ -629,6 +629,14 @@ impl SnowflakeDialect {
                 // DESC[RIBE] SECRET
                 return Some(parse_describe_secret(parser));
             }
+            if parser.parse_keyword(Keyword::STREAMLIT) {
+                // DESC[RIBE] STREAMLIT
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribeStreamlit { name }),
+                );
+            }
             // not handled — put back DESC/DESCRIBE
             parser.prev_token();
         }
@@ -961,6 +969,14 @@ impl SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::STAGES) {
                 return Some(parse_show_stages(terse, parser));
+            }
+            if parser.parse_keyword(Keyword::STREAMLITS) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| {
+                    Statement::ShowStreamlits {
+                        terse,
+                        show_options,
+                    }
+                }));
             }
             if parser.parse_keyword(Keyword::TAGS) {
                 return Some(parse_show_tags(terse, parser));
