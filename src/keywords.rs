@@ -1015,6 +1015,7 @@ define_keywords!(
     RESUME,
     RETAIN,
     RETENTION,
+    RETRY,
     RETURN,
     RETURNING,
     RETURNS,
