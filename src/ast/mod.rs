@@ -5439,7 +5439,7 @@ pub enum Statement {
         action: AlterTaskAction,
     },
     /// ```sql
-    /// EXECUTE TASK <name> [RETRY LAST]
+    /// EXECUTE TASK <name> [RETRY LAST | RETRY GRAPH RUN GROUP '<id>']
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-task>
     ExecuteTask {
@@ -5447,6 +5447,8 @@ pub enum Statement {
         name: ObjectName,
         /// Retry the latest failed graph run.
         retry_last: bool,
+        /// Retry a specific graph run group.
+        retry_graph_run_group: Option<String>,
     },
     /// ```sql
     /// EXECUTE ALERT <name>
@@ -9071,10 +9073,12 @@ impl fmt::Display for Statement {
                 }
                 write!(f, " {name} {operation}")
             }
-            Statement::ExecuteTask { name, retry_last } => {
+            Statement::ExecuteTask { name, retry_last, retry_graph_run_group } => {
                 write!(f, "EXECUTE TASK {name}")?;
                 if *retry_last {
                     write!(f, " RETRY LAST")?;
+                } else if let Some(group_id) = retry_graph_run_group {
+                    write!(f, " RETRY GRAPH RUN GROUP '{}'", group_id.replace('\'', "''"))?;
                 }
                 Ok(())
             }
