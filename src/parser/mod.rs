@@ -21807,6 +21807,10 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::Secrets(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
+            } else if self.parse_keyword(Keyword::STREAMLIT) {
+                Some(GrantObjects::Streamlits(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else if self.parse_keyword(Keyword::TAG) {
                 Some(GrantObjects::Tags(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
@@ -22037,6 +22041,7 @@ impl<'a> Parser<'a> {
             "USE AI FUNCTIONS",
             "APPLY STORAGE LIFECYCLE POLICY",
             "APPLY CONTACT",
+            "EMBED",
         ] {
             if parse_words(self, &privilege.split_whitespace().collect::<Vec<_>>()) {
                 return Ok(Action::SnowflakePrivilege(privilege.to_string()));
