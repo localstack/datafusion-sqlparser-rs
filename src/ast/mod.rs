@@ -406,7 +406,7 @@ impl fmt::Display for Ident {
 
 #[cfg(feature = "visitor")]
 impl Visit for Ident {
-    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&self, visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
         visitor.pre_visit_ident(self)?;
         visitor.post_visit_ident(self)
     }
@@ -414,7 +414,7 @@ impl Visit for Ident {
 
 #[cfg(feature = "visitor")]
 impl VisitMut for Ident {
-    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
         visitor.pre_visit_ident(self)?;
         visitor.post_visit_ident(self)
     }
@@ -427,18 +427,18 @@ pub struct ObjectName(pub Vec<ObjectNamePart>);
 
 #[cfg(feature = "visitor")]
 impl Visit for ObjectName {
-    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&self, visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
         visitor.pre_visit_object_name(self)?;
-        Visit::visit(&self.0, visitor)?;
+        Visit::visit_dyn(&self.0, visitor)?;
         visitor.post_visit_object_name(self)
     }
 }
 
 #[cfg(feature = "visitor")]
 impl VisitMut for ObjectName {
-    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
         visitor.pre_visit_object_name(self)?;
-        VisitMut::visit(&mut self.0, visitor)?;
+        VisitMut::visit_dyn(&mut self.0, visitor)?;
         visitor.post_visit_object_name(self)
     }
 }

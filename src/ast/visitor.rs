@@ -32,11 +32,23 @@ use core::ops::ControlFlow;
 /// #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// ```
 pub trait Visit {
+    /// Visit this node with a type-erased [`Visitor`].
+    ///
+    /// This is the method implementations provide. It is deliberately not
+    /// generic: the derived walk over the whole AST is then compiled once, in
+    /// this crate, instead of once per visitor type in every crate that
+    /// defines a visitor.
+    fn visit_dyn(&self, visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()>;
+
     /// Visit this node with the provided [`Visitor`].
     ///
-    /// Implementations should call the appropriate visitor hooks to traverse
-    /// child nodes and return a `ControlFlow` value to allow early exit.
-    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break>;
+    /// Calls the appropriate visitor hooks to traverse child nodes and returns
+    /// a `ControlFlow` value to allow early exit.
+    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+        let mut erased = Erased::new(visitor);
+        let flow = self.visit_dyn(&mut erased);
+        erased.finish(flow)
+    }
 }
 
 /// A type that can be visited by a [`VisitorMut`]. See [`VisitorMut`] for
@@ -51,71 +63,157 @@ pub trait Visit {
 /// #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// ```
 pub trait VisitMut {
+    /// Mutably visit this node with a type-erased [`VisitorMut`]. See
+    /// [`Visit::visit_dyn`] for why this is the method implementations provide.
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()>;
+
     /// Mutably visit this node with the provided [`VisitorMut`].
     ///
-    /// Implementations should call the appropriate mutable visitor hooks to
-    /// traverse and allow in-place mutation of child nodes. Returning a
-    /// `ControlFlow` value permits early termination of the traversal.
-    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break>;
+    /// Calls the appropriate mutable visitor hooks to traverse and allow
+    /// in-place mutation of child nodes. Returning a `ControlFlow` value
+    /// permits early termination of the traversal.
+    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+        let mut erased = Erased::new(visitor);
+        let flow = self.visit_dyn(&mut erased);
+        erased.finish(flow)
+    }
+}
+
+/// Adapts a visitor with any `Break` type to `Break = ()`, holding the break
+/// value aside until the walk returns.
+struct Erased<'a, V, B> {
+    inner: &'a mut V,
+    brk: Option<B>,
+}
+
+impl<'a, V, B> Erased<'a, V, B> {
+    fn new(inner: &'a mut V) -> Self {
+        Self { inner, brk: None }
+    }
+
+    fn stash(&mut self, flow: ControlFlow<B>) -> ControlFlow<()> {
+        match flow {
+            ControlFlow::Continue(()) => ControlFlow::Continue(()),
+            ControlFlow::Break(b) => {
+                self.brk = Some(b);
+                ControlFlow::Break(())
+            }
+        }
+    }
+
+    fn finish(self, flow: ControlFlow<()>) -> ControlFlow<B> {
+        match (flow, self.brk) {
+            (ControlFlow::Break(()), Some(b)) => ControlFlow::Break(b),
+            _ => ControlFlow::Continue(()),
+        }
+    }
+}
+
+macro_rules! forward_hooks {
+    ($($pre:ident $post:ident: $ty:ty;)*) => {
+        $(
+            fn $pre(&mut self, node: $ty) -> ControlFlow<()> {
+                let flow = self.inner.$pre(node);
+                self.stash(flow)
+            }
+
+            fn $post(&mut self, node: $ty) -> ControlFlow<()> {
+                let flow = self.inner.$post(node);
+                self.stash(flow)
+            }
+        )*
+    };
+}
+
+impl<V: Visitor> Visitor for Erased<'_, V, V::Break> {
+    type Break = ();
+
+    forward_hooks!(
+        pre_visit_object_name post_visit_object_name: &ObjectName;
+        pre_visit_query post_visit_query: &Query;
+        pre_visit_select post_visit_select: &Select;
+        pre_visit_relation post_visit_relation: &ObjectName;
+        pre_visit_table_factor post_visit_table_factor: &TableFactor;
+        pre_visit_expr post_visit_expr: &Expr;
+        pre_visit_statement post_visit_statement: &Statement;
+        pre_visit_value post_visit_value: &ValueWithSpan;
+        pre_visit_ident post_visit_ident: &Ident;
+    );
+}
+
+impl<V: VisitorMut> VisitorMut for Erased<'_, V, V::Break> {
+    type Break = ();
+
+    forward_hooks!(
+        pre_visit_object_name post_visit_object_name: &mut ObjectName;
+        pre_visit_query post_visit_query: &mut Query;
+        pre_visit_select post_visit_select: &mut Select;
+        pre_visit_relation post_visit_relation: &mut ObjectName;
+        pre_visit_table_factor post_visit_table_factor: &mut TableFactor;
+        pre_visit_expr post_visit_expr: &mut Expr;
+        pre_visit_statement post_visit_statement: &mut Statement;
+        pre_visit_value post_visit_value: &mut ValueWithSpan;
+        pre_visit_ident post_visit_ident: &mut Ident;
+    );
 }
 
 impl<T: Visit> Visit for Option<T> {
-    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&self, visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
         if let Some(s) = self {
-            s.visit(visitor)?;
+            s.visit_dyn(visitor)?;
         }
         ControlFlow::Continue(())
     }
 }
 
 impl<T: Visit> Visit for Vec<T> {
-    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&self, visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
         for v in self {
-            v.visit(visitor)?;
+            v.visit_dyn(visitor)?;
         }
         ControlFlow::Continue(())
     }
 }
 
 impl<T: Visit> Visit for Box<T> {
-    fn visit<V: Visitor>(&self, visitor: &mut V) -> ControlFlow<V::Break> {
-        T::visit(self, visitor)
+    fn visit_dyn(&self, visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
+        T::visit_dyn(self, visitor)
     }
 }
 
 impl<T: VisitMut> VisitMut for Option<T> {
-    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
         if let Some(s) = self {
-            s.visit(visitor)?;
+            s.visit_dyn(visitor)?;
         }
         ControlFlow::Continue(())
     }
 }
 
 impl<T: VisitMut> VisitMut for Vec<T> {
-    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
         for v in self {
-            v.visit(visitor)?;
+            v.visit_dyn(visitor)?;
         }
         ControlFlow::Continue(())
     }
 }
 
 impl<T: VisitMut> VisitMut for Box<T> {
-    fn visit<V: VisitorMut>(&mut self, visitor: &mut V) -> ControlFlow<V::Break> {
-        T::visit(self, visitor)
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
+        T::visit_dyn(self, visitor)
     }
 }
 
 macro_rules! visit_noop {
     ($($t:ty),+) => {
         $(impl Visit for $t {
-            fn visit<V: Visitor>(&self, _visitor: &mut V) -> ControlFlow<V::Break> {
+            fn visit_dyn(&self, _visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
                ControlFlow::Continue(())
             }
         })+
         $(impl VisitMut for $t {
-            fn visit<V: VisitorMut>(&mut self, _visitor: &mut V) -> ControlFlow<V::Break> {
+            fn visit_dyn(&mut self, _visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
                ControlFlow::Continue(())
             }
         })+

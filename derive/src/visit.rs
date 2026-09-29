@@ -59,10 +59,10 @@ pub(crate) fn derive_visit(
         // See tests in https://github.com/apache/datafusion-sqlparser-rs/pull/1522/ for more info.
         impl #impl_generics sqlparser::ast::#visit_trait for #name #ty_generics #where_clause {
              #[cfg_attr(feature = "recursive-protection", recursive::recursive)]
-            fn visit<V: sqlparser::ast::#visitor_trait>(
+            fn visit_dyn(
                 &#modifier self,
-                visitor: &mut V
-            ) -> ::std::ops::ControlFlow<V::Break> {
+                visitor: &mut dyn sqlparser::ast::#visitor_trait<Break = ()>
+            ) -> ::std::ops::ControlFlow<()> {
                 #pre_visit
                 #children
                 #post_visit
@@ -169,13 +169,13 @@ fn visit_children(
                         let (pre_visit, post_visit) = attributes.visit(quote!(value));
                         quote_spanned!(f.span() =>
                             if let Some(value) = &#modifier self.#name {
-                                #pre_visit sqlparser::ast::#visit_trait::visit(value, visitor)?; #post_visit
+                                #pre_visit sqlparser::ast::#visit_trait::visit_dyn(value, visitor)?; #post_visit
                             }
                         )
                     } else {
                         let (pre_visit, post_visit) = attributes.visit(quote!(&#modifier self.#name));
                         quote_spanned!(f.span() =>
-                            #pre_visit sqlparser::ast::#visit_trait::visit(&#modifier self.#name, visitor)?; #post_visit
+                            #pre_visit sqlparser::ast::#visit_trait::visit_dyn(&#modifier self.#name, visitor)?; #post_visit
                         )
                     }
                 });
@@ -188,7 +188,7 @@ fn visit_children(
                     let index = Index::from(i);
                     let attributes = Attributes::parse(&f.attrs);
                     let (pre_visit, post_visit) = attributes.visit(quote!(&self.#index));
-                    quote_spanned!(f.span() => #pre_visit sqlparser::ast::#visit_trait::visit(&#modifier self.#index, visitor)?; #post_visit)
+                    quote_spanned!(f.span() => #pre_visit sqlparser::ast::#visit_trait::visit_dyn(&#modifier self.#index, visitor)?; #post_visit)
                 });
                 quote! {
                     #(#recurse)*
@@ -208,7 +208,7 @@ fn visit_children(
                             let name = &f.ident;
                             let attributes = Attributes::parse(&f.attrs);
                             let (pre_visit, post_visit) = attributes.visit(name.to_token_stream());
-                            quote_spanned!(f.span() => #pre_visit sqlparser::ast::#visit_trait::visit(#name, visitor)?; #post_visit)
+                            quote_spanned!(f.span() => #pre_visit sqlparser::ast::#visit_trait::visit_dyn(#name, visitor)?; #post_visit)
                         });
 
                         quote!(
@@ -223,7 +223,7 @@ fn visit_children(
                             let name = format_ident!("_{}", i);
                             let attributes = Attributes::parse(&f.attrs);
                             let (pre_visit, post_visit) = attributes.visit(name.to_token_stream());
-                            quote_spanned!(f.span() => #pre_visit sqlparser::ast::#visit_trait::visit(#name, visitor)?; #post_visit)
+                            quote_spanned!(f.span() => #pre_visit sqlparser::ast::#visit_trait::visit_dyn(#name, visitor)?; #post_visit)
                         });
 
                         quote! {
