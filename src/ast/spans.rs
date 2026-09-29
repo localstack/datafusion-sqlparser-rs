@@ -635,6 +635,7 @@ impl Spanned for Statement {
             Statement::DropSnowflakeSecret { .. } => Span::empty(),
             Statement::CreateStreamlit { .. } => Span::empty(),
             Statement::DropStreamlit { .. } => Span::empty(),
+            Statement::AlterStreamlit { .. } => Span::empty(),
             Statement::DescribeSnowflakeSecret { .. } => Span::empty(),
             Statement::ShowSnowflakeSecrets { .. } => Span::empty(),
             Statement::CreateSnowflakeIndex { .. } => Span::empty(),

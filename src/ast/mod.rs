@@ -6228,6 +6228,17 @@ pub enum Statement {
         options: Vec<SqlOption>,
     },
     /// ```sql
+    /// ALTER STREAMLIT [ IF EXISTS ] <name> RENAME TO <new_name>
+    /// ```
+    AlterStreamlit {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Streamlit name.
+        name: ObjectName,
+        /// The alter operation.
+        operation: AlterStreamlitOperation,
+    },
+    /// ```sql
     /// DROP STREAMLIT [ IF EXISTS ] <name>
     /// ```
     DropStreamlit {
@@ -9839,6 +9850,15 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::AlterStreamlit {
+                if_exists,
+                name,
+                operation,
+            } => write!(
+                f,
+                "ALTER STREAMLIT {if_exists}{name} {operation}",
+                if_exists = if *if_exists { "IF EXISTS " } else { "" },
+            ),
             Statement::DropStreamlit { if_exists, name } => {
                 write!(
                     f,
@@ -12942,6 +12962,9 @@ pub enum ObjectType {
     /// An alert (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-alert>
     Alert,
+    /// A Streamlit app (Snowflake).
+    /// <https://docs.snowflake.com/en/sql-reference/sql/undrop-streamlit>
+    Streamlit,
 }
 
 impl fmt::Display for ObjectType {
@@ -12967,6 +12990,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Task => "TASK",
             ObjectType::Pipe => "PIPE",
             ObjectType::Alert => "ALERT",
+            ObjectType::Streamlit => "STREAMLIT",
         })
     }
 }
@@ -15687,6 +15711,23 @@ impl fmt::Display for AlterExternalVolumeOperation {
                     value::escape_single_quote_string(name)
                 )
             }
+        }
+    }
+}
+
+/// Operations for `ALTER STREAMLIT`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterStreamlitOperation {
+    /// `RENAME TO <new_name>`
+    RenameTo(ObjectName),
+}
+
+impl fmt::Display for AlterStreamlitOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterStreamlitOperation::RenameTo(name) => write!(f, "RENAME TO {name}"),
         }
     }
 }
