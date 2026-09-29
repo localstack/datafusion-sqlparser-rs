@@ -5388,12 +5388,14 @@ pub enum Statement {
         action: AlterTaskAction,
     },
     /// ```sql
-    /// EXECUTE TASK <name>
+    /// EXECUTE TASK <name> [RETRY LAST]
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-task>
     ExecuteTask {
         /// Task name.
         name: ObjectName,
+        /// Retry the latest failed graph run.
+        retry_last: bool,
     },
     /// ```sql
     /// EXECUTE ALERT <name>
@@ -9008,8 +9010,12 @@ impl fmt::Display for Statement {
                 }
                 write!(f, " {name} {operation}")
             }
-            Statement::ExecuteTask { name } => {
-                write!(f, "EXECUTE TASK {name}")
+            Statement::ExecuteTask { name, retry_last } => {
+                write!(f, "EXECUTE TASK {name}")?;
+                if *retry_last {
+                    write!(f, " RETRY LAST")?;
+                }
+                Ok(())
             }
             Statement::ExecuteAlert { name } => {
                 write!(f, "EXECUTE ALERT {name}")
