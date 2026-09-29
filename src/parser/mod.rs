@@ -23428,7 +23428,13 @@ impl<'a> Parser<'a> {
         // path can't accidentally consume `TASK`.
         if self.parse_keyword(Keyword::TASK) {
             let name = self.parse_object_name(false)?;
-            return Ok(Statement::ExecuteTask { name });
+            let retry_last = if self.parse_keyword(Keyword::RETRY) {
+                self.expect_keyword(Keyword::LAST)?;
+                true
+            } else {
+                false
+            };
+            return Ok(Statement::ExecuteTask { name, retry_last });
         }
 
         // Snowflake `EXECUTE ALERT <name>` — same early-dispatch reasoning as
