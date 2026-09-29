@@ -1162,6 +1162,7 @@ define_keywords!(
     STRAIGHT_JOIN,
     STREAM,
     STREAMLIT,
+    STREAMLITS,
     STREAMS,
     STRICT,
     STRING,
