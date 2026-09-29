@@ -8909,9 +8909,11 @@ impl<'a> Parser<'a> {
             ObjectType::Alert
         } else if self.parse_keyword(Keyword::STAGE) {
             ObjectType::Stage
+        } else if self.parse_keyword(Keyword::STREAMLIT) {
+            ObjectType::Streamlit
         } else {
             return self.expected_ref(
-                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, STAGE, TABLE or VIEW after UNDROP",
+                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, SCHEMA, STAGE, STREAMLIT, TABLE or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };

@@ -29,7 +29,7 @@ use crate::ast::helpers::stmt_data_loading::{
 use crate::ast::{
     visit_expressions,
     AlterAlertOperation, AlterBackupPolicyOperation, AlterColumnOperation,
-    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaskingPolicyOperation,
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
     AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
@@ -243,6 +243,10 @@ impl SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::PROCEDURE]) {
             // ALTER PROCEDURE
             return Some(parse_alter_procedure(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::STREAMLIT]) {
+            return Some(parse_alter_streamlit(parser));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
@@ -6232,6 +6236,19 @@ fn parse_create_streamlit(or_replace: bool, parser: &mut Parser) -> Result<State
         name,
         from,
         options,
+    })
+}
+
+/// Parse `ALTER STREAMLIT [IF EXISTS] <name> RENAME TO <new_name>`.
+fn parse_alter_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+    let operation = AlterStreamlitOperation::RenameTo(parser.parse_object_name(false)?);
+    Ok(Statement::AlterStreamlit {
+        if_exists,
+        name,
+        operation,
     })
 }
 
