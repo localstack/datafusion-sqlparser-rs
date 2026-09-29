@@ -6255,6 +6255,24 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
+    /// SHOW VERSIONS IN STREAMLIT <name> [ LIMIT <n> ]
+    /// ```
+    ShowStreamlitVersions {
+        /// Streamlit name.
+        name: ObjectName,
+        /// `LIMIT <n>`.
+        limit: Option<Expr>,
+    },
+    /// ```sql
+    /// EXECUTE STREAMLIT <name>( [ <arg> [ , ... ] ] )
+    /// ```
+    ExecuteStreamlit {
+        /// Streamlit name.
+        name: ObjectName,
+        /// Call arguments (never evaluated).
+        args: Vec<Expr>,
+    },
+    /// ```sql
     /// SHOW [ TERSE ] STREAMLITS [ LIKE '<pattern>' ] [ IN <scope> ]
     ///   [ LIMIT <n> [ FROM '<s>' ] ]
     /// ```
@@ -9885,6 +9903,16 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeStreamlit { name } => {
                 write!(f, "DESCRIBE STREAMLIT {name}")
+            }
+            Statement::ShowStreamlitVersions { name, limit } => {
+                write!(f, "SHOW VERSIONS IN STREAMLIT {name}")?;
+                if let Some(limit) = limit {
+                    write!(f, " LIMIT {limit}")?;
+                }
+                Ok(())
+            }
+            Statement::ExecuteStreamlit { name, args } => {
+                write!(f, "EXECUTE STREAMLIT {name}({})", display_comma_separated(args))
             }
             Statement::ShowStreamlits {
                 terse,
@@ -15752,12 +15780,32 @@ impl fmt::Display for AlterExternalVolumeOperation {
 pub enum AlterStreamlitOperation {
     /// `RENAME TO <new_name>`
     RenameTo(ObjectName),
+    /// `ADD LIVE VERSION FROM LAST`
+    AddLiveVersionFromLast,
+    /// `COMMIT`
+    Commit,
+    /// `ABORT`
+    Abort,
+    /// `PUSH [ TO '<git_branch_uri>' ]`
+    Push(Option<String>),
+    /// `PULL`
+    Pull,
 }
 
 impl fmt::Display for AlterStreamlitOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             AlterStreamlitOperation::RenameTo(name) => write!(f, "RENAME TO {name}"),
+            AlterStreamlitOperation::AddLiveVersionFromLast => {
+                write!(f, "ADD LIVE VERSION FROM LAST")
+            }
+            AlterStreamlitOperation::Commit => write!(f, "COMMIT"),
+            AlterStreamlitOperation::Abort => write!(f, "ABORT"),
+            AlterStreamlitOperation::Push(None) => write!(f, "PUSH"),
+            AlterStreamlitOperation::Push(Some(uri)) => {
+                write!(f, "PUSH TO '{}'", value::escape_single_quote_string(uri))
+            }
+            AlterStreamlitOperation::Pull => write!(f, "PULL"),
         }
     }
 }
