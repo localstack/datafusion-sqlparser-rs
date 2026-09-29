@@ -6248,6 +6248,23 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
+    /// DESC[RIBE] STREAMLIT <name>
+    /// ```
+    DescribeStreamlit {
+        /// Streamlit name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW [ TERSE ] STREAMLITS [ LIKE '<pattern>' ] [ IN <scope> ]
+    ///   [ LIMIT <n> [ FROM '<s>' ] ]
+    /// ```
+    ShowStreamlits {
+        /// `TERSE` flag.
+        terse: bool,
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-secret>
@@ -9864,6 +9881,19 @@ impl fmt::Display for Statement {
                     f,
                     "DROP STREAMLIT {if_exists}{name}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeStreamlit { name } => {
+                write!(f, "DESCRIBE STREAMLIT {name}")
+            }
+            Statement::ShowStreamlits {
+                terse,
+                show_options,
+            } => {
+                write!(
+                    f,
+                    "SHOW {terse}STREAMLITS{show_options}",
+                    terse = if *terse { "TERSE " } else { "" },
                 )
             }
             Statement::AlterSnowflakeSecret {
