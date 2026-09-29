@@ -6237,6 +6237,34 @@ pub enum Statement {
         options: KeyValueOptions,
     },
     /// ```sql
+    /// CREATE [ OR REPLACE ] STREAMLIT [ IF NOT EXISTS ] <name>
+    ///   [ FROM '<source>' ] [ <property> = <value> ... ]
+    /// ```
+    /// Covers both the `FROM` form and the legacy `ROOT_LOCATION` form; the
+    /// properties are captured generically.
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-streamlit>
+    CreateStreamlit {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Streamlit name.
+        name: ObjectName,
+        /// The `FROM '<source>'` location, when given.
+        from: Option<String>,
+        /// Properties in written order (duplicates preserved).
+        options: Vec<SqlOption>,
+    },
+    /// ```sql
+    /// DROP STREAMLIT [ IF EXISTS ] <name>
+    /// ```
+    DropStreamlit {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Streamlit name.
+        name: ObjectName,
+    },
+    /// ```sql
     /// ALTER SECRET [IF EXISTS] <name> { SET <options> | UNSET COMMENT }
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-secret>
@@ -9819,6 +9847,34 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateStreamlit {
+                or_replace,
+                if_not_exists,
+                name,
+                from,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}STREAMLIT {if_not_exists}{name}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(from) = from {
+                    write!(f, " FROM '{}'", value::escape_single_quote_string(from))?;
+                }
+                if !options.is_empty() {
+                    write!(f, " {}", display_separated(options, " "))?;
+                }
+                Ok(())
+            }
+            Statement::DropStreamlit { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP STREAMLIT {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
             Statement::AlterSnowflakeSecret {
                 if_exists,
                 name,
@@ -11906,6 +11962,9 @@ pub enum GrantObjects {
 
     /// `GRANT … ON ALERT <name>[, …]`. `granted_on` is `ALERT`.
     Alerts(Vec<ObjectName>),
+
+    /// `GRANT … ON STREAMLIT <name>[, …]`. `granted_on` is `STREAMLIT`.
+    Streamlits(Vec<ObjectName>),
 }
 
 impl fmt::Display for GrantObjects {
@@ -12113,6 +12172,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::Secrets(objects) => {
                 write!(f, "SECRET {}", display_comma_separated(objects))
+            }
+            GrantObjects::Streamlits(objects) => {
+                write!(f, "STREAMLIT {}", display_comma_separated(objects))
             }
             GrantObjects::ComputePools(objects) => {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
