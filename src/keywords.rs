@@ -517,6 +517,7 @@ define_keywords!(
     GRANT,
     GRANTED,
     GRANTS,
+    GRAPH,
     GRAPHVIZ,
     GROUP,
     GROUPING,

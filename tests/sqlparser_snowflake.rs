@@ -8359,9 +8359,10 @@ fn test_alter_task_if_exists_suspend() {
 fn test_execute_task() {
     let sql = "EXECUTE TASK foo";
     match snowflake().verified_stmt(sql) {
-        Statement::ExecuteTask { name, retry_last } => {
+        Statement::ExecuteTask { name, retry_last, retry_graph_run_group } => {
             assert_eq!("foo", name.to_string());
             assert!(!retry_last);
+            assert_eq!(retry_graph_run_group, None);
         }
         _ => unreachable!(),
     }

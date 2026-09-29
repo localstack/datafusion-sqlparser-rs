@@ -22811,13 +22811,21 @@ impl<'a> Parser<'a> {
         // path can't accidentally consume `TASK`.
         if self.parse_keyword(Keyword::TASK) {
             let name = self.parse_object_name(false)?;
-            let retry_last = if self.parse_keyword(Keyword::RETRY) {
-                self.expect_keyword(Keyword::LAST)?;
-                true
-            } else {
-                false
-            };
-            return Ok(Statement::ExecuteTask { name, retry_last });
+            let mut retry_last = false;
+            let mut retry_graph_run_group = None;
+            if self.parse_keyword(Keyword::RETRY) {
+                if self.parse_keyword(Keyword::LAST) {
+                    retry_last = true;
+                } else {
+                    self.expect_keywords(&[Keyword::GRAPH, Keyword::RUN, Keyword::GROUP])?;
+                    let token = self.next_token();
+                    retry_graph_run_group = Some(match token.token {
+                        Token::SingleQuotedString(value) => value,
+                        _ => return self.expected("single-quoted graph run group ID", token),
+                    });
+                }
+            }
+            return Ok(Statement::ExecuteTask { name, retry_last, retry_graph_run_group });
         }
 
         // Snowflake `EXECUTE ALERT <name>` — same early-dispatch reasoning as
