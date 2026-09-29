@@ -249,6 +249,10 @@ impl SnowflakeDialect {
             return Some(parse_alter_streamlit(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::STREAMLIT]) {
+            return Some(parse_execute_streamlit(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
             // ALTER FILE FORMAT
             return Some(parse_alter_file_format(parser));
@@ -953,6 +957,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::ACCOUNTS) {
                 return Some(parse_show_accounts(parser));
+            }
+            if parser.parse_keywords(&[Keyword::VERSIONS, Keyword::IN, Keyword::STREAMLIT]) {
+                return Some(parse_show_streamlit_versions(parser));
             }
             let terse = parser.parse_keyword(Keyword::TERSE);
             if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLES]) {
@@ -6255,17 +6262,78 @@ fn parse_create_streamlit(or_replace: bool, parser: &mut Parser) -> Result<State
     })
 }
 
-/// Parse `ALTER STREAMLIT [IF EXISTS] <name> RENAME TO <new_name>`.
+/// Consume the next token when it is the unquoted word `word`.
+fn parse_bare_word(parser: &mut Parser, word: &str) -> bool {
+    let matched = matches!(&parser.peek_token_ref().token,
+        Token::Word(w) if w.quote_style.is_none() && w.value.eq_ignore_ascii_case(word));
+    if matched {
+        parser.next_token();
+    }
+    matched
+}
+
+/// Parse `ALTER STREAMLIT [IF EXISTS] <name> RENAME TO <new_name>` and the
+/// version / git verbs (`ADD LIVE VERSION FROM LAST`, `COMMIT`, `ABORT`,
+/// `PUSH [TO '<uri>']`, `PULL`), which take no `IF EXISTS`.
 fn parse_alter_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
-    let operation = AlterStreamlitOperation::RenameTo(parser.parse_object_name(false)?);
+    let operation = if if_exists || parser.parse_keyword(Keyword::RENAME) {
+        if if_exists {
+            parser.expect_keyword_is(Keyword::RENAME)?;
+        }
+        parser.expect_keyword_is(Keyword::TO)?;
+        AlterStreamlitOperation::RenameTo(parser.parse_object_name(false)?)
+    } else if parser.parse_keyword(Keyword::ADD) {
+        if !parse_bare_word(parser, "LIVE") {
+            return parser.expected("LIVE", parser.peek_token());
+        }
+        parser.expect_keywords(&[Keyword::VERSION, Keyword::FROM, Keyword::LAST])?;
+        AlterStreamlitOperation::AddLiveVersionFromLast
+    } else if parser.parse_keyword(Keyword::COMMIT) {
+        AlterStreamlitOperation::Commit
+    } else if parser.parse_keyword(Keyword::ABORT) {
+        AlterStreamlitOperation::Abort
+    } else if parse_bare_word(parser, "PUSH") {
+        let to = if parser.parse_keyword(Keyword::TO) {
+            Some(parser.parse_literal_string()?)
+        } else {
+            None
+        };
+        AlterStreamlitOperation::Push(to)
+    } else if parse_bare_word(parser, "PULL") {
+        AlterStreamlitOperation::Pull
+    } else {
+        return parser.expected(
+            "RENAME, ADD, COMMIT, ABORT, PUSH or PULL",
+            parser.peek_token(),
+        );
+    };
     Ok(Statement::AlterStreamlit {
         if_exists,
         name,
         operation,
     })
+}
+
+/// Parse `SHOW VERSIONS IN STREAMLIT <name> [LIMIT <n>]`.
+fn parse_show_streamlit_versions(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    let limit = if parser.parse_keyword(Keyword::LIMIT) {
+        Some(parser.parse_expr()?)
+    } else {
+        None
+    };
+    Ok(Statement::ShowStreamlitVersions { name, limit })
+}
+
+/// Parse `EXECUTE STREAMLIT <name>( [<arg>, ...] )`.
+fn parse_execute_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    parser.expect_token(&Token::LParen)?;
+    let args = parser.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
+    parser.expect_token(&Token::RParen)?;
+    Ok(Statement::ExecuteStreamlit { name, args })
 }
 
 /// Parse `DROP STREAMLIT [IF EXISTS] <name>`.
