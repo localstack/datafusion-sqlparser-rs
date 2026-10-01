@@ -185,6 +185,8 @@ pub struct CreateTableBuilder {
     pub catalog_table_name: Option<String>,
     /// Optional object-store metadata-file path for catalog-less Iceberg tables.
     pub metadata_file_path: Option<String>,
+    /// Optional invalid-character replacement setting for object-store Iceberg.
+    pub replace_invalid_characters: Option<String>,
     /// Optional auto-refresh flag for externally-managed Iceberg tables.
     pub auto_refresh: Option<bool>,
     /// Optional catalog synchronization option.
@@ -304,6 +306,7 @@ impl CreateTableBuilder {
             catalog: None,
             catalog_table_name: None,
             metadata_file_path: None,
+            replace_invalid_characters: None,
             auto_refresh: None,
             catalog_sync: None,
             storage_serialization_policy: None,
@@ -822,6 +825,7 @@ impl CreateTableBuilder {
             catalog: self.catalog,
             catalog_table_name: self.catalog_table_name,
             metadata_file_path: self.metadata_file_path,
+            replace_invalid_characters: self.replace_invalid_characters,
             auto_refresh: self.auto_refresh,
             catalog_sync: self.catalog_sync,
             storage_serialization_policy: self.storage_serialization_policy,
@@ -936,6 +940,7 @@ impl From<CreateTable> for CreateTableBuilder {
             catalog: table.catalog,
             catalog_table_name: table.catalog_table_name,
             metadata_file_path: table.metadata_file_path,
+            replace_invalid_characters: table.replace_invalid_characters,
             auto_refresh: table.auto_refresh,
             catalog_sync: table.catalog_sync,
             storage_serialization_policy: table.storage_serialization_policy,
