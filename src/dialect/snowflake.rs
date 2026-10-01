@@ -5208,6 +5208,12 @@ fn parse_create_masking_policy(
     } else {
         None
     };
+    let exempt_other_policies = if parser.parse_keyword(Keyword::EXEMPT_OTHER_POLICIES) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parse_bool_literal(parser)?)
+    } else {
+        None
+    };
     Ok(Statement::CreateMaskingPolicy {
         or_replace,
         if_not_exists,
@@ -5216,6 +5222,7 @@ fn parse_create_masking_policy(
         return_type,
         policy_expr,
         comment,
+        exempt_other_policies,
     })
 }
 
