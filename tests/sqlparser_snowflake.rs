@@ -9719,6 +9719,7 @@ fn parse_snowflake_create_masking_policy() {
             return_type,
             policy_expr,
             comment,
+            exempt_other_policies,
         } => {
             assert!(!or_replace);
             assert!(!if_not_exists);
@@ -9730,6 +9731,7 @@ fn parse_snowflake_create_masking_policy() {
             assert_eq!(DataType::Varchar(None), return_type);
             assert_eq!(Expr::Identifier(Ident::new("a")), policy_expr);
             assert_eq!(None, comment);
+            assert_eq!(None, exempt_other_policies);
         }
         other => panic!("expected CreateMaskingPolicy, got {other:?}"),
     }

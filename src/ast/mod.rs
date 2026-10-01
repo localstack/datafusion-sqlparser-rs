@@ -5854,6 +5854,8 @@ pub enum Statement {
         policy_expr: Expr,
         /// Optional `COMMENT = '<comment>'`.
         comment: Option<String>,
+        /// Optional `EXEMPT_OTHER_POLICIES = TRUE | FALSE`.
+        exempt_other_policies: Option<bool>,
     },
     /// ```sql
     /// ALTER MASKING POLICY [IF EXISTS] <name>
@@ -9559,6 +9561,7 @@ impl fmt::Display for Statement {
                 return_type,
                 policy_expr,
                 comment,
+                exempt_other_policies,
             } => {
                 write!(
                     f,
@@ -9572,6 +9575,13 @@ impl fmt::Display for Statement {
                         f,
                         " COMMENT = '{}'",
                         value::escape_single_quote_string(comment)
+                    )?;
+                }
+                if let Some(exempt_other_policies) = exempt_other_policies {
+                    write!(
+                        f,
+                        " EXEMPT_OTHER_POLICIES = {}",
+                        if *exempt_other_policies { "TRUE" } else { "FALSE" }
                     )?;
                 }
                 Ok(())
