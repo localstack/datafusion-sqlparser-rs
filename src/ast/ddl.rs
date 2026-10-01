@@ -4204,6 +4204,8 @@ pub struct CreateTable {
     /// volume's active storage location.
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table-iceberg-files>
     pub metadata_file_path: Option<String>,
+    /// Snowflake object-store Iceberg invalid UTF-8 handling.
+    pub replace_invalid_characters: Option<String>,
     /// Snowflake "AUTO_REFRESH" clause for externally-managed Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub auto_refresh: Option<bool>,
@@ -4525,6 +4527,10 @@ impl fmt::Display for CreateTable {
 
         if let Some(metadata_file_path) = self.metadata_file_path.as_ref() {
             write!(f, " METADATA_FILE_PATH='{metadata_file_path}'")?;
+        }
+
+        if let Some(value) = self.replace_invalid_characters.as_ref() {
+            write!(f, " REPLACE_INVALID_CHARACTERS={value}")?;
         }
 
         if let Some(auto_refresh) = self.auto_refresh {

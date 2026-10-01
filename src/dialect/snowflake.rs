@@ -2989,9 +2989,7 @@ pub fn parse_create_table(
                 }
                 Keyword::REPLACE_INVALID_CHARACTERS => {
                     parser.expect_token(&Token::Eq)?;
-                    // Accepted for object-store Iceberg tables; the read path
-                    // does not act on it, so the parsed value is not retained.
-                    let _ = parser.parse_boolean_string()?;
+                    builder.replace_invalid_characters = Some(parser.parse_expr()?.to_string());
                 }
                 Keyword::CATALOG_SYNC => {
                     parser.expect_token(&Token::Eq)?;
