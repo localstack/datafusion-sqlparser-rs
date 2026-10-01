@@ -7427,6 +7427,7 @@ fn parse_trigger_related_functions() {
             catalog: None,
             catalog_table_name: None,
             metadata_file_path: None,
+            replace_invalid_characters: None,
             auto_refresh: None,
             catalog_sync: None,
             storage_serialization_policy: None,
