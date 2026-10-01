@@ -272,6 +272,12 @@ impl SnowflakeDialect {
         }) {
             return Some(Ok(stmt));
         }
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::APPLICATION, Keyword::ROLE])?;
+            parse_alter_application_role(p)
+        }) {
+            return Some(Ok(stmt));
+        }
 
         // ALTER DATABASE ROLE [IF EXISTS] <name> { SET TAG | UNSET TAG } —
         // intercept only the tag form; must win before the ALTER DATABASE tag
@@ -871,6 +877,8 @@ impl SnowflakeDialect {
                 return Some(parse_create_file_format(
                     or_replace, temporary, volatile, parser,
                 ));
+            } else if parser.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
+                return Some(parser.parse_create_application_role(or_replace, or_alter));
             } else {
                 // Not a Snowflake-specific CREATE form — rewind the consumed
                 // tokens so the generic `parse_create` re-parses from `CREATE`.
@@ -5036,6 +5044,33 @@ fn parse_alter_database_role(parser: &mut Parser) -> Result<Statement, ParserErr
     };
 
     Ok(Statement::AlterDatabaseRole {
+        if_exists,
+        name,
+        operation,
+    })
+}
+
+fn parse_alter_application_role(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keyword(Keyword::RENAME) {
+        parser.expect_keyword_is(Keyword::TO)?;
+        AlterDatabaseRoleOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keyword(Keyword::SET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        parser.expect_token(&Token::Eq)?;
+        AlterDatabaseRoleOperation::SetComment {
+            comment: parser.parse_literal_string()?,
+        }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        parser.expect_keyword_is(Keyword::COMMENT)?;
+        AlterDatabaseRoleOperation::UnsetComment
+    } else {
+        return parser.expected("RENAME, SET COMMENT, or UNSET COMMENT", parser.peek_token());
+    };
+    Ok(Statement::AlterApplicationRole {
         if_exists,
         name,
         operation,
