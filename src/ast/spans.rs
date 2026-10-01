@@ -788,6 +788,7 @@ impl Spanned for CreateTable {
             catalog: _,                         // todo, Snowflake specific
             catalog_table_name: _,              // todo, Snowflake specific
             metadata_file_path: _,              // todo, Snowflake specific
+            replace_invalid_characters: _,
             auto_refresh: _,                    // todo, Snowflake specific
             catalog_sync: _,                    // todo, Snowflake specific
             storage_serialization_policy: _,
