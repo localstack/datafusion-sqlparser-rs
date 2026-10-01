@@ -4240,6 +4240,19 @@ pub enum Statement {
         /// source database role this one is cloned from.
         clone: Option<ObjectName>,
     },
+    /// Create an application-scoped role.
+    CreateApplicationRole {
+        /// Replace an existing role.
+        or_replace: bool,
+        /// Alter an existing role or create it when absent.
+        or_alter: bool,
+        /// Succeed when the role already exists.
+        if_not_exists: bool,
+        /// Optionally application-qualified role name.
+        name: ObjectName,
+        /// Optional comment.
+        comment: Option<String>,
+    },
     /// ```sql
     /// CREATE SECRET
     /// ```
@@ -4414,6 +4427,15 @@ pub enum Statement {
         /// The (optionally database-qualified) role name being altered.
         name: ObjectName,
         /// Operation to perform on the database role.
+        operation: AlterDatabaseRoleOperation,
+    },
+    /// Alter an application-scoped role.
+    AlterApplicationRole {
+        /// Succeed when the role is absent.
+        if_exists: bool,
+        /// Optionally application-qualified role name.
+        name: ObjectName,
+        /// Rename or comment operation.
         operation: AlterDatabaseRoleOperation,
     },
     /// ```sql
@@ -8085,6 +8107,21 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateApplicationRole {
+                or_replace,
+                or_alter,
+                if_not_exists,
+                name,
+                comment,
+            } => {
+                write!(f, "CREATE {}APPLICATION ROLE {}{name}",
+                    if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
             Statement::CreateSecret {
                 or_replace,
                 temporary,
@@ -8187,6 +8224,10 @@ impl fmt::Display for Statement {
                     "ALTER DATABASE ROLE {if_exists}{name} {operation}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )
+            }
+            Statement::AlterApplicationRole { if_exists, name, operation } => {
+                write!(f, "ALTER APPLICATION ROLE {}{name} {operation}",
+                    if *if_exists { "IF EXISTS " } else { "" })
             }
             Statement::AlterPolicy(alter_policy) => write!(f, "{alter_policy}"),
             Statement::AlterTrigger(alter_trigger) => write!(f, "{alter_trigger}"),
@@ -13220,6 +13261,8 @@ pub enum ObjectType {
     Role,
     /// A database role (Snowflake).
     DatabaseRole,
+    /// An application role (Snowflake).
+    ApplicationRole,
     /// A sequence.
     Sequence,
     /// A stage.
@@ -13259,6 +13302,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Database => "DATABASE",
             ObjectType::Role => "ROLE",
             ObjectType::DatabaseRole => "DATABASE ROLE",
+            ObjectType::ApplicationRole => "APPLICATION ROLE",
             ObjectType::Sequence => "SEQUENCE",
             ObjectType::Stage => "STAGE",
             ObjectType::Type => "TYPE",
