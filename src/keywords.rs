@@ -449,6 +449,7 @@ define_keywords!(
     EXEC,
     EXECUTE,
     EXECUTION,
+    EXEMPT_OTHER_POLICIES,
     EXISTS,
     EXIT,
     EXP,
