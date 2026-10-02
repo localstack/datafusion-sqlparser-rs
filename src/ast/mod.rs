@@ -63,7 +63,7 @@ pub use self::dcl::{
 };
 pub use self::ddl::{
     Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
-    AlterBackupPolicyOperation, AlterBackupSetOperation, BackupSetTargetKind, AlterFunction, AlterFunctionAction, AlterFunctionKind,
+    AlterBackupPolicyOperation, AlterBackupSetOperation, BackupPolicyPhase, BackupSetTargetKind, AlterFunction, AlterFunctionAction, AlterFunctionKind,
     AlterFunctionOperation,
     AlterIndexOperation, AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator,
     AlterRowAccessPolicyOperation,

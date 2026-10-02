@@ -2281,6 +2281,37 @@ pub enum AlterBackupSetOperation {
     SetComment(String),
     /// `UNSET COMMENT`
     UnsetComment,
+    /// `APPLY BACKUP POLICY <policy> [ FORCE ]`
+    ApplyBackupPolicy {
+        /// The policy to attach.
+        policy: ObjectName,
+        /// `FORCE` flag: replace an attached policy.
+        force: bool,
+    },
+    /// `SUSPEND BACKUP [ CREATION | EXPIRATION ] POLICY`
+    SuspendBackupPolicy(Option<BackupPolicyPhase>),
+    /// `RESUME BACKUP [ CREATION | EXPIRATION ] POLICY`
+    ResumeBackupPolicy(Option<BackupPolicyPhase>),
+}
+
+/// The phase named in `ALTER BACKUP SET … { SUSPEND | RESUME } BACKUP <phase> POLICY`.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum BackupPolicyPhase {
+    /// `CREATION`
+    Creation,
+    /// `EXPIRATION`
+    Expiration,
+}
+
+impl fmt::Display for BackupPolicyPhase {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            BackupPolicyPhase::Creation => "CREATION ",
+            BackupPolicyPhase::Expiration => "EXPIRATION ",
+        })
+    }
 }
 
 impl fmt::Display for AlterBackupSetOperation {
@@ -2291,6 +2322,21 @@ impl fmt::Display for AlterBackupSetOperation {
                 write!(f, "SET COMMENT = '{}'", escape_single_quote_string(comment))
             }
             AlterBackupSetOperation::UnsetComment => f.write_str("UNSET COMMENT"),
+            AlterBackupSetOperation::ApplyBackupPolicy { policy, force } => write!(
+                f,
+                "APPLY BACKUP POLICY {policy}{}",
+                if *force { " FORCE" } else { "" }
+            ),
+            AlterBackupSetOperation::SuspendBackupPolicy(phase) => write!(
+                f,
+                "SUSPEND BACKUP {}POLICY",
+                phase.map_or(String::new(), |p| p.to_string())
+            ),
+            AlterBackupSetOperation::ResumeBackupPolicy(phase) => write!(
+                f,
+                "RESUME BACKUP {}POLICY",
+                phase.map_or(String::new(), |p| p.to_string())
+            ),
         }
     }
 }
