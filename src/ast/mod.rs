@@ -5776,6 +5776,8 @@ pub enum Statement {
         return_type: DataType,
         /// The policy body expression after `->`.
         policy_expr: Expr,
+        /// Optional policy comment.
+        comment: Option<String>,
     },
     /// ```sql
     /// ALTER ROW ACCESS POLICY [IF EXISTS] <name> RENAME TO <new_name>
@@ -9504,6 +9506,7 @@ impl fmt::Display for Statement {
                 args,
                 return_type,
                 policy_expr,
+                comment,
             } => {
                 write!(
                     f,
@@ -9511,7 +9514,15 @@ impl fmt::Display for Statement {
                     or_replace = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     args = display_comma_separated(args),
-                )
+                )?;
+                if let Some(comment) = comment {
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        value::escape_single_quote_string(comment)
+                    )?;
+                }
+                Ok(())
             }
             Statement::AlterRowAccessPolicy {
                 if_exists,

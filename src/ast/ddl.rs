@@ -1611,6 +1611,13 @@ pub enum AlterMaskingPolicyOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterRowAccessPolicyOperation {
+    /// `SET COMMENT = '<comment>'`.
+    SetComment {
+        /// The replacement comment.
+        comment: String,
+    },
+    /// `UNSET COMMENT`.
+    UnsetComment,
     /// `SET BODY -> <expr>`.
     SetBody {
         /// The replacement body expression.
@@ -1626,6 +1633,10 @@ pub enum AlterRowAccessPolicyOperation {
 impl fmt::Display for AlterRowAccessPolicyOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::SetComment { comment } => {
+                write!(f, "SET COMMENT = '{}'", escape_single_quote_string(comment))
+            }
+            Self::UnsetComment => write!(f, "UNSET COMMENT"),
             Self::SetBody { body } => write!(f, "SET BODY -> {body}"),
             Self::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
         }
