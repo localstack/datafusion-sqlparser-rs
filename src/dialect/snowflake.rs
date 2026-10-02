@@ -28,7 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     visit_expressions,
-    AlterAlertOperation, AlterBackupPolicyOperation, AlterColumnOperation,
+    AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupSetTargetKind,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
@@ -420,6 +420,11 @@ impl SnowflakeDialect {
             return Some(parse_alter_authentication_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::BACKUP, Keyword::SET]) {
+            // ALTER BACKUP SET
+            return Some(parse_alter_backup_set(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::BACKUP, Keyword::POLICY]) {
             // ALTER BACKUP POLICY
             return Some(parse_alter_backup_policy(parser));
@@ -539,6 +544,11 @@ impl SnowflakeDialect {
             return Some(parse_drop_authentication_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::BACKUP, Keyword::SET]) {
+            // DROP BACKUP SET
+            return Some(parse_drop_backup_set(parser));
+        }
+
         if parser.parse_keywords(&[Keyword::DROP, Keyword::BACKUP, Keyword::POLICY]) {
             // DROP BACKUP POLICY
             return Some(parse_drop_backup_policy(parser));
@@ -626,6 +636,10 @@ impl SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
                 // DESC[RIBE] AUTHENTICATION POLICY
                 return Some(parse_describe_authentication_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::SET]) {
+                // DESC[RIBE] BACKUP SET
+                return Some(parse_describe_backup_set(parser));
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICY]) {
                 // DESC[RIBE] BACKUP POLICY
@@ -741,6 +755,11 @@ impl SnowflakeDialect {
             // CREATE [OR REPLACE] AUTHENTICATION POLICY
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
                 return Some(parse_create_authentication_policy(or_replace, parser));
+            }
+
+            // CREATE [OR REPLACE | OR ALTER] BACKUP SET
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::SET]) {
+                return Some(parse_create_backup_set(or_replace, or_alter, parser));
             }
 
             // CREATE [OR REPLACE | OR ALTER] BACKUP POLICY
@@ -1049,6 +1068,10 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICIES]) {
                 return Some(parse_show_authentication_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::SETS]) {
+                let show_options = parser.parse_show_stmt_options();
+                return Some(show_options.map(|show_options| Statement::ShowBackupSets { show_options }));
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICIES]) {
                 return Some(parse_show_backup_policies(parser));
@@ -6122,6 +6145,99 @@ fn parse_show_authentication_policies(parser: &mut Parser) -> Result<Statement, 
         show_options,
         on_entity,
     })
+}
+
+/// Parse `CREATE [ OR REPLACE | OR ALTER ] BACKUP SET [ IF NOT EXISTS ] <name>
+///   FOR { [ DYNAMIC ] TABLE <t> | SCHEMA <s> | DATABASE <d> }` followed, in any
+/// order, by `WITH BACKUP POLICY <p>`, `[ WITH ] TAG ( ... )` and `COMMENT = '<c>'`.
+fn parse_create_backup_set(
+    or_replace: bool,
+    or_alter: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    parser.expect_keyword_is(Keyword::FOR)?;
+    let target_kind = if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+        BackupSetTargetKind::DynamicTable
+    } else if parser.parse_keyword(Keyword::TABLE) {
+        BackupSetTargetKind::Table
+    } else if parser.parse_keyword(Keyword::SCHEMA) {
+        BackupSetTargetKind::Schema
+    } else if parser.parse_keyword(Keyword::DATABASE) {
+        BackupSetTargetKind::Database
+    } else {
+        return parser.expected_ref(
+            "TABLE, DYNAMIC TABLE, SCHEMA or DATABASE",
+            parser.peek_token_ref(),
+        );
+    };
+    let target = parser.parse_object_name(false)?;
+    let mut backup_policy = None;
+    let mut with_tags = None;
+    let mut comment = None;
+    loop {
+        if parser.parse_keywords(&[Keyword::WITH, Keyword::BACKUP, Keyword::POLICY]) {
+            backup_policy = Some(parser.parse_object_name(false)?);
+        } else if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+            || parser.parse_keyword(Keyword::TAG)
+        {
+            parser.expect_token(&Token::LParen)?;
+            with_tags = Some(parser.parse_comma_separated(Parser::parse_tag)?);
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else {
+            break;
+        }
+    }
+    Ok(Statement::CreateBackupSet {
+        or_replace,
+        or_alter,
+        if_not_exists,
+        name,
+        target_kind,
+        target,
+        backup_policy,
+        with_tags,
+        comment,
+    })
+}
+
+/// Parse `ALTER BACKUP SET <name>
+///   { RENAME TO <name> | SET COMMENT = '<c>' | UNSET COMMENT }`.
+fn parse_alter_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterBackupSetOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
+        parser.expect_token(&Token::Eq)?;
+        AlterBackupSetOperation::SetComment(parser.parse_comment_value()?)
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        AlterBackupSetOperation::UnsetComment
+    } else {
+        return parser.expected_ref(
+            "RENAME TO, SET COMMENT or UNSET COMMENT",
+            parser.peek_token_ref(),
+        );
+    };
+    Ok(Statement::AlterBackupSet { name, operation })
+}
+
+/// Parse `DROP BACKUP SET [IF EXISTS] <name>`
+fn parse_drop_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DropBackupSet { if_exists, name })
+}
+
+/// Parse `DESC[RIBE] BACKUP SET <name>`
+fn parse_describe_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    Ok(Statement::DescribeBackupSet { name })
 }
 
 /// Parse `ALTER BACKUP POLICY <name>

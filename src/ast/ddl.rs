@@ -2241,6 +2241,60 @@ impl fmt::Display for AlterAuthenticationPolicyOperation {
     }
 }
 
+/// The target of a `CREATE BACKUP SET … FOR <target>` statement.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum BackupSetTargetKind {
+    /// `FOR TABLE <table>`
+    Table,
+    /// `FOR DYNAMIC TABLE <table>`
+    DynamicTable,
+    /// `FOR SCHEMA <schema>`
+    Schema,
+    /// `FOR DATABASE <database>`
+    Database,
+}
+
+impl fmt::Display for BackupSetTargetKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            BackupSetTargetKind::Table => "TABLE",
+            BackupSetTargetKind::DynamicTable => "DYNAMIC TABLE",
+            BackupSetTargetKind::Schema => "SCHEMA",
+            BackupSetTargetKind::Database => "DATABASE",
+        })
+    }
+}
+
+/// An operation on a backup set in an `ALTER BACKUP SET` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterBackupSetOperation {
+    /// `RENAME TO <name>`
+    RenameTo {
+        /// The new backup set name.
+        new_name: ObjectName,
+    },
+    /// `SET COMMENT = '<string>'`
+    SetComment(String),
+    /// `UNSET COMMENT`
+    UnsetComment,
+}
+
+impl fmt::Display for AlterBackupSetOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterBackupSetOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+            AlterBackupSetOperation::SetComment(comment) => {
+                write!(f, "SET COMMENT = '{}'", escape_single_quote_string(comment))
+            }
+            AlterBackupSetOperation::UnsetComment => f.write_str("UNSET COMMENT"),
+        }
+    }
+}
+
 impl fmt::Display for AlterBackupPolicyOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
