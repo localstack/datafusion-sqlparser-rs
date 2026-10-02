@@ -1146,6 +1146,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_merge_all_by_name(&self) -> bool {
+        true
+    }
+
     fn supports_explain_using_format(&self) -> bool {
         true
     }
