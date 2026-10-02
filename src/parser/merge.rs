@@ -129,11 +129,19 @@ impl Parser<'_> {
                     }
 
                     let update_token = self.get_current_token().clone();
-                    self.expect_keyword_is(Keyword::SET)?;
-                    let kind = if self.consume_token(&Token::Mul) {
-                        MergeUpdateKind::Wildcard
+                    let kind = if self.dialect.supports_merge_all_by_name()
+                        && self.parse_keywords(&[Keyword::ALL, Keyword::BY, Keyword::NAME])
+                    {
+                        MergeUpdateKind::AllByName
                     } else {
-                        MergeUpdateKind::Set(self.parse_comma_separated(Parser::parse_assignment)?)
+                        self.expect_keyword_is(Keyword::SET)?;
+                        if self.consume_token(&Token::Mul) {
+                            MergeUpdateKind::Wildcard
+                        } else {
+                            MergeUpdateKind::Set(
+                                self.parse_comma_separated(Parser::parse_assignment)?,
+                            )
+                        }
                     };
                     let update_predicate = if self.parse_keyword(Keyword::WHERE) {
                         Some(self.parse_expr()?)
@@ -194,7 +202,11 @@ impl Parser<'_> {
                     } else {
                         let is_mysql = dialect_of!(self is MySqlDialect);
                         let columns = self.parse_merge_clause_insert_columns(is_mysql)?;
-                        let (kind, kind_token) = if dialect_of!(self is BigQueryDialect | GenericDialect)
+                        let (kind, kind_token) = if self.dialect.supports_merge_all_by_name()
+                            && self.parse_keywords(&[Keyword::ALL, Keyword::BY, Keyword::NAME])
+                        {
+                            (MergeInsertKind::AllByName, self.get_current_token().clone())
+                        } else if dialect_of!(self is BigQueryDialect | GenericDialect)
                             && self.parse_keyword(Keyword::ROW)
                         {
                             (MergeInsertKind::Row, self.get_current_token().clone())

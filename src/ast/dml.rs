@@ -742,6 +742,14 @@ pub enum MergeInsertKind {
     /// ```
     /// [Databricks](https://docs.databricks.com/en/sql/language-manual/delta-merge-into.html)
     Wildcard,
+    /// The source columns are matched to target columns by name.
+    ///
+    /// Example:
+    /// ```sql
+    /// INSERT ALL BY NAME
+    /// ```
+    /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/merge)
+    AllByName,
 }
 
 impl Display for MergeInsertKind {
@@ -755,6 +763,9 @@ impl Display for MergeInsertKind {
             }
             MergeInsertKind::Wildcard => {
                 write!(f, "*")
+            }
+            MergeInsertKind::AllByName => {
+                write!(f, "ALL BY NAME")
             }
         }
     }
@@ -826,6 +837,14 @@ pub enum MergeUpdateKind {
     /// ```
     /// [Databricks](https://docs.databricks.com/en/sql/language-manual/delta-merge-into.html)
     Wildcard,
+    /// Source columns matched to target columns by name.
+    ///
+    /// Example:
+    /// ```sql
+    /// UPDATE ALL BY NAME
+    /// ```
+    /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/merge)
+    AllByName,
 }
 
 impl Display for MergeUpdateKind {
@@ -836,6 +855,9 @@ impl Display for MergeUpdateKind {
             }
             MergeUpdateKind::Wildcard => {
                 write!(f, "SET *")
+            }
+            MergeUpdateKind::AllByName => {
+                write!(f, "ALL BY NAME")
             }
         }
     }
