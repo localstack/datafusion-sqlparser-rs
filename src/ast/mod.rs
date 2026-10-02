@@ -11335,6 +11335,11 @@ pub enum Action {
         /// The role name.
         role: ObjectName,
     },
+    /// Membership in an application-scoped role.
+    ApplicationRole {
+        /// The role name.
+        role: ObjectName,
+    },
     /// Delete permission.
     Delete,
     /// Drop permission.
@@ -11457,6 +11462,7 @@ impl fmt::Display for Action {
                 }
             }
             Action::DatabaseRole { role } => write!(f, "DATABASE ROLE {role}")?,
+            Action::ApplicationRole { role } => write!(f, "APPLICATION ROLE {role}")?,
             Action::Delete => f.write_str("DELETE")?,
             Action::Drop => f.write_str("DROP")?,
             Action::EvolveSchema => f.write_str("EVOLVE SCHEMA")?,
