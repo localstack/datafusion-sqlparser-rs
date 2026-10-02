@@ -1408,6 +1408,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Does the dialect support MERGE UPDATE and INSERT ALL BY NAME?
+    fn supports_merge_all_by_name(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports the `INSERT INTO ... SET col1 = 1, ...` syntax.
     ///
     /// MySQL: <https://dev.mysql.com/doc/refman/8.4/en/insert.html>

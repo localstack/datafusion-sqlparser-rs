@@ -11248,6 +11248,18 @@ fn host_stack_probe_stops_recursion_with_a_parse_error() {
 }
 
 #[test]
+fn merge_all_by_name() {
+    for sql in [
+        "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE ALL BY NAME",
+        "MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED THEN INSERT ALL BY NAME",
+        "MERGE INTO target AS t USING (SELECT v, id FROM source) AS s ON t.id = s.id WHEN MATCHED AND s.id = 1 THEN UPDATE ALL BY NAME WHEN NOT MATCHED AND s.id = 2 THEN INSERT ALL BY NAME",
+        r#"MERGE INTO "target" USING "source" ON "target"."id" = "source"."id" WHEN MATCHED THEN UPDATE ALL BY NAME WHEN NOT MATCHED THEN INSERT ALL BY NAME"#,
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+}
+
+#[test]
 fn execute_task_using_config() {
     for sql in [
         r#"EXECUTE TASK db.schema.task USING CONFIG = '{"x":1}'"#,

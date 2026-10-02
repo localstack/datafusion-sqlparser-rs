@@ -2963,7 +2963,9 @@ impl Spanned for MergeInsertExpr {
                 self.kind_token.0.span,
                 match self.kind {
                     MergeInsertKind::Values(ref values) => values.span(),
-                    MergeInsertKind::Row | MergeInsertKind::Wildcard => Span::empty(),
+                    MergeInsertKind::Row
+                    | MergeInsertKind::Wildcard
+                    | MergeInsertKind::AllByName => Span::empty(),
                 },
             ]
             .into_iter()
@@ -2977,7 +2979,7 @@ impl Spanned for MergeUpdateExpr {
     fn span(&self) -> Span {
         let kind_span = match &self.kind {
             MergeUpdateKind::Set(assignments) => union_spans(assignments.iter().map(Spanned::span)),
-            MergeUpdateKind::Wildcard => Span::empty(),
+            MergeUpdateKind::Wildcard | MergeUpdateKind::AllByName => Span::empty(),
         };
         union_spans(
             core::iter::once(self.update_token.0.span)
