@@ -28,7 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     visit_expressions,
-    AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupSetTargetKind,
+    AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupPolicyPhase, BackupSetTargetKind,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
@@ -6222,13 +6222,34 @@ fn parse_alter_backup_set(parser: &mut Parser) -> Result<Statement, ParserError>
         AlterBackupSetOperation::SetComment(parser.parse_comment_value()?)
     } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
         AlterBackupSetOperation::UnsetComment
+    } else if parser.parse_keywords(&[Keyword::APPLY, Keyword::BACKUP, Keyword::POLICY]) {
+        let policy = parser.parse_object_name(false)?;
+        let force = parser.parse_keyword(Keyword::FORCE);
+        AlterBackupSetOperation::ApplyBackupPolicy { policy, force }
+    } else if parser.parse_keywords(&[Keyword::SUSPEND, Keyword::BACKUP]) {
+        AlterBackupSetOperation::SuspendBackupPolicy(parse_backup_policy_phase(parser)?)
+    } else if parser.parse_keywords(&[Keyword::RESUME, Keyword::BACKUP]) {
+        AlterBackupSetOperation::ResumeBackupPolicy(parse_backup_policy_phase(parser)?)
     } else {
         return parser.expected_ref(
-            "RENAME TO, SET COMMENT or UNSET COMMENT",
+            "RENAME TO, SET COMMENT, UNSET COMMENT, APPLY, SUSPEND or RESUME",
             parser.peek_token_ref(),
         );
     };
     Ok(Statement::AlterBackupSet { name, operation })
+}
+
+/// Parse `[ CREATION | EXPIRATION ] POLICY` after `{ SUSPEND | RESUME } BACKUP`.
+fn parse_backup_policy_phase(parser: &mut Parser) -> Result<Option<BackupPolicyPhase>, ParserError> {
+    let phase = if parser.parse_keyword(Keyword::CREATION) {
+        Some(BackupPolicyPhase::Creation)
+    } else if parser.parse_keyword(Keyword::EXPIRATION) {
+        Some(BackupPolicyPhase::Expiration)
+    } else {
+        None
+    };
+    parser.expect_keyword_is(Keyword::POLICY)?;
+    Ok(phase)
 }
 
 /// Parse `DROP BACKUP SET [IF EXISTS] <name>`

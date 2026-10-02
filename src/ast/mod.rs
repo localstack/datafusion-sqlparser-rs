@@ -77,6 +77,7 @@ pub use self::ddl::{
     CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     AlterPasswordPolicyOperation,
     AlterBackupSetOperation, BackupSetTargetKind,
+    BackupPolicyPhase,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
     AlterAuthenticationPolicyOperation,
