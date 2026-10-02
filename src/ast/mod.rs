@@ -100,6 +100,7 @@ pub use self::ddl::{
     AlterTagOperation,
     AlterPasswordPolicyOperation,
     AlterBackupSetOperation, BackupSetTargetKind,
+    BackupPolicyPhase,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
     AlterAuthenticationPolicyOperation,
