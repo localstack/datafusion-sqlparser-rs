@@ -649,6 +649,8 @@ pub enum MergeInsertKind {
     /// ```
     /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/dml-syntax#merge_statement)
     Row,
+    /// The source columns are matched to target columns by name.
+    AllByName,
 }
 
 impl Display for MergeInsertKind {
@@ -660,6 +662,7 @@ impl Display for MergeInsertKind {
             MergeInsertKind::Row => {
                 write!(f, "ROW")
             }
+            MergeInsertKind::AllByName => write!(f, "ALL BY NAME"),
         }
     }
 }
@@ -728,6 +731,8 @@ pub struct MergeUpdateExpr {
     pub update_token: AttachedToken,
     /// The update assiment expressions
     pub assignments: Vec<Assignment>,
+    /// Use source columns matched by name instead of explicit assignments.
+    pub all_by_name: bool,
     /// `where_clause` for the update (Oralce specific)
     pub update_predicate: Option<Expr>,
     /// `delete_clause` for the update "delete where" (Oracle specific)
@@ -736,7 +741,11 @@ pub struct MergeUpdateExpr {
 
 impl Display for MergeUpdateExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SET {}", display_comma_separated(&self.assignments))?;
+        if self.all_by_name {
+            write!(f, "ALL BY NAME")?;
+        } else {
+            write!(f, "SET {}", display_comma_separated(&self.assignments))?;
+        }
         if let Some(predicate) = self.update_predicate.as_ref() {
             write!(f, " WHERE {predicate}")?;
         }

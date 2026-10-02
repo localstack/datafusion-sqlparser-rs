@@ -10236,6 +10236,7 @@ fn parse_merge() {
                         }),
                         action: MergeAction::Update(MergeUpdateExpr {
                             update_token: AttachedToken::empty(),
+                            all_by_name: false,
                             assignments: vec![
                                 Assignment {
                                     target: AssignmentTarget::ColumnName(ObjectName::from(vec![

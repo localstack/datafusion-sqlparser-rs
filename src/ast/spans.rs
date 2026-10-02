@@ -2926,7 +2926,7 @@ impl Spanned for MergeInsertExpr {
                 self.kind_token.0.span,
                 match self.kind {
                     MergeInsertKind::Values(ref values) => values.span(),
-                    MergeInsertKind::Row => Span::empty(), // ~ covered by `kind_token`
+                    MergeInsertKind::Row | MergeInsertKind::AllByName => Span::empty(),
                 },
             ]
             .into_iter()
@@ -3323,6 +3323,7 @@ WHERE id = 1
         if let MergeAction::Update(MergeUpdateExpr {
             update_token,
             assignments: _,
+            all_by_name: _,
             update_predicate: _,
             delete_predicate: _,
         }) = &clauses[1].action
