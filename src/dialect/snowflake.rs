@@ -3186,6 +3186,7 @@ pub fn parse_create_table(
     if iceberg
         && !dynamic
         && builder.clone.is_none()
+        && builder.like.is_none()
         && builder.base_location.is_none()
         && builder.external_volume.is_none()
         && builder.catalog_table_name.is_none()
