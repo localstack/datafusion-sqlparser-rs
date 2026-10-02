@@ -76,6 +76,7 @@ pub use self::ddl::{
     ConstraintCharacteristics, CreateCollation, CreateCollationDefinition, CreateConnector,
     CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     AlterPasswordPolicyOperation,
+    AlterBackupSetOperation, BackupSetTargetKind,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
     AlterAuthenticationPolicyOperation,
@@ -6132,6 +6133,65 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// CREATE [ OR REPLACE | OR ALTER ] BACKUP SET [ IF NOT EXISTS ] <name>
+    ///   FOR { [ DYNAMIC ] TABLE <t> | SCHEMA <s> | DATABASE <d> }
+    ///   [ WITH BACKUP POLICY <p> ] [ [ WITH ] TAG ( ... ) ] [ COMMENT = '<c>' ]
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-backup-set>
+    CreateBackupSet {
+        /// `OR REPLACE` flag.
+        or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Backup set name.
+        name: ObjectName,
+        /// The kind of object the set backs up.
+        target_kind: BackupSetTargetKind,
+        /// The object the set backs up.
+        target: ObjectName,
+        /// `WITH BACKUP POLICY <p>`
+        backup_policy: Option<ObjectName>,
+        /// `[ WITH ] TAG ( <tag> = '<value>' [ , ... ] )`
+        with_tags: Option<Vec<Tag>>,
+        /// `COMMENT = '<c>'`
+        comment: Option<String>,
+    },
+    /// ```sql
+    /// ALTER BACKUP SET <name>
+    ///   { RENAME TO <name> | SET COMMENT = '<c>' | UNSET COMMENT }
+    /// ```
+    AlterBackupSet {
+        /// Backup set name.
+        name: ObjectName,
+        /// The operation to apply.
+        operation: AlterBackupSetOperation,
+    },
+    /// ```sql
+    /// DROP BACKUP SET [IF EXISTS] <name>
+    /// ```
+    DropBackupSet {
+        /// `IF EXISTS` flag.
+        if_exists: bool,
+        /// Backup set name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// DESC[RIBE] BACKUP SET <name>
+    /// ```
+    DescribeBackupSet {
+        /// Backup set name.
+        name: ObjectName,
+    },
+    /// ```sql
+    /// SHOW BACKUP SETS [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// ```
+    ShowBackupSets {
+        /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
     ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
     /// ```
@@ -9886,6 +9946,49 @@ impl fmt::Display for Statement {
             }
             Statement::ShowBackupPolicies { show_options } => {
                 write!(f, "SHOW BACKUP POLICIES{show_options}")
+            }
+            Statement::CreateBackupSet {
+                or_replace,
+                or_alter,
+                if_not_exists,
+                name,
+                target_kind,
+                target,
+                backup_policy,
+                with_tags,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "CREATE {or_replace}{or_alter}BACKUP SET {if_not_exists}{name} FOR {target_kind} {target}",
+                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
+                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if let Some(policy) = backup_policy {
+                    write!(f, " WITH BACKUP POLICY {policy}")?;
+                }
+                if let Some(tags) = with_tags {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
+            Statement::AlterBackupSet { name, operation } => {
+                write!(f, "ALTER BACKUP SET {name} {operation}")
+            }
+            Statement::DropBackupSet { if_exists, name } => {
+                write!(
+                    f,
+                    "DROP BACKUP SET {if_exists}{name}",
+                    if_exists = if *if_exists { "IF EXISTS " } else { "" },
+                )
+            }
+            Statement::DescribeBackupSet { name } => write!(f, "DESCRIBE BACKUP SET {name}"),
+            Statement::ShowBackupSets { show_options } => {
+                write!(f, "SHOW BACKUP SETS{show_options}")
             }
             Statement::CreateNetworkRule {
                 or_replace,
