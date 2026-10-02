@@ -80,6 +80,7 @@ pub use self::ddl::{
     CreateForeignDataWrapper, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
     AlterPasswordPolicyOperation,
     AlterBackupSetOperation, BackupSetTargetKind,
+    BackupPolicyPhase,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
     AlterAuthenticationPolicyOperation,
