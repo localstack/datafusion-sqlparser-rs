@@ -20836,6 +20836,9 @@ impl<'a> Parser<'a> {
         } else if self.parse_keywords(&[Keyword::DATABASE, Keyword::ROLE]) {
             let role = self.parse_object_name(false)?;
             Ok(Action::DatabaseRole { role })
+        } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
+            let role = self.parse_object_name(false)?;
+            Ok(Action::ApplicationRole { role })
         } else if self.parse_keywords(&[Keyword::EVOLVE, Keyword::SCHEMA]) {
             Ok(Action::EvolveSchema)
         } else if self.parse_keywords(&[Keyword::IMPORT, Keyword::SHARE]) {
