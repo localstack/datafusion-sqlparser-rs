@@ -5144,16 +5144,20 @@ fn parse_create_row_access_policy(
     let name = parser.parse_object_name(false)?;
     parser.expect_keyword_is(Keyword::AS)?;
     parser.expect_token(&Token::LParen)?;
-    let args = parser.parse_comma_separated(|p| {
-        let arg_name = p.parse_identifier()?;
-        let data_type = p.parse_data_type()?;
-        Ok(OperateFunctionArg {
-            mode: None,
-            name: Some(arg_name),
-            data_type,
-            default_expr: None,
-        })
-    })?;
+    let args = if parser.peek_token().token == Token::RParen {
+        vec![]
+    } else {
+        parser.parse_comma_separated(|p| {
+            let arg_name = p.parse_identifier()?;
+            let data_type = p.parse_data_type()?;
+            Ok(OperateFunctionArg {
+                mode: None,
+                name: Some(arg_name),
+                data_type,
+                default_expr: None,
+            })
+        })?
+    };
     parser.expect_token(&Token::RParen)?;
     parser.expect_keyword_is(Keyword::RETURNS)?;
     let return_type = parser.parse_data_type()?;
