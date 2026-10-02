@@ -715,7 +715,7 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] ROW ACCESS POLICY
             if parser.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
-                return Some(parse_create_row_access_policy(or_replace, parser));
+                return Some(parse_create_row_access_policy(or_replace, or_alter, parser));
             }
 
             // CREATE [OR REPLACE] MASKING POLICY
@@ -5118,6 +5118,7 @@ fn parse_describe_warehouse(parser: &mut Parser) -> Result<Statement, ParserErro
 ///   AS (<arg> <type>[, ...]) RETURNS <type> -> <body>`
 fn parse_create_row_access_policy(
     or_replace: bool,
+    or_alter: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -5141,6 +5142,7 @@ fn parse_create_row_access_policy(
     let policy_expr = parser.parse_expr()?;
     Ok(Statement::CreateRowAccessPolicy {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         args,
@@ -5153,12 +5155,21 @@ fn parse_create_row_access_policy(
 fn parse_alter_row_access_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
-    let new_name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::BODY]) {
+        parser.expect_token(&Token::Arrow)?;
+        crate::ast::AlterRowAccessPolicyOperation::SetBody {
+            body: parser.parse_expr()?,
+        }
+    } else {
+        parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
+        crate::ast::AlterRowAccessPolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    };
     Ok(Statement::AlterRowAccessPolicy {
         if_exists,
         name,
-        new_name,
+        operation,
     })
 }
 

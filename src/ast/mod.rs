@@ -76,6 +76,7 @@ pub use self::ddl::{
     ConstraintCharacteristics, CreateCollation, CreateCollationDefinition, CreateConnector,
     CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
     AlterPasswordPolicyOperation,
+    AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
     AlterAuthenticationPolicyOperation,
     AlterBackupPolicyOperation,
@@ -5789,6 +5790,8 @@ pub enum Statement {
     CreateRowAccessPolicy {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Policy name.
@@ -5808,8 +5811,8 @@ pub enum Statement {
         if_exists: bool,
         /// Policy name.
         name: ObjectName,
-        /// New policy name.
-        new_name: ObjectName,
+        /// The policy operation.
+        operation: AlterRowAccessPolicyOperation,
     },
     /// ```sql
     /// DROP ROW ACCESS POLICY [IF EXISTS] <name>
@@ -9515,6 +9518,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreateRowAccessPolicy {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 args,
@@ -9524,7 +9528,7 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "CREATE {or_replace}ROW ACCESS POLICY {if_not_exists}{name} AS ({args}) RETURNS {return_type} -> {policy_expr}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_replace = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     args = display_comma_separated(args),
                 )
@@ -9532,11 +9536,11 @@ impl fmt::Display for Statement {
             Statement::AlterRowAccessPolicy {
                 if_exists,
                 name,
-                new_name,
+                operation,
             } => {
                 write!(
                     f,
-                    "ALTER ROW ACCESS POLICY {if_exists}{name} RENAME TO {new_name}",
+                    "ALTER ROW ACCESS POLICY {if_exists}{name} {operation}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )
             }

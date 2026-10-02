@@ -1620,6 +1620,32 @@ pub enum AlterMaskingPolicyOperation {
     UnsetComment,
 }
 
+/// An operation in an `ALTER ROW ACCESS POLICY` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterRowAccessPolicyOperation {
+    /// `SET BODY -> <expr>`.
+    SetBody {
+        /// The replacement body expression.
+        body: Expr,
+    },
+    /// `RENAME TO <name>`.
+    RenameTo {
+        /// The new policy name.
+        new_name: ObjectName,
+    },
+}
+
+impl fmt::Display for AlterRowAccessPolicyOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::SetBody { body } => write!(f, "SET BODY -> {body}"),
+            Self::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+        }
+    }
+}
+
 impl fmt::Display for AlterMaskingPolicyOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
