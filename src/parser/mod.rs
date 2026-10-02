@@ -23464,6 +23464,7 @@ impl<'a> Parser<'a> {
             let name = self.parse_object_name(false)?;
             let mut retry_last = false;
             let mut retry_graph_run_group = None;
+            let mut config = None;
             if self.parse_keyword(Keyword::RETRY) {
                 if self.parse_keyword(Keyword::LAST) {
                     retry_last = true;
@@ -23475,8 +23476,22 @@ impl<'a> Parser<'a> {
                         _ => return self.expected("single-quoted graph run group ID", token),
                     });
                 }
+            } else if self.parse_keyword(Keyword::USING) {
+                self.expect_keyword(Keyword::CONFIG)?;
+                self.expect_token(&Token::Eq)?;
+                let token = self.next_token();
+                config = Some(match token.token {
+                    Token::SingleQuotedString(value) => value,
+                    Token::DollarQuotedString(value) => value.value,
+                    _ => return self.expected("configuration string", token),
+                });
             }
-            return Ok(Statement::ExecuteTask { name, retry_last, retry_graph_run_group });
+            return Ok(Statement::ExecuteTask {
+                name,
+                retry_last,
+                retry_graph_run_group,
+                config,
+            });
         }
 
         // Snowflake `EXECUTE ALERT <name>` — same early-dispatch reasoning as

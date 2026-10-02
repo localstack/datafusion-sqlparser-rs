@@ -5472,6 +5472,8 @@ pub enum Statement {
         retry_last: bool,
         /// Retry a specific graph run group.
         retry_graph_run_group: Option<String>,
+        /// Per-run JSON configuration override.
+        config: Option<String>,
     },
     /// ```sql
     /// EXECUTE ALERT <name>
@@ -9193,12 +9195,19 @@ impl fmt::Display for Statement {
                 }
                 write!(f, " {name} {operation}")
             }
-            Statement::ExecuteTask { name, retry_last, retry_graph_run_group } => {
+            Statement::ExecuteTask {
+                name,
+                retry_last,
+                retry_graph_run_group,
+                config,
+            } => {
                 write!(f, "EXECUTE TASK {name}")?;
                 if *retry_last {
                     write!(f, " RETRY LAST")?;
                 } else if let Some(group_id) = retry_graph_run_group {
                     write!(f, " RETRY GRAPH RUN GROUP '{}'", group_id.replace('\'', "''"))?;
+                } else if let Some(config) = config {
+                    write!(f, " USING CONFIG = '{}'", config.replace('\'', "''"))?;
                 }
                 Ok(())
             }
