@@ -6432,6 +6432,19 @@ fn parse_create_streamlit(or_replace: bool, parser: &mut Parser) -> Result<State
     } else {
         None
     };
+    let options = parse_streamlit_options(parser)?;
+    Ok(Statement::CreateStreamlit {
+        or_replace,
+        if_not_exists,
+        name,
+        from,
+        options,
+    })
+}
+
+/// Parse a run of Streamlit `<property> = <value>` pairs. A value is an
+/// expression or a parenthesised, possibly empty, list.
+fn parse_streamlit_options(parser: &mut Parser) -> Result<Vec<SqlOption>, ParserError> {
     let mut options = Vec::new();
     while matches!(parser.peek_token_ref().token, Token::Word(_)) {
         let key = parser.parse_identifier()?;
@@ -6445,13 +6458,7 @@ fn parse_create_streamlit(or_replace: bool, parser: &mut Parser) -> Result<State
         };
         options.push(SqlOption::KeyValue { key, value });
     }
-    Ok(Statement::CreateStreamlit {
-        or_replace,
-        if_not_exists,
-        name,
-        from,
-        options,
-    })
+    Ok(options)
 }
 
 /// Consume the next token when it is the unquoted word `word`.
@@ -6464,13 +6471,21 @@ fn parse_bare_word(parser: &mut Parser, word: &str) -> bool {
     matched
 }
 
-/// Parse `ALTER STREAMLIT [IF EXISTS] <name> RENAME TO <new_name>` and the
-/// version / git verbs (`ADD LIVE VERSION FROM LAST`, `COMMIT`, `ABORT`,
-/// `PUSH [TO '<uri>']`, `PULL`), which take no `IF EXISTS`.
+/// Parse `ALTER STREAMLIT [IF EXISTS] <name> RENAME TO <new_name> | SET … |
+/// UNSET …` and the version / git verbs (`ADD LIVE VERSION FROM LAST`,
+/// `COMMIT`, `ABORT`, `PUSH [TO '<uri>']`, `PULL`), which take no `IF EXISTS`.
 fn parse_alter_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    let operation = if if_exists || parser.parse_keyword(Keyword::RENAME) {
+    let operation = if parser.parse_keyword(Keyword::SET) {
+        let options = parse_streamlit_options(parser)?;
+        if options.is_empty() {
+            return parser.expected("property", parser.peek_token());
+        }
+        AlterStreamlitOperation::Set(options)
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterStreamlitOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+    } else if if_exists || parser.parse_keyword(Keyword::RENAME) {
         if if_exists {
             parser.expect_keyword_is(Keyword::RENAME)?;
         }
@@ -6497,7 +6512,7 @@ fn parse_alter_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> 
         AlterStreamlitOperation::Pull
     } else {
         return parser.expected(
-            "RENAME, ADD, COMMIT, ABORT, PUSH or PULL",
+            "RENAME, SET, UNSET, ADD, COMMIT, ABORT, PUSH or PULL",
             parser.peek_token(),
         );
     };
