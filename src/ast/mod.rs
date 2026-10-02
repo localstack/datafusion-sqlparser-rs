@@ -16248,6 +16248,10 @@ pub enum AlterStreamlitOperation {
     Push(Option<String>),
     /// `PULL`
     Pull,
+    /// `SET <property> = <value> [ ... ]`
+    Set(Vec<SqlOption>),
+    /// `UNSET <property> [ , ... ]`
+    Unset(Vec<Ident>),
 }
 
 impl fmt::Display for AlterStreamlitOperation {
@@ -16264,6 +16268,12 @@ impl fmt::Display for AlterStreamlitOperation {
                 write!(f, "PUSH TO '{}'", value::escape_single_quote_string(uri))
             }
             AlterStreamlitOperation::Pull => write!(f, "PULL"),
+            AlterStreamlitOperation::Set(options) => {
+                write!(f, "SET {}", display_separated(options, " "))
+            }
+            AlterStreamlitOperation::Unset(names) => {
+                write!(f, "UNSET {}", display_comma_separated(names))
+            }
         }
     }
 }
