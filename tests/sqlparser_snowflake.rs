@@ -8359,10 +8359,16 @@ fn test_alter_task_if_exists_suspend() {
 fn test_execute_task() {
     let sql = "EXECUTE TASK foo";
     match snowflake().verified_stmt(sql) {
-        Statement::ExecuteTask { name, retry_last, retry_graph_run_group } => {
+        Statement::ExecuteTask {
+            name,
+            retry_last,
+            retry_graph_run_group,
+            config,
+        } => {
             assert_eq!("foo", name.to_string());
             assert!(!retry_last);
             assert_eq!(retry_graph_run_group, None);
+            assert_eq!(config, None);
         }
         _ => unreachable!(),
     }
@@ -11318,4 +11324,34 @@ fn host_stack_probe_stops_recursion_with_a_parse_error() {
         Parser::parse_sql(&SnowflakeDialect {}, "SELECT 1 + 1").err(),
         None
     );
+}
+
+#[test]
+fn execute_task_using_config() {
+    for sql in [
+        r#"EXECUTE TASK db.schema.task USING CONFIG = '{"x":1}'"#,
+        r#"EXECUTE TASK "using"."config" USING CONFIG = '{}'"#,
+        r#"EXECUTE TASK task USING CONFIG = '{"text":"it''s fine"}'"#,
+    ] {
+        snowflake().verified_stmt(sql);
+    }
+    snowflake().one_statement_parses_to(
+        r#"EXECUTE TASK task USING CONFIG = $${"x":1}$$"#,
+        r#"EXECUTE TASK task USING CONFIG = '{"x":1}'"#,
+    );
+    match snowflake().verified_stmt(r#"EXECUTE TASK task USING CONFIG = '{"x":1}'"#) {
+        Statement::ExecuteTask { config, .. } => {
+            assert_eq!(config.as_deref(), Some(r#"{"x":1}"#));
+        }
+        statement => panic!("unexpected statement: {statement}"),
+    }
+    for sql in [
+        "EXECUTE TASK task USING CONFIG = 1",
+        "EXECUTE TASK task USING CONFIG = NULL",
+        "EXECUTE TASK task USING CONFIG = config",
+        "EXECUTE TASK task USING CONFIG = '{}' RETRY LAST",
+        "EXECUTE TASK task RETRY LAST USING CONFIG = '{}'",
+    ] {
+        assert!(Parser::parse_sql(&SnowflakeDialect {}, sql).is_err(), "{sql}");
+    }
 }
