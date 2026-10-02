@@ -5140,6 +5140,12 @@ fn parse_create_row_access_policy(
     let return_type = parser.parse_data_type()?;
     parser.expect_token(&Token::Arrow)?;
     let policy_expr = parser.parse_expr()?;
+    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parse_row_access_policy_comment(parser)?)
+    } else {
+        None
+    };
     Ok(Statement::CreateRowAccessPolicy {
         or_replace,
         or_alter,
@@ -5148,6 +5154,7 @@ fn parse_create_row_access_policy(
         args,
         return_type,
         policy_expr,
+        comment,
     })
 }
 
@@ -5160,6 +5167,17 @@ fn parse_alter_row_access_policy(parser: &mut Parser) -> Result<Statement, Parse
         crate::ast::AlterRowAccessPolicyOperation::SetBody {
             body: parser.parse_expr()?,
         }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
+        parser.expect_token(&Token::Eq)?;
+        if parser.parse_keyword(Keyword::NULL) {
+            crate::ast::AlterRowAccessPolicyOperation::UnsetComment
+        } else {
+            crate::ast::AlterRowAccessPolicyOperation::SetComment {
+                comment: parse_row_access_policy_comment(parser)?,
+            }
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+        crate::ast::AlterRowAccessPolicyOperation::UnsetComment
     } else {
         parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
         crate::ast::AlterRowAccessPolicyOperation::RenameTo {
@@ -5170,6 +5188,17 @@ fn parse_alter_row_access_policy(parser: &mut Parser) -> Result<Statement, Parse
         if_exists,
         name,
         operation,
+    })
+}
+
+fn parse_row_access_policy_comment(parser: &mut Parser) -> Result<String, ParserError> {
+    let unquoted = matches!(parser.peek_token_ref().token,
+        Token::Word(ref word) if word.quote_style.is_none());
+    let comment = parser.parse_literal_string()?;
+    Ok(if unquoted {
+        comment.to_uppercase()
+    } else {
+        comment
     })
 }
 
