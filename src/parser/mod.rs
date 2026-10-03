@@ -1099,14 +1099,35 @@ impl<'a> Parser<'a> {
     ) -> Result<ConditionalStatements, ParserError> {
         let conditional_statements = if self.peek_keyword(Keyword::BEGIN) {
             let begin_token = self.expect_keyword(Keyword::BEGIN)?;
-            let statements = self.parse_scripting_statement_list(terminal_keywords)?;
+            let block_terminals = terminal_keywords
+                .iter()
+                .copied()
+                .chain(core::iter::once(Keyword::EXCEPTION))
+                .collect::<Vec<_>>();
+            let statements = self.parse_scripting_statement_list(&block_terminals)?;
+            let exception = self.parse_exception_arms()?;
             let end_token = self.expect_keyword(Keyword::END)?;
 
-            ConditionalStatements::BeginEnd(BeginEndStatements {
-                begin_token: AttachedToken(begin_token),
-                statements,
-                end_token: AttachedToken(end_token),
-            })
+            if exception.is_some() {
+                ConditionalStatements::Sequence {
+                    statements: vec![Statement::StartTransaction {
+                        begin: true,
+                        statements,
+                        exception,
+                        has_end_keyword: true,
+                        transaction: None,
+                        modifier: None,
+                        modes: Default::default(),
+                        name: None,
+                    }],
+                }
+            } else {
+                ConditionalStatements::BeginEnd(BeginEndStatements {
+                    begin_token: AttachedToken(begin_token),
+                    statements,
+                    end_token: AttachedToken(end_token),
+                })
+            }
         } else {
             ConditionalStatements::Sequence {
                 statements: self.parse_statement_list(terminal_keywords)?,
@@ -22627,6 +22648,22 @@ impl<'a> Parser<'a> {
         let statements =
             self.parse_scripting_statement_list(&[Keyword::EXCEPTION, Keyword::END])?;
 
+        let exception = self.parse_exception_arms()?;
+        self.expect_keyword(Keyword::END)?;
+
+        Ok(Statement::StartTransaction {
+            begin: true,
+            statements,
+            exception,
+            has_end_keyword: true,
+            transaction: None,
+            modifier: None,
+            modes: Default::default(),
+            name: None,
+        })
+    }
+
+    fn parse_exception_arms(&mut self) -> Result<Option<Vec<ExceptionWhen>>, ParserError> {
         let exception = if self.parse_keyword(Keyword::EXCEPTION) {
             let mut when = Vec::new();
 
@@ -22657,18 +22694,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        self.expect_keyword(Keyword::END)?;
-
-        Ok(Statement::StartTransaction {
-            begin: true,
-            statements,
-            exception,
-            has_end_keyword: true,
-            transaction: None,
-            modifier: None,
-            modes: Default::default(),
-            name: None,
-        })
+        Ok(exception)
     }
 
     /// Parse an 'END' statement
