@@ -5311,7 +5311,15 @@ fn parse_create_masking_policy(
 fn parse_alter_masking_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::BODY]) {
+    let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::TAG]) {
+        AlterMaskingPolicyOperation::SetTags {
+            tags: parser.parse_comma_separated(Parser::parse_tag)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::TAG]) {
+        AlterMaskingPolicyOperation::UnsetTags {
+            tags: parser.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+        }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::BODY]) {
         parser.expect_token(&Token::Arrow)?;
         AlterMaskingPolicyOperation::SetBody {
             body: parser.parse_expr()?,

@@ -1601,6 +1601,16 @@ pub enum AlterColumnOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterMaskingPolicyOperation {
+    /// `SET TAG <tag> = '<value>' [, ...]`
+    SetTags {
+        /// Tag assignments in statement order.
+        tags: Vec<Tag>,
+    },
+    /// `UNSET TAG <tag> [, ...]`
+    UnsetTags {
+        /// Tags to remove in statement order.
+        tags: Vec<ObjectName>,
+    },
     /// `SET BODY -> <expr>`
     SetBody {
         /// The replacement body expression.
@@ -1660,6 +1670,12 @@ impl fmt::Display for AlterRowAccessPolicyOperation {
 impl fmt::Display for AlterMaskingPolicyOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterMaskingPolicyOperation::SetTags { tags } => {
+                write!(f, "SET TAG {}", display_comma_separated(tags))
+            }
+            AlterMaskingPolicyOperation::UnsetTags { tags } => {
+                write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
             AlterMaskingPolicyOperation::SetBody { body } => write!(f, "SET BODY -> {body}"),
             AlterMaskingPolicyOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
             AlterMaskingPolicyOperation::SetComment { comment } => {
