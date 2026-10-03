@@ -4099,7 +4099,11 @@ fn parse_select_item_for_data_load(
             Ok(())
         }
         Token::Word(w) => {
-            alias = Some(Ident::new(w.value));
+            alias = Some(Ident {
+                value: w.value,
+                quote_style: w.quote_style,
+                span: next_token.span,
+            });
             Ok(())
         }
         _ => parser.expected("alias or file_col_num", next_token),
