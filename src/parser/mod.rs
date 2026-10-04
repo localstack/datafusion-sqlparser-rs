@@ -24348,14 +24348,9 @@ impl<'a> Parser<'a> {
                 option_value: KeyValueOptionKind::Single(self.parse_value()?),
             }),
             Token::Minus if matches!(self.peek_nth_token(1).token, Token::Number(..)) => {
-                self.next_token();
-                let mut value = self.parse_value()?;
-                if let Value::Number(number, _) = &mut value.value {
-                    number.insert(0, '-');
-                }
                 Ok(KeyValueOption {
                     option_name: key.value.clone(),
-                    option_value: KeyValueOptionKind::Single(value),
+                    option_value: KeyValueOptionKind::Single(self.parse_signed_option_value()?),
                 })
             }
             // A wire bind placeholder (`?`, `:N`, `:name`) is a legal option
@@ -24419,7 +24414,8 @@ impl<'a> Parser<'a> {
                 // a list of key-value properties.
                 match self.maybe_parse(|parser| {
                     parser.expect_token(&Token::LParen)?;
-                    let values = parser.parse_comma_separated0(|p| p.parse_value(), Token::RParen);
+                    let values = parser
+                        .parse_comma_separated0(|p| p.parse_signed_option_value(), Token::RParen);
                     parser.expect_token(&Token::RParen)?;
                     values
                 })? {
@@ -24436,6 +24432,22 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => self.expected_ref("expected option value", self.peek_token_ref()),
+        }
+    }
+
+    fn parse_signed_option_value(&mut self) -> Result<ValueWithSpan, ParserError> {
+        if self.peek_token_ref().token == Token::Minus
+            && matches!(self.peek_nth_token(1).token, Token::Number(..))
+        {
+            let sign = self.next_token();
+            let mut value = self.parse_value()?;
+            if let Value::Number(number, _) = &mut value.value {
+                number.insert(0, '-');
+            }
+            value.span.start = sign.span.start;
+            Ok(value)
+        } else {
+            self.parse_value()
         }
     }
 
