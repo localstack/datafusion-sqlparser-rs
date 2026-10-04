@@ -13372,6 +13372,8 @@ pub enum ObjectType {
     /// A Streamlit app (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/undrop-streamlit>
     Streamlit,
+    /// A row access policy (Snowflake).
+    RowAccessPolicy,
 }
 
 impl fmt::Display for ObjectType {
@@ -13399,6 +13401,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Pipe => "PIPE",
             ObjectType::Alert => "ALERT",
             ObjectType::Streamlit => "STREAMLIT",
+            ObjectType::RowAccessPolicy => "ROW ACCESS POLICY",
         })
     }
 }
