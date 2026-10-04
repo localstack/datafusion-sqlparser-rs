@@ -3832,7 +3832,18 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
                 Token::Comma => continue,
                 // In `COPY INTO <location>` the copy options do not have a shared key
                 // like in `COPY INTO <table>`
-                Token::Word(key) => copy_options.push(parser.parse_key_value_option(&key, false)?),
+                Token::Word(key) => {
+                    let double_equals = kind == CopyIntoSnowflakeKind::Location
+                        && matches!(
+                            key.value.to_ascii_uppercase().as_str(),
+                            "OVERWRITE" | "SINGLE" | "INCLUDE_QUERY_ID" | "HEADER"
+                        )
+                        && parser.consume_token(&Token::DoubleEq);
+                    if double_equals && parser.peek_token_ref().token == Token::Eq {
+                        return parser.expected_ref("COPY unload boolean value", parser.peek_token_ref());
+                    }
+                    copy_options.push(parser.parse_key_value_option(&key, double_equals)?);
+                }
                 _ => {
                     return parser
                         .expected_ref("another copy option, ; or EOF'", parser.peek_token_ref())
