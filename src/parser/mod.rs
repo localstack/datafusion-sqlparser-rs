@@ -24115,6 +24115,13 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_show_stmt_options(&mut self) -> Result<ShowStatementOptions, ParserError> {
+        self.parse_show_stmt_options_with_limit(Self::maybe_parse_show_stmt_limit)
+    }
+
+    pub(crate) fn parse_show_stmt_options_with_limit(
+        &mut self,
+        parse_limit: impl FnOnce(&mut Self) -> Result<Option<Expr>, ParserError>,
+    ) -> Result<ShowStatementOptions, ParserError> {
         let show_in;
         let mut filter_position = None;
         if self.dialect.supports_show_like_before_in() {
@@ -24129,7 +24136,7 @@ impl<'a> Parser<'a> {
             }
         }
         let starts_with = self.maybe_parse_show_stmt_starts_with()?;
-        let limit = self.maybe_parse_show_stmt_limit()?;
+        let limit = parse_limit(self)?;
         let from = self.maybe_parse_show_stmt_from()?;
         Ok(ShowStatementOptions {
             filter_position,
