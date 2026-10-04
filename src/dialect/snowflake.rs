@@ -5253,7 +5253,13 @@ fn parse_describe_row_access_policy(parser: &mut Parser) -> Result<Statement, Pa
 
 /// Parse `SHOW ROW ACCESS POLICIES [LIKE '<pattern>'] [IN <scope>]`
 fn parse_show_row_access_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
-    let show_options = parser.parse_show_stmt_options()?;
+    let show_options = parser.parse_show_stmt_options_with_limit(|parser| {
+        if parser.parse_keyword(Keyword::LIMIT) {
+            parser.parse_prefix().map(Some)
+        } else {
+            Ok(None)
+        }
+    })?;
     Ok(Statement::ShowRowAccessPolicies { show_options })
 }
 
