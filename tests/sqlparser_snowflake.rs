@@ -10084,6 +10084,7 @@ fn parse_snowflake_undrop() {
         ("UNDROP SCHEMA s", ObjectType::Schema),
         ("UNDROP DATABASE d", ObjectType::Database),
         ("UNDROP VIEW v", ObjectType::View),
+        ("UNDROP ROW ACCESS POLICY p", ObjectType::RowAccessPolicy),
     ] {
         match snowflake().verified_stmt(sql) {
             Statement::Undrop { object_type, name } => {
