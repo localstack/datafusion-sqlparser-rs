@@ -868,6 +868,17 @@ impl SnowflakeDialect {
                 return Some(parse_create_tag(or_replace, parser));
             }
 
+            let plain_create = !(or_replace || or_alter || global.is_some() || temporary || volatile
+                || transient || iceberg || dynamic || hybrid);
+            if plain_create && parser.parse_keyword(Keyword::SCHEMA) {
+                if let Some(restore) =
+                    parse_create_from_backup_set(BackupSetTargetKind::Schema, false, parser)
+                {
+                    return Some(restore);
+                }
+                parser.prev_token();
+            }
+
             if parser.parse_keyword(Keyword::STAGE) {
                 // OK - this is CREATE STAGE statement
                 return Some(parse_create_stage(or_replace, or_alter, temporary, parser));
@@ -891,7 +902,9 @@ impl SnowflakeDialect {
                 ).map(Into::into));
             } else if parser.parse_keyword(Keyword::TABLE) {
                 if !(or_alter || global.is_some() || temporary || volatile || transient || iceberg || dynamic || hybrid) {
-                    if let Some(restore) = parse_create_table_from_backup_set(or_replace, parser) {
+                    if let Some(restore) =
+                        parse_create_from_backup_set(BackupSetTargetKind::Table, or_replace, parser)
+                    {
                         return Some(restore);
                     }
                 }
@@ -905,6 +918,13 @@ impl SnowflakeDialect {
             } else if parser.parse_keyword(Keyword::DATABASE) {
                 if parser.parse_keyword(Keyword::ROLE) {
                     return Some(parser.parse_create_database_role(or_replace));
+                }
+                if plain_create {
+                    if let Some(restore) =
+                        parse_create_from_backup_set(BackupSetTargetKind::Database, false, parser)
+                    {
+                        return Some(restore);
+                    }
                 }
                 return Some(parse_create_database(or_replace, transient, parser));
             } else if parser.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
@@ -6351,9 +6371,11 @@ fn parse_show_backups(parser: &mut Parser) -> Result<Statement, ParserError> {
 }
 
 /// Parse `[ IF NOT EXISTS ] <name> FROM BACKUP SET <set> IDENTIFIER '<id>'`
-/// after `CREATE [ OR REPLACE ] TABLE`. Returns `None` (tokens rewound) when
-/// the statement is not a restore, so the ordinary CREATE TABLE parser runs.
-fn parse_create_table_from_backup_set(
+/// after `CREATE [ OR REPLACE ] { TABLE | SCHEMA | DATABASE }`. Returns `None`
+/// (tokens rewound) when the statement is not a restore, so the ordinary
+/// CREATE parser runs.
+fn parse_create_from_backup_set(
+    kind: BackupSetTargetKind,
     or_replace: bool,
     parser: &mut Parser,
 ) -> Option<Result<Statement, ParserError>> {
@@ -6369,7 +6391,8 @@ fn parse_create_table_from_backup_set(
     let tail = parser.parse_object_name(false).and_then(|backup_set| {
         Ok((backup_set, parse_backup_identifier(parser)?))
     });
-    Some(tail.map(|(backup_set, backup_id)| Statement::CreateTableFromBackupSet {
+    Some(tail.map(|(backup_set, backup_id)| Statement::CreateFromBackupSet {
+        kind,
         or_replace,
         if_not_exists,
         name,
