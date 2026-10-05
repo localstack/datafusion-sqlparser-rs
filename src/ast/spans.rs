@@ -637,7 +637,7 @@ impl Spanned for Statement {
             Statement::DescribeBackupSet { .. } => Span::empty(),
             Statement::ShowBackupSets { .. } => Span::empty(),
             Statement::ShowBackups { .. } => Span::empty(),
-            Statement::CreateTableFromBackupSet { .. } => Span::empty(),
+            Statement::CreateFromBackupSet { .. } => Span::empty(),
             Statement::CreateNetworkRule { .. } => Span::empty(),
             Statement::AlterNetworkRule { .. } => Span::empty(),
             Statement::DropNetworkRule { .. } => Span::empty(),

@@ -6204,11 +6204,13 @@ pub enum Statement {
         limit: Option<Expr>,
     },
     /// ```sql
-    /// CREATE [ OR REPLACE ] TABLE [ IF NOT EXISTS ] <name>
+    /// CREATE [ OR REPLACE ] { TABLE | SCHEMA | DATABASE } [ IF NOT EXISTS ] <name>
     ///   FROM BACKUP SET <backup_set> IDENTIFIER '<backup_id>'
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-table>
-    CreateTableFromBackupSet {
+    CreateFromBackupSet {
+        /// The kind of object restored (`TABLE`, `SCHEMA` or `DATABASE`).
+        kind: BackupSetTargetKind,
         /// `OR REPLACE` flag (always rejected by Snowflake).
         or_replace: bool,
         /// `IF NOT EXISTS` flag.
@@ -10026,7 +10028,8 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::CreateTableFromBackupSet {
+            Statement::CreateFromBackupSet {
+                kind,
                 or_replace,
                 if_not_exists,
                 name,
@@ -10034,7 +10037,7 @@ impl fmt::Display for Statement {
                 backup_id,
             } => write!(
                 f,
-                "CREATE {or_replace}TABLE {if_not_exists}{name} FROM BACKUP SET {backup_set} IDENTIFIER '{backup_id}'",
+                "CREATE {or_replace}{kind} {if_not_exists}{name} FROM BACKUP SET {backup_set} IDENTIFIER '{backup_id}'",
                 or_replace = if *or_replace { "OR REPLACE " } else { "" },
                 if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 backup_id = value::escape_single_quote_string(backup_id),
