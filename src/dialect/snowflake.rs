@@ -2605,7 +2605,9 @@ fn parse_create_external_table(
                 Expr::Tuple(exprs)
             };
             builder = builder.partition_by(Some(Box::new(expr)));
-        } else if parser.parse_keyword(Keyword::LOCATION) {
+        } else if parser.parse_keywords(&[Keyword::WITH, Keyword::LOCATION])
+            || parser.parse_keyword(Keyword::LOCATION)
+        {
             let _ = parser.consume_token(&Token::Eq);
             builder = builder.location(Some(parse_external_table_location(parser)?));
         } else if parser.parse_keyword(Keyword::FILE_FORMAT) {
