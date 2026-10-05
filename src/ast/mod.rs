@@ -6131,7 +6131,8 @@ pub enum Statement {
     },
     /// ```sql
     /// ALTER BACKUP SET <name>
-    ///   { RENAME TO <name> | SET COMMENT = '<c>' | UNSET COMMENT }
+    ///   { RENAME TO <name> | SET COMMENT = '<c>' | UNSET COMMENT
+    ///   | SET TAG <tag> = '<v>' [ , ... ] | UNSET TAG <tag> [ , ... ] }
     /// ```
     AlterBackupSet {
         /// Backup set name.
