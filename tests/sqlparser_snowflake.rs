@@ -5515,6 +5515,41 @@ fn test_grant_create_class_privilege() {
 }
 
 #[test]
+fn test_grant_create_multi_word_schema_privilege() {
+    for target in [
+        "SCHEMA db1.sc1",
+        "DATABASE db1",
+        "ALL SCHEMAS IN DATABASE db1",
+        "FUTURE SCHEMAS IN DATABASE db1",
+    ] {
+        for privs in [
+            "CREATE FILE FORMAT",
+            "CREATE INTERACTIVE TABLE",
+            "CREATE ROW ACCESS POLICY",
+            "CREATE FILE FORMAT, CREATE TABLE",
+        ] {
+            snowflake_and_generic().verified_stmt(&format!(
+                "GRANT {privs} ON {target} TO DATABASE ROLE db1.r1"
+            ));
+            snowflake_and_generic()
+                .verified_stmt(&format!("REVOKE {privs} ON {target} FROM ROLE role1"));
+        }
+    }
+    // A schema-only privilege on any other target still fails to parse.
+    for sql in [
+        "GRANT CREATE SERVICE ON ACCOUNT TO ROLE role1",
+        "GRANT CREATE FILE FORMAT ON ALL TABLES IN DATABASE db1 TO ROLE role1",
+        "GRANT CREATE FILE FORMAT, USAGE ON WAREHOUSE w1 TO ROLE role1",
+        "GRANT CREATE FILE FORMAT, SELECT ON TABLE t1 TO ROLE role1",
+        "GRANT CREATE FILE FORMAT, SELECT ON ALL TABLES IN SCHEMA db1.sc1 TO ROLE role1",
+        "GRANT CREATE FILE FORMAT, CREATE DATABASE ON ACCOUNT TO ROLE role1",
+        "REVOKE CREATE STAGE, CREATE FILE FORMAT, USAGE ON WAREHOUSE w1 FROM ROLE role1",
+    ] {
+        assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
+    }
+}
+
+#[test]
 fn test_grant_role_to() {
     snowflake_and_generic().verified_stmt("GRANT ROLE r1 TO ROLE r2");
     snowflake_and_generic().verified_stmt("GRANT ROLE r1 TO USER u1");

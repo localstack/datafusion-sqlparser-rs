@@ -21003,10 +21003,28 @@ impl<'a> Parser<'a> {
             }
             count += 1;
         }
-        if count > 0
-            && matches!(&self.peek_nth_token_ref(count).token, Token::Word(word) if word.keyword == Keyword::ON)
-            && matches!(&self.peek_nth_token_ref(count + 1).token, Token::Word(word) if word.keyword == Keyword::SCHEMA)
-            && SCHEMA_TYPES.contains(&phrase.as_str())
+        // Accept the phrase only when the privilege list's target is a schema
+        // target (`ON SCHEMA`, `ON ALL SCHEMAS`, `ON FUTURE SCHEMAS`) or
+        // `ON DATABASE` (rejected later with Cloud's "Invalid object type"
+        // error), so a schema privilege on any other target fails to parse.
+        // Inside a list, look past the remaining items to the list's `ON`.
+        let is_word = |parser: &Self, n: usize, kw: Keyword| {
+            matches!(&parser.peek_nth_token_ref(n).token, Token::Word(word) if word.keyword == kw)
+        };
+        let mut on = count;
+        if matches!(&self.peek_nth_token_ref(on).token, Token::Comma) {
+            while !is_word(self, on, Keyword::ON)
+                && !matches!(&self.peek_nth_token_ref(on).token, Token::EOF)
+            {
+                on += 1;
+            }
+        }
+        let before_schema_target = is_word(self, on, Keyword::ON)
+            && (is_word(self, on + 1, Keyword::SCHEMA)
+                || is_word(self, on + 1, Keyword::DATABASE)
+                || ((is_word(self, on + 1, Keyword::ALL) || is_word(self, on + 1, Keyword::FUTURE))
+                    && is_word(self, on + 2, Keyword::SCHEMAS)));
+        if count > 0 && before_schema_target && SCHEMA_TYPES.contains(&phrase.as_str())
         {
             for _ in 0..count {
                 self.next_token();
