@@ -6249,8 +6249,8 @@ fn parse_create_backup_set(
     })
 }
 
-/// Parse `ALTER BACKUP SET <name>
-///   { RENAME TO <name> | SET COMMENT = '<c>' | UNSET COMMENT }`.
+/// Parse `ALTER BACKUP SET <name> { RENAME TO <name> | SET COMMENT = '<c>' |
+///   UNSET COMMENT | SET TAG <tag> = '<v>' [, ...] | UNSET TAG <tag> [, ...] }`.
 fn parse_alter_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> {
     let name = parser.parse_object_name(false)?;
     let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
@@ -6270,9 +6270,15 @@ fn parse_alter_backup_set(parser: &mut Parser) -> Result<Statement, ParserError>
         AlterBackupSetOperation::SuspendBackupPolicy(parse_backup_policy_phase(parser)?)
     } else if parser.parse_keywords(&[Keyword::RESUME, Keyword::BACKUP]) {
         AlterBackupSetOperation::ResumeBackupPolicy(parse_backup_policy_phase(parser)?)
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::TAG]) {
+        AlterBackupSetOperation::SetTags(parser.parse_comma_separated(Parser::parse_tag)?)
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::TAG]) {
+        AlterBackupSetOperation::UnsetTags(
+            parser.parse_comma_separated(|p| p.parse_object_name(false))?,
+        )
     } else {
         return parser.expected_ref(
-            "RENAME TO, SET COMMENT, UNSET COMMENT, APPLY, SUSPEND or RESUME",
+            "RENAME TO, SET COMMENT, UNSET COMMENT, SET TAG, UNSET TAG, APPLY, SUSPEND or RESUME",
             parser.peek_token_ref(),
         );
     };

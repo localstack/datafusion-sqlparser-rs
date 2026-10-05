@@ -2322,6 +2322,10 @@ pub enum AlterBackupSetOperation {
     SuspendBackupPolicy(Option<BackupPolicyPhase>),
     /// `RESUME BACKUP [ CREATION | EXPIRATION ] POLICY`
     ResumeBackupPolicy(Option<BackupPolicyPhase>),
+    /// `SET TAG <tag> = '<value>' [ , ... ]`
+    SetTags(Vec<Tag>),
+    /// `UNSET TAG <tag> [ , ... ]`
+    UnsetTags(Vec<ObjectName>),
 }
 
 /// The phase named in `ALTER BACKUP SET … { SUSPEND | RESUME } BACKUP <phase> POLICY`.
@@ -2367,6 +2371,12 @@ impl fmt::Display for AlterBackupSetOperation {
                 "RESUME BACKUP {}POLICY",
                 phase.map_or(String::new(), |p| p.to_string())
             ),
+            AlterBackupSetOperation::SetTags(tags) => {
+                write!(f, "SET TAG {}", display_comma_separated(tags))
+            }
+            AlterBackupSetOperation::UnsetTags(tags) => {
+                write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
         }
     }
 }
