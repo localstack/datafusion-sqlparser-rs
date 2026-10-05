@@ -78,6 +78,7 @@ pub use self::ddl::{
     AlterPasswordPolicyOperation,
     AlterBackupSetOperation, BackupSetTargetKind,
     BackupPolicyPhase,
+    ModifyBackupAction,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
     AlterAuthenticationPolicyOperation,
@@ -6194,6 +6195,32 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
+    /// SHOW BACKUPS IN BACKUP SET <name> [ LIMIT <n> ]
+    /// ```
+    ShowBackups {
+        /// Backup set name.
+        backup_set: ObjectName,
+        /// `LIMIT <n>`
+        limit: Option<Expr>,
+    },
+    /// ```sql
+    /// CREATE [ OR REPLACE ] TABLE [ IF NOT EXISTS ] <name>
+    ///   FROM BACKUP SET <backup_set> IDENTIFIER '<backup_id>'
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-table>
+    CreateTableFromBackupSet {
+        /// `OR REPLACE` flag (always rejected by Snowflake).
+        or_replace: bool,
+        /// `IF NOT EXISTS` flag.
+        if_not_exists: bool,
+        /// Destination table name.
+        name: ObjectName,
+        /// Backup set the backup belongs to.
+        backup_set: ObjectName,
+        /// The backup id as written.
+        backup_id: String,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] AUTHENTICATION POLICY [IF NOT EXISTS] <name>
     ///   [ <property> = <value> ... ] [ COMMENT = '<comment>' ]
     /// ```
@@ -9992,6 +10019,26 @@ impl fmt::Display for Statement {
             Statement::ShowBackupSets { show_options } => {
                 write!(f, "SHOW BACKUP SETS{show_options}")
             }
+            Statement::ShowBackups { backup_set, limit } => {
+                write!(f, "SHOW BACKUPS IN BACKUP SET {backup_set}")?;
+                if let Some(limit) = limit {
+                    write!(f, " LIMIT {limit}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateTableFromBackupSet {
+                or_replace,
+                if_not_exists,
+                name,
+                backup_set,
+                backup_id,
+            } => write!(
+                f,
+                "CREATE {or_replace}TABLE {if_not_exists}{name} FROM BACKUP SET {backup_set} IDENTIFIER '{backup_id}'",
+                or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                backup_id = value::escape_single_quote_string(backup_id),
+            ),
             Statement::CreateNetworkRule {
                 or_replace,
                 if_not_exists,

@@ -28,7 +28,7 @@ use crate::ast::helpers::stmt_data_loading::{
 };
 use crate::ast::{
     visit_expressions,
-    AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupPolicyPhase, BackupSetTargetKind,
+    AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupPolicyPhase, BackupSetTargetKind, ModifyBackupAction,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
@@ -880,6 +880,11 @@ impl SnowflakeDialect {
                     None,
                 ).map(Into::into));
             } else if parser.parse_keyword(Keyword::TABLE) {
+                if !(or_alter || global.is_some() || temporary || volatile || transient || iceberg || dynamic || hybrid) {
+                    if let Some(restore) = parse_create_table_from_backup_set(or_replace, parser) {
+                        return Some(restore);
+                    }
+                }
                 return Some(
                     parse_create_table(
                         or_replace, or_alter, global, temporary, volatile, transient, iceberg,
@@ -1066,6 +1071,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICIES]) {
                 return Some(parse_show_authentication_policies(parser));
+            }
+            if parse_bare_word(parser, "BACKUPS") {
+                return Some(parse_show_backups(parser));
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::SETS]) {
                 let show_options = parser.parse_show_stmt_options();
@@ -6276,13 +6284,98 @@ fn parse_alter_backup_set(parser: &mut Parser) -> Result<Statement, ParserError>
         AlterBackupSetOperation::UnsetTags(
             parser.parse_comma_separated(|p| p.parse_object_name(false))?,
         )
+    } else if parser.parse_keywords(&[Keyword::ADD, Keyword::BACKUP]) {
+        AlterBackupSetOperation::AddBackup
+    } else if parser.parse_keywords(&[Keyword::DELETE, Keyword::BACKUP]) {
+        AlterBackupSetOperation::DeleteBackup {
+            backup_id: parse_backup_identifier(parser)?,
+        }
+    } else if parser.parse_keywords(&[Keyword::MODIFY, Keyword::BACKUP]) {
+        let backup_id = parse_backup_identifier(parser)?;
+        let action = if parser.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
+            parser.expect_token(&Token::Eq)?;
+            ModifyBackupAction::SetComment(parser.parse_comment_value()?)
+        } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+            ModifyBackupAction::UnsetComment
+        } else if parser.parse_keyword(Keyword::ADD) && parse_legal_hold(parser)? {
+            ModifyBackupAction::AddLegalHold
+        } else if parser.parse_keyword(Keyword::REMOVE) && parse_legal_hold(parser)? {
+            ModifyBackupAction::RemoveLegalHold
+        } else {
+            return parser.expected_ref(
+                "SET COMMENT, UNSET COMMENT, ADD LEGAL HOLD or REMOVE LEGAL HOLD",
+                parser.peek_token_ref(),
+            );
+        };
+        AlterBackupSetOperation::ModifyBackup { backup_id, action }
     } else {
         return parser.expected_ref(
-            "RENAME TO, SET COMMENT, UNSET COMMENT, SET TAG, UNSET TAG, APPLY, SUSPEND or RESUME",
+            "RENAME TO, SET COMMENT, UNSET COMMENT, SET TAG, UNSET TAG, APPLY, SUSPEND, RESUME, ADD BACKUP, DELETE BACKUP or MODIFY BACKUP",
             parser.peek_token_ref(),
         );
     };
     Ok(Statement::AlterBackupSet { name, operation })
+}
+
+/// Parse `IDENTIFIER '<backup_id>'`; the id must be a string literal.
+fn parse_backup_identifier(parser: &mut Parser) -> Result<String, ParserError> {
+    if !parse_bare_word(parser, "IDENTIFIER") {
+        return parser.expected_ref("IDENTIFIER", parser.peek_token_ref());
+    }
+    let next = parser.next_token();
+    match next.token {
+        Token::SingleQuotedString(id) => Ok(id),
+        _ => parser.expected("a string literal backup id", next),
+    }
+}
+
+/// Parse `LEGAL HOLD` after `MODIFY BACKUP IDENTIFIER '<id>' { ADD | REMOVE }`.
+fn parse_legal_hold(parser: &mut Parser) -> Result<bool, ParserError> {
+    if !parse_bare_word(parser, "LEGAL") {
+        return parser.expected_ref("LEGAL HOLD", parser.peek_token_ref());
+    }
+    parser.expect_keyword_is(Keyword::HOLD)?;
+    Ok(true)
+}
+
+/// Parse `SHOW BACKUPS IN BACKUP SET <name> [ LIMIT <n> ]` after `SHOW BACKUPS`.
+fn parse_show_backups(parser: &mut Parser) -> Result<Statement, ParserError> {
+    parser.expect_keywords(&[Keyword::IN, Keyword::BACKUP, Keyword::SET])?;
+    let backup_set = parser.parse_object_name(false)?;
+    let limit = if parser.parse_keyword(Keyword::LIMIT) {
+        Some(parser.parse_expr()?)
+    } else {
+        None
+    };
+    Ok(Statement::ShowBackups { backup_set, limit })
+}
+
+/// Parse `[ IF NOT EXISTS ] <name> FROM BACKUP SET <set> IDENTIFIER '<id>'`
+/// after `CREATE [ OR REPLACE ] TABLE`. Returns `None` (tokens rewound) when
+/// the statement is not a restore, so the ordinary CREATE TABLE parser runs.
+fn parse_create_table_from_backup_set(
+    or_replace: bool,
+    parser: &mut Parser,
+) -> Option<Result<Statement, ParserError>> {
+    let head = parser
+        .maybe_parse(|p| {
+            let if_not_exists = p.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+            let name = p.parse_object_name(false)?;
+            p.expect_keywords(&[Keyword::FROM, Keyword::BACKUP, Keyword::SET])?;
+            Ok((if_not_exists, name))
+        })
+        .ok()??;
+    let (if_not_exists, name) = head;
+    let tail = parser.parse_object_name(false).and_then(|backup_set| {
+        Ok((backup_set, parse_backup_identifier(parser)?))
+    });
+    Some(tail.map(|(backup_set, backup_id)| Statement::CreateTableFromBackupSet {
+        or_replace,
+        if_not_exists,
+        name,
+        backup_set,
+        backup_id,
+    }))
 }
 
 /// Parse `[ CREATION | EXPIRATION ] POLICY` after `{ SUSPEND | RESUME } BACKUP`.

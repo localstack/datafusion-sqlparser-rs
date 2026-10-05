@@ -2326,6 +2326,48 @@ pub enum AlterBackupSetOperation {
     SetTags(Vec<Tag>),
     /// `UNSET TAG <tag> [ , ... ]`
     UnsetTags(Vec<ObjectName>),
+    /// `ADD BACKUP`
+    AddBackup,
+    /// `DELETE BACKUP IDENTIFIER '<backup_id>'`
+    DeleteBackup {
+        /// The backup id as written.
+        backup_id: String,
+    },
+    /// `MODIFY BACKUP IDENTIFIER '<backup_id>' <action>`
+    ModifyBackup {
+        /// The backup id as written.
+        backup_id: String,
+        /// The change applied to the backup.
+        action: ModifyBackupAction,
+    },
+}
+
+/// The change in `ALTER BACKUP SET … MODIFY BACKUP IDENTIFIER '<id>' <action>`.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ModifyBackupAction {
+    /// `SET COMMENT = '<string>'`
+    SetComment(String),
+    /// `UNSET COMMENT`
+    UnsetComment,
+    /// `ADD LEGAL HOLD`
+    AddLegalHold,
+    /// `REMOVE LEGAL HOLD`
+    RemoveLegalHold,
+}
+
+impl fmt::Display for ModifyBackupAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ModifyBackupAction::SetComment(comment) => {
+                write!(f, "SET COMMENT = '{}'", escape_single_quote_string(comment))
+            }
+            ModifyBackupAction::UnsetComment => f.write_str("UNSET COMMENT"),
+            ModifyBackupAction::AddLegalHold => f.write_str("ADD LEGAL HOLD"),
+            ModifyBackupAction::RemoveLegalHold => f.write_str("REMOVE LEGAL HOLD"),
+        }
+    }
 }
 
 /// The phase named in `ALTER BACKUP SET … { SUSPEND | RESUME } BACKUP <phase> POLICY`.
@@ -2377,6 +2419,17 @@ impl fmt::Display for AlterBackupSetOperation {
             AlterBackupSetOperation::UnsetTags(tags) => {
                 write!(f, "UNSET TAG {}", display_comma_separated(tags))
             }
+            AlterBackupSetOperation::AddBackup => f.write_str("ADD BACKUP"),
+            AlterBackupSetOperation::DeleteBackup { backup_id } => write!(
+                f,
+                "DELETE BACKUP IDENTIFIER '{}'",
+                escape_single_quote_string(backup_id)
+            ),
+            AlterBackupSetOperation::ModifyBackup { backup_id, action } => write!(
+                f,
+                "MODIFY BACKUP IDENTIFIER '{}' {action}",
+                escape_single_quote_string(backup_id)
+            ),
         }
     }
 }
