@@ -2769,6 +2769,8 @@ fn parse_drop_external_table(parser: &mut Parser) -> Result<Statement, ParserErr
 /// carrying the whole reference (including any `/` subpath) through as one
 /// string.
 fn parse_external_table_location(parser: &mut Parser) -> Result<String, ParserError> {
+    parser.advance_token();
+    parser.prev_token();
     let mut parts = Vec::new();
     loop {
         parts.push(parse_stage_name_identifier(parser)?.value);
