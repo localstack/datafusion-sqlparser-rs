@@ -24447,7 +24447,16 @@ impl<'a> Parser<'a> {
             value.span.start = sign.span.start;
             Ok(value)
         } else {
-            self.parse_value()
+            match self.peek_token().token {
+                Token::Word(word)
+                    if word.quote_style.is_none()
+                        && !matches!(word.keyword, Keyword::TRUE | Keyword::FALSE | Keyword::NULL) =>
+                {
+                    let token = self.next_token();
+                    Ok(Value::Placeholder(word.value).with_span(token.span))
+                }
+                _ => self.parse_value(),
+            }
         }
     }
 
