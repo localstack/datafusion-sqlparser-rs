@@ -3885,7 +3885,9 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
             parser.expect_token(&Token::Eq)?;
             let next_token = parser.next_token();
             pattern = Some(match next_token.token {
-                Token::SingleQuotedString(_) | Token::Placeholder(_) => {
+                Token::SingleQuotedString(_)
+                | Token::DollarQuotedString(DollarQuotedString { tag: None, .. })
+                | Token::Placeholder(_) => {
                     parser.prev_token();
                     parser.parse_value()?
                 }
