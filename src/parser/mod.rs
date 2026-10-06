@@ -21807,7 +21807,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a GRANT statement.
     pub fn parse_grant(&mut self) -> Result<Grant, ParserError> {
-        let (privileges, objects) = self.parse_grant_deny_revoke_privileges_objects()?;
+        let (privileges, objects, caller) = self.parse_grant_deny_revoke_privileges_objects()?;
 
         self.expect_keyword_is(Keyword::TO)?;
         let grantees = self.parse_grantees()?;
@@ -21837,6 +21837,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Grant {
+            caller,
             privileges,
             objects,
             grantees,
@@ -21994,8 +21995,17 @@ impl<'a> Parser<'a> {
     /// Parse privileges and optional target objects for GRANT/DENY/REVOKE statements.
     pub fn parse_grant_deny_revoke_privileges_objects(
         &mut self,
-    ) -> Result<(Privileges, Option<GrantObjects>), ParserError> {
-        let privileges = self.parse_privileges()?;
+    ) -> Result<(Privileges, Option<GrantObjects>, bool), ParserError> {
+        let mut caller = self.parse_keyword(Keyword::CALLER);
+        let privileges = if self.parse_keyword(Keyword::ALL) {
+            caller |= self.parse_keyword(Keyword::CALLER);
+            Privileges::All {
+                with_privileges_keyword: self.parse_keyword(Keyword::PRIVILEGES),
+            }
+        } else {
+            let actions = self.parse_actions_list()?;
+            Privileges::Actions(actions)
+        };
 
         let objects = if self.parse_keyword(Keyword::ON) {
             if self.parse_keywords(&[Keyword::ALL, Keyword::TABLES, Keyword::IN, Keyword::SCHEMA]) {
@@ -22342,7 +22352,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok((privileges, objects))
+        Ok((privileges, objects, caller))
     }
 
     /// The plural-kind table for [`Self::parse_grant_extensible_objects`]:
@@ -22476,6 +22486,7 @@ impl<'a> Parser<'a> {
             "CREATE PREVIEW APPLICATION",
             "IMPORT ORGANIZATION LISTING",
             "MANAGE APPLICATION SPECIFICATIONS",
+            "MANAGE CALLER GRANTS",
             "MANAGE VISIBILITY",
             "READ UNREDACTED ERROR TABLE",
             "SELECT ERROR TABLE",
@@ -22874,7 +22885,7 @@ impl<'a> Parser<'a> {
     pub fn parse_deny(&mut self) -> Result<Statement, ParserError> {
         self.expect_keyword(Keyword::DENY)?;
 
-        let (privileges, objects) = self.parse_grant_deny_revoke_privileges_objects()?;
+        let (privileges, objects, _) = self.parse_grant_deny_revoke_privileges_objects()?;
         let objects = match objects {
             Some(o) => o,
             None => {
@@ -22908,7 +22919,7 @@ impl<'a> Parser<'a> {
         let grant_option_for =
             self.parse_keywords(&[Keyword::GRANT, Keyword::OPTION, Keyword::FOR]);
 
-        let (privileges, objects) = self.parse_grant_deny_revoke_privileges_objects()?;
+        let (privileges, objects, caller) = self.parse_grant_deny_revoke_privileges_objects()?;
 
         self.expect_keyword_is(Keyword::FROM)?;
         let grantees = self.parse_grantees()?;
@@ -22923,6 +22934,7 @@ impl<'a> Parser<'a> {
 
         Ok(Revoke {
             grant_option_for,
+            caller,
             privileges,
             objects,
             grantees,
