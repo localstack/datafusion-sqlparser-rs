@@ -12485,6 +12485,11 @@ impl<'a> Parser<'a> {
                 None
             };
         }
+        if self.peek_keyword(Keyword::NOT)
+            && matches!(self.peek_nth_token(1).token, Token::Word(word) if word.keyword == Keyword::DEFERRABLE)
+        {
+            self.next_token();
+        }
         if characteristics == ConstraintCharacteristics::default() {
             Ok(None)
         } else {
