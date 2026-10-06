@@ -42,15 +42,15 @@ use crate::ast::{
         UniqueConstraint,
     },
     ArgMode, AttachedToken, CommentDef, ConditionalStatements, CreateFunctionBody,
-    CreateFunctionUsing, CreateTableLikeKind, CreateTableOptions, CreateViewParams, DataType, Expr,
-    FileFormat, FunctionBehavior, FunctionCalledOnNull, FunctionDefinitionSetParam, FunctionDesc,
-    FunctionDeterminismSpecifier, FunctionParallel, FunctionSecurity, HiveDistributionStyle,
-    HiveFormat, HiveIOFormat, HiveRowFormat, HiveSetLocation, Ident, InitializeKind,
-    MySQLColumnPosition, ObjectName, OnCommit, OneOrManyWithParens, OperateFunctionArg,
-    OrderByExpr, ProjectionSelect, Query, RefreshModeKind, ResetConfig, RowAccessPolicy,
-    SequenceOptions, Spanned, SqlOption, StorageLifecyclePolicy, StorageSerializationPolicy,
-    TableVersion, Tag, TriggerEvent, TriggerExecBody, TriggerObject, TriggerPeriod,
-    TriggerReferencing, Value, ValueWithSpan, WrappedCollection,
+    CreateFunctionUsing, CreateServerOption, CreateTableLikeKind, CreateTableOptions,
+    CreateViewParams, DataType, Expr, FileFormat, FunctionBehavior, FunctionCalledOnNull,
+    FunctionDefinitionSetParam, FunctionDesc, FunctionDeterminismSpecifier, FunctionParallel,
+    FunctionSecurity, HiveDistributionStyle, HiveFormat, HiveIOFormat, HiveRowFormat,
+    HiveSetLocation, Ident, InitializeKind, MySQLColumnPosition, ObjectName, OnCommit,
+    OneOrManyWithParens, OperateFunctionArg, OrderByExpr, ProjectionSelect, Query, RefreshModeKind,
+    ResetConfig, RowAccessPolicy, SequenceOptions, Spanned, SqlOption, StorageLifecyclePolicy,
+    StorageSerializationPolicy, TableVersion, Tag, TriggerEvent, TriggerExecBody, TriggerObject,
+    TriggerPeriod, TriggerReferencing, Value, ValueWithSpan, WrappedCollection,
 };
 use crate::display_utils::{DisplayCommaSeparated, Indent, NewLine, SpaceOrNewline};
 use crate::keywords::Keyword;
@@ -414,6 +414,14 @@ pub enum AlterTableOperation {
         /// MySQL-specific column position (`FIRST`/`AFTER`).
         column_position: Option<MySQLColumnPosition>,
     },
+    /// `MODIFY ORDER BY <expr>`
+    ///
+    /// Note: this is a ClickHouse-specific operation.
+    /// Please refer to [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/order-by)
+    ModifyOrderBy {
+        /// The new sorting key.
+        order_by: OneOrManyWithParens<Expr>,
+    },
     /// `RENAME CONSTRAINT <old_constraint_name> TO <new_constraint_name>`
     ///
     /// Note: this is a PostgreSQL-specific operation.
@@ -444,6 +452,14 @@ pub enum AlterTableOperation {
         /// Table properties specified as SQL options.
         table_properties: Vec<SqlOption>,
     },
+    /// `SET LOGGED`
+    ///
+    /// Note: this is PostgreSQL-specific.
+    SetLogged,
+    /// `SET UNLOGGED`
+    ///
+    /// Note: this is PostgreSQL-specific.
+    SetUnlogged,
     /// `OWNER TO { <new_owner> | CURRENT_ROLE | CURRENT_USER | SESSION_USER }`
     ///
     /// Note: this is PostgreSQL-specific <https://www.postgresql.org/docs/current/sql-altertable.html>
@@ -964,6 +980,9 @@ impl fmt::Display for AlterTableOperation {
 
                 Ok(())
             }
+            AlterTableOperation::ModifyOrderBy { order_by } => {
+                write!(f, "MODIFY ORDER BY {order_by}")
+            }
             AlterTableOperation::RenameConstraint { old_name, new_name } => {
                 write!(f, "RENAME CONSTRAINT {old_name} TO {new_name}")
             }
@@ -979,6 +998,12 @@ impl fmt::Display for AlterTableOperation {
                     "SET TBLPROPERTIES({})",
                     display_comma_separated(table_properties)
                 )
+            }
+            AlterTableOperation::SetLogged => {
+                write!(f, "SET LOGGED")
+            }
+            AlterTableOperation::SetUnlogged => {
+                write!(f, "SET UNLOGGED")
             }
             AlterTableOperation::FreezePartition {
                 partition,
@@ -1932,8 +1957,8 @@ pub enum ColumnOption {
     /// `DEFAULT <restricted-expr>`
     Default(Expr),
 
-    /// `MATERIALIZE <expr>`
-    /// Syntax: `b INT MATERIALIZE (a + 1)`
+    /// `MATERIALIZED <expr>`
+    /// Syntax: `b INT MATERIALIZED (a + 1)`
     ///
     /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/create/table#default_values)
     Materialized(Expr),
@@ -1958,7 +1983,7 @@ pub enum ColumnOption {
     /// [<constraint_characteristics>]
     /// `).
     ForeignKey(ForeignKeyConstraint),
-    /// `CHECK (<expr>)`
+    /// `CHECK (<expr>) [NO INHERIT] [[NOT] ENFORCED]`
     Check(CheckConstraint),
     /// Dialect-specific options, such as:
     /// - MySQL's `AUTO_INCREMENT` or SQLite's `AUTOINCREMENT`
@@ -2146,8 +2171,7 @@ impl fmt::Display for ColumnOption {
                         GeneratedAs::ExpStored => "",
                     };
                     write!(f, "GENERATED {when} AS IDENTITY")?;
-                    if sequence_options.is_some() {
-                        let so = sequence_options.as_ref().unwrap();
+                    if let Some(so) = sequence_options {
                         if !so.is_empty() {
                             write!(f, " (")?;
                         }
@@ -2851,6 +2875,10 @@ pub struct CreateIndex {
     pub unique: bool,
     /// whether the index is created concurrently
     pub concurrently: bool,
+    /// whether the index is created asynchronously ([DSQL]).
+    ///
+    /// [DSQL]: https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with-create-index-async.html
+    pub r#async: bool,
     /// IF NOT EXISTS clause
     pub if_not_exists: bool,
     /// INCLUDE clause: <https://www.postgresql.org/docs/current/sql-createindex.html>
@@ -2876,13 +2904,14 @@ impl fmt::Display for CreateIndex {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "CREATE {unique}INDEX {concurrently}{if_not_exists}",
+            "CREATE {unique}INDEX {concurrently}{async_}{if_not_exists}",
             unique = if self.unique { "UNIQUE " } else { "" },
             concurrently = if self.concurrently {
                 "CONCURRENTLY "
             } else {
                 ""
             },
+            async_ = if self.r#async { "ASYNC " } else { "" },
             if_not_exists = if self.if_not_exists {
                 "IF NOT EXISTS "
             } else {
@@ -2932,6 +2961,8 @@ pub struct CreateTable {
     pub or_replace: bool,
     /// `TEMP` or `TEMPORARY` clause
     pub temporary: bool,
+    /// `UNLOGGED` clause
+    pub unlogged: bool,
     /// `EXTERNAL` clause
     pub external: bool,
     /// `DYNAMIC` clause
@@ -3054,6 +3085,9 @@ pub struct CreateTable {
     /// Snowflake "EXTERNAL_VOLUME" clause for Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub external_volume: Option<String>,
+    /// `WITH CONNECTION` clause.
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_external_table_statement)
+    pub with_connection: Option<ObjectName>,
     /// Snowflake "BASE_LOCATION" clause for Iceberg tables
     /// <https://docs.snowflake.com/en/sql-reference/sql/create-iceberg-table>
     pub base_location: Option<String>,
@@ -3093,6 +3127,20 @@ pub struct CreateTable {
     /// Redshift `BACKUP` option: `BACKUP { YES | NO }`
     /// <https://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_TABLE_NEW.html>
     pub backup: Option<bool>,
+    /// `MULTISET | SET` table-kind prefix.
+    /// `Some(true)` => `MULTISET`, `Some(false)` => `SET`.
+    ///
+    /// [Teradata](https://docs.teradata.com/r/Enterprise_IntelliFlex_VMware/SQL-Data-Definition-Language-Syntax-and-Examples/Table-Statements/CREATE-TABLE-and-CREATE-TABLE-AS/Syntax-Elements/MULTISET-or-SET)
+    pub multiset: Option<bool>,
+    /// `FALLBACK` clause.
+    /// `Some(true)` => `FALLBACK`, `Some(false)` => `NO FALLBACK`
+    ///
+    /// [Teradata](https://docs.teradata.com/r/Enterprise_IntelliFlex_VMware/SQL-Data-Definition-Language-Syntax-and-Examples/Table-Statements/CREATE-TABLE-and-CREATE-TABLE-AS/Syntax-Elements/FALLBACK-or-NO-FALLBACK)
+    pub fallback: Option<bool>,
+    /// `WITH DATA` clause on a `CREATE TABLE ... AS` statement.
+    ///
+    /// [Teradata](https://docs.teradata.com/r/Enterprise_IntelliFlex_VMware/SQL-Data-Definition-Language-Syntax-and-Examples/Table-Statements/CREATE-TABLE-and-CREATE-TABLE-AS/Syntax-Elements/AS_clause/WITH-Clause-Phrase)
+    pub with_data: Option<WithData>,
 }
 
 impl fmt::Display for CreateTable {
@@ -3106,7 +3154,7 @@ impl fmt::Display for CreateTable {
         //   `CREATE TABLE t (a INT) AS SELECT a from t2`
         write!(
             f,
-            "CREATE {or_replace}{external}{global}{temporary}{transient}{volatile}{dynamic}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
+            "CREATE {or_replace}{external}{global}{multiset}{temporary}{unlogged}{transient}{volatile}{dynamic}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             external = if self.external { "EXTERNAL " } else { "" },
             snapshot = if self.snapshot { "SNAPSHOT " } else { "" },
@@ -3120,14 +3168,21 @@ impl fmt::Display for CreateTable {
                 })
                 .unwrap_or(""),
             if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
+            multiset = self
+                .multiset
+                .map(|m| if m { "MULTISET " } else { "SET " })
+                .unwrap_or(""),
             temporary = if self.temporary { "TEMPORARY " } else { "" },
+            unlogged = if self.unlogged { "UNLOGGED " } else { "" },
             transient = if self.transient { "TRANSIENT " } else { "" },
             volatile = if self.volatile { "VOLATILE " } else { "" },
-            // Only for Snowflake
             iceberg = if self.iceberg { "ICEBERG " } else { "" },
             dynamic = if self.dynamic { "DYNAMIC " } else { "" },
             name = self.name,
         )?;
+        if let Some(fallback) = self.fallback {
+            write!(f, ", {}", if fallback { "FALLBACK" } else { "NO FALLBACK" })?;
+        }
         if let Some(partition_of) = &self.partition_of {
             write!(f, " PARTITION OF {partition_of}")?;
         }
@@ -3283,6 +3338,9 @@ impl fmt::Display for CreateTable {
         if let Some(cluster_by) = self.cluster_by.as_ref() {
             write!(f, " CLUSTER BY {cluster_by}")?;
         }
+        if let Some(with_connection) = &self.with_connection {
+            write!(f, " WITH CONNECTION {with_connection}")?;
+        }
         if let options @ CreateTableOptions::Options(_) = &self.table_options {
             write!(f, " {options}")?;
         }
@@ -3411,6 +3469,41 @@ impl fmt::Display for CreateTable {
         }
         if let Some(query) = &self.query {
             write!(f, " AS {query}")?;
+        }
+        if let Some(with_data) = &self.with_data {
+            write!(f, " {with_data}")?;
+        }
+        Ok(())
+    }
+}
+
+/// `WITH DATA` clause on `CREATE TABLE ... AS` statement.
+///
+/// [Teradata](https://docs.teradata.com/r/Enterprise_IntelliFlex_VMware/SQL-Data-Definition-Language-Syntax-and-Examples/Table-Statements/CREATE-TABLE-and-CREATE-TABLE-AS/Syntax-Elements/AS_clause/WITH-Clause-Phrase)
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct WithData {
+    /// `true` for `WITH DATA`, `false` for `WITH NO DATA`.
+    pub data: bool,
+    /// `Some(true)` for `AND STATISTICS`, `Some(false)` for `AND NO STATISTICS`,
+    /// `None` if the `AND [NO] STATISTICS` sub-clause is omitted.
+    pub statistics: Option<bool>,
+}
+
+impl fmt::Display for WithData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("WITH ")?;
+        if !self.data {
+            f.write_str("NO ")?;
+        }
+        f.write_str("DATA")?;
+        if let Some(stats) = self.statistics {
+            f.write_str(" AND ")?;
+            if !stats {
+                f.write_str("NO ")?;
+            }
+            f.write_str("STATISTICS")?;
         }
         Ok(())
     }
@@ -5604,6 +5697,161 @@ impl Spanned for AlterFunction {
     }
 }
 
+/// Text search object kind.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/textsearch-intro.html).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum TextSearchObjectType {
+    /// `DICTIONARY`
+    Dictionary,
+    /// `CONFIGURATION`
+    Configuration,
+    /// `TEMPLATE`
+    Template,
+    /// `PARSER`
+    Parser,
+}
+
+impl fmt::Display for TextSearchObjectType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TextSearchObjectType::Dictionary => write!(f, "DICTIONARY"),
+            TextSearchObjectType::Configuration => write!(f, "CONFIGURATION"),
+            TextSearchObjectType::Template => write!(f, "TEMPLATE"),
+            TextSearchObjectType::Parser => write!(f, "PARSER"),
+        }
+    }
+}
+
+/// `CREATE TEXT SEARCH ...` statement.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createtsdictionary.html).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateTextSearch {
+    /// The specific text search object type.
+    pub object_type: TextSearchObjectType,
+    /// Object name.
+    pub name: ObjectName,
+    /// Parenthesized options.
+    pub options: Vec<SqlOption>,
+}
+
+impl fmt::Display for CreateTextSearch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "CREATE TEXT SEARCH {} {} ({})",
+            self.object_type,
+            self.name,
+            display_comma_separated(&self.options)
+        )
+    }
+}
+
+impl Spanned for CreateTextSearch {
+    fn span(&self) -> Span {
+        Span::empty()
+    }
+}
+
+/// Option assignment used by `ALTER TEXT SEARCH ... ( ... )`.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-altertsdictionary.html).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AlterTextSearchOption {
+    /// Option name.
+    pub key: Ident,
+    /// Optional value (`option [= value]`).
+    pub value: Option<Expr>,
+}
+
+impl fmt::Display for AlterTextSearchOption {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.value {
+            Some(value) => write!(f, "{} = {}", self.key, value),
+            None => write!(f, "{}", self.key),
+        }
+    }
+}
+
+/// Operation for `ALTER TEXT SEARCH ...`.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-altertsdictionary.html).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterTextSearchOperation {
+    /// `RENAME TO new_name`
+    RenameTo {
+        /// New name.
+        new_name: Ident,
+    },
+    /// `OWNER TO ...`
+    OwnerTo(Owner),
+    /// `SET SCHEMA schema_name`
+    SetSchema {
+        /// Target schema.
+        schema_name: ObjectName,
+    },
+    /// `( option [= value] [, ...] )`
+    SetOptions {
+        /// Text search options to apply.
+        options: Vec<AlterTextSearchOption>,
+    },
+}
+
+impl fmt::Display for AlterTextSearchOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterTextSearchOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+            AlterTextSearchOperation::OwnerTo(owner) => write!(f, "OWNER TO {owner}"),
+            AlterTextSearchOperation::SetSchema { schema_name } => {
+                write!(f, "SET SCHEMA {schema_name}")
+            }
+            AlterTextSearchOperation::SetOptions { options } => {
+                write!(f, "({})", display_comma_separated(options))
+            }
+        }
+    }
+}
+
+/// `ALTER TEXT SEARCH ...` statement.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-altertsdictionary.html).
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AlterTextSearch {
+    /// The specific text search object type.
+    pub object_type: TextSearchObjectType,
+    /// Object name.
+    pub name: ObjectName,
+    /// Operation to apply.
+    pub operation: AlterTextSearchOperation,
+}
+
+impl fmt::Display for AlterTextSearch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ALTER TEXT SEARCH {} {} {}",
+            self.object_type, self.name, self.operation
+        )
+    }
+}
+
+impl Spanned for AlterTextSearch {
+    fn span(&self) -> Span {
+        Span::empty()
+    }
+}
+
 /// CREATE POLICY statement.
 ///
 /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createpolicy.html)
@@ -5792,5 +6040,77 @@ impl fmt::Display for AlterPolicy {
 impl From<AlterPolicy> for crate::ast::Statement {
     fn from(v: AlterPolicy) -> Self {
         crate::ast::Statement::AlterPolicy(v)
+    }
+}
+
+/// A `CREATE FOREIGN TABLE` statement.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigntable.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateForeignTable {
+    /// The foreign table name.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub name: ObjectName,
+    /// Whether `IF NOT EXISTS` was specified.
+    pub if_not_exists: bool,
+    /// Column definitions.
+    pub columns: Vec<ColumnDef>,
+    /// Table-level constraints (e.g. `CHECK (...)`, composite `FOREIGN KEY`).
+    /// PostgreSQL's grammar accepts these here, but rejects primary key, unique,
+    /// foreign key and exclusion constraints on a foreign table at execution.
+    pub constraints: Vec<TableConstraint>,
+    /// The `SERVER server_name` clause.
+    pub server_name: Ident,
+    /// Optional `OPTIONS (key 'value', ...)` clause at the table level.
+    pub options: Option<Vec<CreateServerOption>>,
+}
+
+impl fmt::Display for CreateForeignTable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CREATE FOREIGN TABLE {if_not_exists}{name} ({columns}",
+            if_not_exists = if self.if_not_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
+            name = self.name,
+            columns = display_comma_separated(&self.columns),
+        )?;
+        if !self.columns.is_empty() && !self.constraints.is_empty() {
+            write!(f, ", ")?;
+        }
+        write!(f, "{}", display_comma_separated(&self.constraints))?;
+        write!(f, ") SERVER {}", self.server_name)?;
+        if let Some(options) = &self.options {
+            write!(f, " OPTIONS ({})", display_comma_separated(options))?;
+        }
+        Ok(())
+    }
+}
+
+impl From<CreateForeignTable> for crate::ast::Statement {
+    fn from(v: CreateForeignTable) -> Self {
+        crate::ast::Statement::CreateForeignTable(v)
+    }
+}
+
+impl Spanned for CreateForeignTable {
+    fn span(&self) -> Span {
+        Span::union_iter(
+            core::iter::once(self.name.span())
+                .chain(self.columns.iter().map(|column| column.span()))
+                .chain(self.constraints.iter().map(|constraint| constraint.span()))
+                .chain(core::iter::once(self.server_name.span))
+                .chain(
+                    self.options
+                        .iter()
+                        .flatten()
+                        .flat_map(|option| [option.key.span, option.value.span]),
+                ),
+        )
     }
 }

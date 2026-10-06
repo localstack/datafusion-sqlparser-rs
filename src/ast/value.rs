@@ -273,17 +273,25 @@ impl fmt::Display for Value {
             Value::DollarQuotedString(v) => write!(f, "{v}"),
             Value::EscapedStringLiteral(v) => write!(f, "E'{}'", escape_escaped_string(v)),
             Value::UnicodeStringLiteral(v) => write!(f, "U&'{}'", escape_unicode_string(v)),
-            Value::NationalStringLiteral(v) => write!(f, "N'{v}'"),
+            Value::NationalStringLiteral(v) => write!(f, "N'{}'", escape_single_quote_string(v)),
             Value::QuoteDelimitedStringLiteral(v) => v.fmt(f),
             Value::NationalQuoteDelimitedStringLiteral(v) => write!(f, "N{v}"),
-            Value::HexStringLiteral(v) => write!(f, "X'{v}'"),
+            Value::HexStringLiteral(v) => write!(f, "X'{}'", escape_single_quote_string(v)),
             Value::Boolean(v) => write!(f, "{v}"),
-            Value::SingleQuotedByteStringLiteral(v) => write!(f, "B'{v}'"),
-            Value::DoubleQuotedByteStringLiteral(v) => write!(f, "B\"{v}\""),
+            Value::SingleQuotedByteStringLiteral(v) => {
+                write!(f, "B'{}'", escape_single_quote_string(v))
+            }
+            Value::DoubleQuotedByteStringLiteral(v) => {
+                write!(f, "B\"{}\"", escape_double_quote_string(v))
+            }
             Value::TripleSingleQuotedByteStringLiteral(v) => write!(f, "B'''{v}'''"),
             Value::TripleDoubleQuotedByteStringLiteral(v) => write!(f, r#"B"""{v}""""#),
-            Value::SingleQuotedRawStringLiteral(v) => write!(f, "R'{v}'"),
-            Value::DoubleQuotedRawStringLiteral(v) => write!(f, "R\"{v}\""),
+            Value::SingleQuotedRawStringLiteral(v) => {
+                write!(f, "R'{}'", escape_single_quote_string(v))
+            }
+            Value::DoubleQuotedRawStringLiteral(v) => {
+                write!(f, "R\"{}\"", escape_double_quote_string(v))
+            }
             Value::TripleSingleQuotedRawStringLiteral(v) => write!(f, "R'''{v}'''"),
             Value::TripleDoubleQuotedRawStringLiteral(v) => write!(f, r#"R"""{v}""""#),
             Value::Null => write!(f, "NULL"),
@@ -577,7 +585,8 @@ impl fmt::Display for EscapeQuotedString<'_> {
                             // The quote is not escaped.
                             // Including idx in the range, so the quote at idx will be printed twice:
                             // in this call to write_str() and in the next one.
-                            f.write_str(&self.string[start_idx..=idx])?;
+                            let end_idx = idx + ch.len_utf8();
+                            f.write_str(&self.string[start_idx..end_idx])?;
                             start_idx = idx;
                         }
                     }
@@ -706,4 +715,62 @@ impl fmt::Display for TrimWhereField {
             Trailing => "TRAILING",
         })
     }
+}
+
+#[cfg(test)]
+#[test]
+fn test_escape_quoted_string_with_multibyte_quote_char() {
+    assert_eq!(
+        format!("{}", escape_quoted_string("a🦀b🦀c", '🦀')),
+        "a🦀🦀b🦀🦀c"
+    );
+}
+#[cfg(test)]
+#[test]
+fn test_hex_string_literal_display_escaping() {
+    assert_eq!(
+        Value::HexStringLiteral("'".to_string()).to_string(),
+        "X''''"
+    );
+    assert_eq!(
+        Value::HexStringLiteral("it's".to_string()).to_string(),
+        "X'it''s'"
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn test_byte_and_raw_string_literal_display_escaping() {
+    assert_eq!(
+        Value::SingleQuotedByteStringLiteral("'".to_string()).to_string(),
+        "B''''"
+    );
+    assert_eq!(
+        Value::SingleQuotedByteStringLiteral("it's".to_string()).to_string(),
+        "B'it''s'"
+    );
+    assert_eq!(
+        Value::DoubleQuotedByteStringLiteral("\"".to_string()).to_string(),
+        "B\"\"\"\""
+    );
+    assert_eq!(
+        Value::DoubleQuotedByteStringLiteral("it\"s".to_string()).to_string(),
+        "B\"it\"\"s\""
+    );
+    assert_eq!(
+        Value::SingleQuotedRawStringLiteral("'".to_string()).to_string(),
+        "R''''"
+    );
+    assert_eq!(
+        Value::SingleQuotedRawStringLiteral("it's".to_string()).to_string(),
+        "R'it''s'"
+    );
+    assert_eq!(
+        Value::DoubleQuotedRawStringLiteral("\"".to_string()).to_string(),
+        "R\"\"\"\""
+    );
+    assert_eq!(
+        Value::DoubleQuotedRawStringLiteral("it\"s".to_string()).to_string(),
+        "R\"it\"\"s\""
+    );
 }

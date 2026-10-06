@@ -36,6 +36,11 @@ impl Dialect for SparkSqlDialect {
         matches!(ch, '`')
     }
 
+    /// See <https://spark.apache.org/docs/latest/sql-ref-identifier.html>
+    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
+        Some('`')
+    }
+
     fn is_identifier_start(&self, ch: char) -> bool {
         matches!(ch, 'a'..='z' | 'A'..='Z' | '_')
     }
@@ -116,6 +121,13 @@ impl Dialect for SparkSqlDialect {
         true
     }
 
+    /// See:
+    /// - <https://spark.apache.org/docs/latest/sql-pipe-syntax.html>
+    /// - <https://issues.apache.org/jira/browse/SPARK-49528>
+    fn supports_pipe_operator(&self) -> bool {
+        true
+    }
+
     /// Parse the `DIV` keyword as integer division.
     ///
     /// Example: `SELECT 10 DIV 3` returns `3`.
@@ -125,11 +137,11 @@ impl Dialect for SparkSqlDialect {
         &self,
         parser: &mut Parser,
         expr: &Expr,
-        _precedence: u8,
+        precedence: u8,
     ) -> Option<Result<Expr, ParserError>> {
         if parser.parse_keyword(Keyword::DIV) {
             let left = Box::new(expr.clone());
-            let right = Box::new(match parser.parse_expr() {
+            let right = Box::new(match parser.parse_subexpr(precedence) {
                 Ok(expr) => expr,
                 Err(e) => return Some(Err(e)),
             });

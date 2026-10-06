@@ -18,11 +18,12 @@ use alloc::{boxed::Box, format, vec, vec::Vec};
 use crate::{
     ast::{
         Merge, MergeAction, MergeClause, MergeClauseKind, MergeInsertExpr, MergeInsertKind,
-        MergeUpdateExpr, ObjectName, OutputClause, SetExpr,
+        MergeUpdateExpr, MergeUpdateKind, ObjectName, OutputClause, SetExpr,
     },
     dialect::{BigQueryDialect, GenericDialect, MySqlDialect},
     keywords::Keyword,
     parser::IsOptional,
+    tokenizer::Token,
     tokenizer::TokenWithSpan,
 };
 
@@ -106,7 +107,16 @@ impl Parser<'_> {
                 Keyword::UPDATE,
                 Keyword::INSERT,
                 Keyword::DELETE,
+                Keyword::DO,
             ]) {
+                Some(Keyword::DO) => {
+                    let do_token = self.get_current_token().clone();
+                    let nothing_token = self.expect_keyword(Keyword::NOTHING)?;
+                    MergeAction::DoNothing {
+                        do_token: do_token.into(),
+                        nothing_token: nothing_token.into(),
+                    }
+                }
                 Some(Keyword::UPDATE) => {
                     if matches!(
                         clause_kind,
@@ -120,7 +130,11 @@ impl Parser<'_> {
 
                     let update_token = self.get_current_token().clone();
                     self.expect_keyword_is(Keyword::SET)?;
-                    let assignments = self.parse_comma_separated(Parser::parse_assignment)?;
+                    let kind = if self.consume_token(&Token::Mul) {
+                        MergeUpdateKind::Wildcard
+                    } else {
+                        MergeUpdateKind::Set(self.parse_comma_separated(Parser::parse_assignment)?)
+                    };
                     let update_predicate = if self.parse_keyword(Keyword::WHERE) {
                         Some(self.parse_expr()?)
                     } else {
@@ -134,7 +148,7 @@ impl Parser<'_> {
                     };
                     MergeAction::Update(MergeUpdateExpr {
                         update_token: update_token.into(),
-                        assignments,
+                        kind,
                         update_predicate,
                         delete_predicate,
                     })
@@ -167,36 +181,47 @@ impl Parser<'_> {
                     };
 
                     let insert_token = self.get_current_token().clone();
-                    let is_mysql = dialect_of!(self is MySqlDialect);
 
-                    let columns = self.parse_merge_clause_insert_columns(is_mysql)?;
-                    let (kind, kind_token) = if dialect_of!(self is BigQueryDialect | GenericDialect)
-                        && self.parse_keyword(Keyword::ROW)
-                    {
-                        (MergeInsertKind::Row, self.get_current_token().clone())
+                    if self.consume_token(&Token::Mul) {
+                        let star_token = self.get_current_token().clone();
+                        MergeAction::Insert(MergeInsertExpr {
+                            insert_token: insert_token.into(),
+                            columns: vec![],
+                            kind_token: star_token.into(),
+                            kind: MergeInsertKind::Wildcard,
+                            insert_predicate: None,
+                        })
                     } else {
-                        self.expect_keyword_is(Keyword::VALUES)?;
-                        let values_token = self.get_current_token().clone();
-                        let values = self.parse_values(is_mysql, false)?;
-                        (MergeInsertKind::Values(values), values_token)
-                    };
-                    let insert_predicate = if self.parse_keyword(Keyword::WHERE) {
-                        Some(self.parse_expr()?)
-                    } else {
-                        None
-                    };
+                        let is_mysql = dialect_of!(self is MySqlDialect);
+                        let columns = self.parse_merge_clause_insert_columns(is_mysql)?;
+                        let (kind, kind_token) = if dialect_of!(self is BigQueryDialect | GenericDialect)
+                            && self.parse_keyword(Keyword::ROW)
+                        {
+                            (MergeInsertKind::Row, self.get_current_token().clone())
+                        } else {
+                            self.expect_keyword_is(Keyword::VALUES)?;
+                            let values_token = self.get_current_token().clone();
+                            let values = self.parse_values(is_mysql, false)?;
+                            (MergeInsertKind::Values(values), values_token)
+                        };
+                        let insert_predicate = if self.parse_keyword(Keyword::WHERE) {
+                            Some(self.parse_expr()?)
+                        } else {
+                            None
+                        };
 
-                    MergeAction::Insert(MergeInsertExpr {
-                        insert_token: insert_token.into(),
-                        columns,
-                        kind_token: kind_token.into(),
-                        kind,
-                        insert_predicate,
-                    })
+                        MergeAction::Insert(MergeInsertExpr {
+                            insert_token: insert_token.into(),
+                            columns,
+                            kind_token: kind_token.into(),
+                            kind,
+                            insert_predicate,
+                        })
+                    }
                 }
                 _ => {
                     return parser_err!(
-                        "expected UPDATE, DELETE or INSERT in merge clause",
+                        "expected UPDATE, DELETE, INSERT or DO NOTHING in merge clause",
                         self.peek_token_ref().span.start
                     );
                 }

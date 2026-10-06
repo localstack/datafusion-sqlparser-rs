@@ -48,10 +48,7 @@ impl Dialect for SQLiteDialect {
 
     fn is_identifier_start(&self, ch: char) -> bool {
         // See https://www.sqlite.org/draft/tokenreq.html
-        ch.is_ascii_lowercase()
-            || ch.is_ascii_uppercase()
-            || ch == '_'
-            || ('\u{007f}'..='\u{ffff}').contains(&ch)
+        ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_' || ch >= '\u{0080}'
     }
 
     fn supports_filter_during_aggregation(&self) -> bool {
@@ -79,17 +76,18 @@ impl Dialect for SQLiteDialect {
         &self,
         parser: &mut crate::parser::Parser,
         expr: &crate::ast::Expr,
-        _precedence: u8,
+        precedence: u8,
     ) -> Option<Result<crate::ast::Expr, ParserError>> {
-        // Parse MATCH and REGEXP as operators
+        // Parse MATCH, REGEXP and GLOB as operators
         // See <https://www.sqlite.org/lang_expr.html#the_like_glob_regexp_match_and_extract_operators>
         for (keyword, op) in [
             (Keyword::REGEXP, BinaryOperator::Regexp),
             (Keyword::MATCH, BinaryOperator::Match),
+            (Keyword::GLOB, BinaryOperator::Glob),
         ] {
             if parser.parse_keyword(keyword) {
                 let left = Box::new(expr.clone());
-                let right = Box::new(match parser.parse_expr() {
+                let right = Box::new(match parser.parse_subexpr(precedence) {
                     Ok(expr) => expr,
                     Err(e) => return Some(Err(e)),
                 });
@@ -123,5 +121,25 @@ impl Dialect for SQLiteDialect {
 
     fn supports_comma_separated_trim(&self) -> bool {
         true
+    }
+
+    fn supports_numeric_literal_underscores(&self) -> bool {
+        true
+    }
+
+    fn supports_double_eq_assignment(&self) -> bool {
+        true
+    }
+
+    fn supports_string_literal_column_names(&self) -> bool {
+        true
+    }
+
+    fn supports_cast_empty_data_type_to_unspecified(&self) -> bool {
+        true
+    }
+
+    fn supports_national_string_literal(&self) -> bool {
+        false
     }
 }

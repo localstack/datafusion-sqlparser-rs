@@ -98,12 +98,12 @@ impl Dialect for MySqlDialect {
         &self,
         parser: &mut crate::parser::Parser,
         expr: &crate::ast::Expr,
-        _precedence: u8,
+        precedence: u8,
     ) -> Option<Result<crate::ast::Expr, ParserError>> {
         // Parse DIV as an operator
         if parser.parse_keyword(Keyword::DIV) {
             let left = Box::new(expr.clone());
-            let right = Box::new(match parser.parse_expr() {
+            let right = Box::new(match parser.parse_subexpr(precedence) {
                 Ok(expr) => expr,
                 Err(e) => return Some(Err(e)),
             });
@@ -179,6 +179,11 @@ impl Dialect for MySqlDialect {
         true
     }
 
+    /// See: <https://dev.mysql.com/doc/refman/8.4/en/alter-table.html>
+    fn supports_alter_column_position(&self) -> bool {
+        true
+    }
+
     /// See: <https://dev.mysql.com/doc/refman/8.4/en/update.html>
     fn supports_update_order_by(&self) -> bool {
         true
@@ -203,6 +208,11 @@ impl Dialect for MySqlDialect {
         true
     }
 
+    /// See: <https://dev.mysql.com/doc/refman/8.4/en/partitioning-selection.html>
+    fn supports_table_partitions(&self) -> bool {
+        true
+    }
+
     fn supports_comment_optimizer_hint(&self) -> bool {
         true
     }
@@ -215,6 +225,15 @@ impl Dialect for MySqlDialect {
     /// See: <https://dev.mysql.com/doc/refman/8.4/en/create-table.html>
     fn supports_key_column_option(&self) -> bool {
         true
+    }
+
+    /// See: <https://dev.mysql.com/doc/refman/9.7/en/group-by-modifiers.html>
+    fn supports_group_by_with_modifier(&self) -> bool {
+        true
+    }
+
+    fn supports_left_associative_joins_without_parens(&self) -> bool {
+        false
     }
 }
 

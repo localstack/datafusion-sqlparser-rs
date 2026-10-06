@@ -143,11 +143,21 @@ impl Dialect for SnowflakeDialect {
         ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_'
     }
 
+    /// See <https://docs.snowflake.com/en/sql-reference/identifiers-syntax>
+    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
+        Some('"')
+    }
+
     fn supports_projection_trailing_commas(&self) -> bool {
         true
     }
 
     fn supports_from_trailing_commas(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/order-by#syntax>
+    fn supports_order_by_all(&self) -> bool {
         true
     }
 
@@ -250,6 +260,23 @@ impl Dialect for SnowflakeDialect {
 
     /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-semistructured#array)
     fn supports_array_typedef_without_element_type(&self) -> bool {
+        true
+    }
+
+    /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-structured#label-structured-types-array)
+    fn supports_array_typedef_with_parentheses(&self) -> bool {
+        true
+    }
+
+    fn supports_array_element_not_null(&self) -> bool {
+        true
+    }
+
+    fn supports_map_typedef_with_parentheses(&self) -> bool {
+        true
+    }
+
+    fn supports_map_value_not_null(&self) -> bool {
         true
     }
 
@@ -452,6 +479,10 @@ impl Dialect for SnowflakeDialect {
             Keyword::RM,
         ]) {
             return Some(parse_file_staging_command(kw, parser));
+        }
+
+        if parser.parse_keyword(Keyword::PUT) {
+            return Some(parse_put(parser));
         }
 
         if parser.parse_keyword(Keyword::SHOW) {
@@ -777,6 +808,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_stages(&self) -> bool {
+        true
+    }
+
     /// See <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
     fn supports_select_wildcard_replace(&self) -> bool {
         true
@@ -812,6 +847,21 @@ fn peek_for_limit_options(parser: &Parser) -> bool {
         Token::Word(w) if w.keyword == Keyword::NULL => true,
         _ => false,
     }
+}
+
+/// Parse a Snowflake `PUT <source> <stage> [ options ]` statement. The caller
+/// is expected to have already consumed `PUT`.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/put>.
+fn parse_put(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let source = parser.parse_literal_string()?;
+    let stage = parse_snowflake_stage_name(parser)?;
+    let options = parser.parse_key_value_options(false, &[])?;
+    Ok(Statement::Put {
+        source,
+        stage,
+        options,
+    })
 }
 
 fn parse_file_staging_command(kw: Keyword, parser: &mut Parser) -> Result<Statement, ParserError> {
@@ -1493,12 +1543,8 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
     let mut ident = String::new();
     while let Some(next_token) = parser.next_token_no_skip() {
         match &next_token.token {
-            Token::Whitespace(_) | Token::SemiColon => break,
-            Token::Period => {
-                parser.prev_token();
-                break;
-            }
-            Token::LParen | Token::RParen => {
+            Token::Whitespace(_) => break,
+            Token::Period | Token::Comma | Token::SemiColon | Token::LParen | Token::RParen => {
                 parser.prev_token();
                 break;
             }
@@ -1514,6 +1560,9 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
             Token::Word(w) => ident.push_str(&w.to_string()),
             _ => return parser.expected_ref("stage name identifier", parser.peek_token_ref()),
         }
+    }
+    if ident.is_empty() || ident == "@" {
+        return parser.expected_ref("stage name identifier", parser.peek_token_ref());
     }
     Ok(Ident::new(ident))
 }
@@ -1799,6 +1848,16 @@ fn parse_select_item_for_data_load(
         }
     }
 
+    // More complex paths and casts must fall back to the standard expression
+    // parser so it can preserve the complete JsonAccess / Cast expression.
+    if matches!(
+        parser.peek_token_ref().token,
+        Token::Colon | Token::Period | Token::LBracket | Token::DoubleColon
+    ) {
+        let token = parser.next_token();
+        return parser.expected("end of simple staged field", token);
+    }
+
     // as
     if parser.parse_keyword(Keyword::AS) {
         item_as = Some(match parser.next_token().token {
@@ -2062,6 +2121,7 @@ fn parse_multi_table_insert(
         table: TableObject::TableName(ObjectName(vec![])), // Not used for multi-table insert
         table_alias: None,
         columns: vec![],
+        by_name: false,
         overwrite,
         source: Some(source),
         assignments: vec![],

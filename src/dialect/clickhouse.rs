@@ -32,6 +32,13 @@ impl Dialect for ClickHouseDialect {
         self.is_identifier_start(ch) || ch.is_ascii_digit()
     }
 
+    /// ClickHouse accepts both backticks and double quotes, but its own
+    /// formatter emits backticks by default.
+    /// See <https://clickhouse.com/docs/en/sql-reference/syntax#identifiers>
+    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
+        Some('`')
+    }
+
     fn supports_string_literal_backslash_escape(&self) -> bool {
         true
     }
@@ -72,11 +79,24 @@ impl Dialect for ClickHouseDialect {
         true
     }
 
+    fn supports_array_typedef_with_parentheses(&self) -> bool {
+        true
+    }
+
+    fn supports_map_typedef_with_parentheses(&self) -> bool {
+        true
+    }
+
     // ClickHouse uses this for some FORMAT expressions in `INSERT` context, e.g. when inserting
     // with FORMAT JSONEachRow a raw JSON key-value expression is valid and expected.
     //
     // [ClickHouse formats](https://clickhouse.com/docs/en/interfaces/formats)
     fn supports_dictionary_syntax(&self) -> bool {
+        true
+    }
+
+    // See <https://clickhouse.com/docs/sql-reference/operators/in>
+    fn supports_in_unparenthesized_expr(&self) -> bool {
         true
     }
 
@@ -151,6 +171,16 @@ impl Dialect for ClickHouseDialect {
     }
 
     fn supports_comma_separated_trim(&self) -> bool {
+        true
+    }
+
+    /// See <https://clickhouse.com/docs/sql-reference/statements/alter/column>
+    fn supports_alter_column_position(&self) -> bool {
+        true
+    }
+
+    /// See <https://clickhouse.com/docs/sql-reference/data-types/tuple#addressing-tuple-elements>
+    fn supports_tuple_element_access(&self) -> bool {
         true
     }
 }

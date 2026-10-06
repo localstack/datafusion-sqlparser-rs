@@ -413,6 +413,8 @@ pub enum DataType {
     LongText,
     /// String with optional length.
     String(Option<u64>),
+    /// A data type with an explicit collation, as supported by Databricks.
+    Collate(Box<DataType>, ObjectName),
     /// A fixed-length string e.g [ClickHouse][1].
     ///
     /// [1]: https://clickhouse.com/docs/en/sql-reference/data-types/fixedstring
@@ -439,10 +441,11 @@ pub enum DataType {
     Custom(ObjectName, Vec<String>),
     /// Arrays.
     Array(ArrayElemTypeDef),
-    /// Map, see [ClickHouse].
+    /// Map, see [ClickHouse], [Hive].
     ///
     /// [ClickHouse]: https://clickhouse.com/docs/en/sql-reference/data-types/map
-    Map(Box<DataType>, Box<DataType>),
+    /// [Hive]: https://hive.apache.org/docs/latest/language/languagemanual-types/
+    Map(Box<DataType>, Box<DataType>, MapBracketKind),
     /// Tuple, see [ClickHouse].
     ///
     /// [ClickHouse]: https://clickhouse.com/docs/en/sql-reference/data-types/tuple
@@ -451,6 +454,10 @@ pub enum DataType {
     ///
     /// [ClickHouse]: https://clickhouse.com/docs/en/sql-reference/data-types/nested-data-structures/nested
     Nested(Vec<ColumnDef>),
+    /// Structured object type, see [Snowflake].
+    ///
+    /// [Snowflake]: https://docs.snowflake.com/en/sql-reference/data-types-structured#structured-object-types
+    Object(Vec<ColumnDef>),
     /// Enum type.
     Enum(Vec<EnumMember>, Option<u8>),
     /// Set type.
@@ -707,6 +714,9 @@ impl fmt::Display for DataType {
             DataType::MediumText => write!(f, "MEDIUMTEXT"),
             DataType::LongText => write!(f, "LONGTEXT"),
             DataType::String(size) => format_type_with_optional_length(f, "STRING", size, false),
+            DataType::Collate(data_type, collation) => {
+                write!(f, "{data_type} COLLATE {collation}")
+            }
             DataType::Bytea => write!(f, "BYTEA"),
             DataType::Bit(size) => format_type_with_optional_length(f, "BIT", size, false),
             DataType::BitVarying(size) => {
@@ -719,6 +729,11 @@ impl fmt::Display for DataType {
                 ArrayElemTypeDef::SquareBracket(t, Some(size)) => write!(f, "{t}[{size}]"),
                 ArrayElemTypeDef::AngleBracket(t) => write!(f, "ARRAY<{t}>"),
                 ArrayElemTypeDef::Parenthesis(t) => write!(f, "Array({t})"),
+                ArrayElemTypeDef::ParenthesisNotNull(t) => {
+                    write!(f, "ARRAY({t} NOT NULL)")
+                }
+                ArrayElemTypeDef::Qualified(t, None) => write!(f, "{t} ARRAY"),
+                ArrayElemTypeDef::Qualified(t, Some(size)) => write!(f, "{t} ARRAY[{size}]"),
             },
             DataType::Custom(ty, modifiers) => {
                 if modifiers.is_empty() {
@@ -785,14 +800,25 @@ impl fmt::Display for DataType {
             DataType::LowCardinality(data_type) => {
                 write!(f, "LowCardinality({data_type})")
             }
-            DataType::Map(key_data_type, value_data_type) => {
-                write!(f, "Map({key_data_type}, {value_data_type})")
-            }
+            DataType::Map(key_data_type, value_data_type, bracket) => match bracket {
+                MapBracketKind::Parentheses => {
+                    write!(f, "Map({key_data_type}, {value_data_type})")
+                }
+                MapBracketKind::ParenthesesNotNull => {
+                    write!(f, "MAP({key_data_type}, {value_data_type} NOT NULL)")
+                }
+                MapBracketKind::AngleBrackets => {
+                    write!(f, "MAP<{key_data_type}, {value_data_type}>")
+                }
+            },
             DataType::Tuple(fields) => {
                 write!(f, "Tuple({})", display_comma_separated(fields))
             }
             DataType::Nested(fields) => {
                 write!(f, "Nested({})", display_comma_separated(fields))
+            }
+            DataType::Object(fields) => {
+                write!(f, "OBJECT({})", display_comma_separated(fields))
             }
             DataType::Unspecified => Ok(()),
             DataType::Trigger => write!(f, "TRIGGER"),
@@ -901,6 +927,19 @@ pub enum StructBracketKind {
     /// Example: `STRUCT(a INT, b STRING)`
     Parentheses,
     /// Example: `STRUCT<a INT, b STRING>`
+    AngleBrackets,
+}
+
+/// Type of brackets used for `MAP` types.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum MapBracketKind {
+    /// Example: `Map(String, UInt16)`
+    Parentheses,
+    /// Example: `MAP(VARCHAR, NUMBER NOT NULL)`
+    ParenthesesNotNull,
+    /// Example: `MAP<STRING, INT>`
     AngleBrackets,
 }
 
@@ -1153,6 +1192,10 @@ pub enum ArrayElemTypeDef {
     SquareBracket(Box<DataType>, Option<u64>),
     /// Parenthesis style, e.g. `Array(Int64)`.
     Parenthesis(Box<DataType>),
+    /// Parenthesis style with a non-null element constraint, e.g. `ARRAY(INT NOT NULL)`.
+    ParenthesisNotNull(Box<DataType>),
+    /// Qualified by a data type and optional size, e.g. `INT ARRAY` or `INT ARRAY[4]`.
+    Qualified(Box<DataType>, Option<u64>),
 }
 
 /// Represents different types of geometric shapes which are commonly used in

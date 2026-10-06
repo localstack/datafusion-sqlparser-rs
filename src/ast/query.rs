@@ -305,27 +305,25 @@ impl fmt::Display for SetQuantifier {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-/// A [`TABLE` command]( https://www.postgresql.org/docs/current/sql-select.html#SQL-TABLE)
+/// A [`TABLE` command](https://www.postgresql.org/docs/current/sql-select.html#SQL-TABLE)
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
-/// A (possibly schema-qualified) table reference used in `FROM` clauses.
 pub struct Table {
     /// Optional table name (absent for e.g. `TABLE` command without argument).
-    pub table_name: Option<String>,
+    pub table_name: Option<Ident>,
     /// Optional schema/catalog name qualifying the table.
-    pub schema_name: Option<String>,
+    pub schema_name: Option<Ident>,
 }
 
 impl fmt::Display for Table {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(ref schema_name) = self.schema_name {
-            write!(
-                f,
-                "TABLE {}.{}",
-                schema_name,
-                self.table_name.as_ref().unwrap(),
-            )?;
+        if let Some(ref table_name) = self.table_name {
+            if let Some(ref schema_name) = self.schema_name {
+                write!(f, "TABLE {}.{}", schema_name, table_name,)?;
+            } else {
+                write!(f, "TABLE {}", table_name)?;
+            }
         } else {
-            write!(f, "TABLE {}", self.table_name.as_ref().unwrap(),)?;
+            write!(f, "TABLE")?;
         }
         Ok(())
     }
@@ -1664,6 +1662,21 @@ pub enum TableFactor {
         /// Optional alias for the resulting table.
         alias: Option<TableAlias>,
     },
+    /// Object unpivoting on a SUPER expression in the FROM clause.
+    ///
+    /// Syntax:
+    /// ```sql
+    /// UNPIVOT expression AS value_alias [AT attribute_alias]
+    /// ```
+    /// [Redshift](https://docs.aws.amazon.com/redshift/latest/dg/query-super.html#unpivoting)
+    UnpivotExpr {
+        /// SUPER expression to unpivot.
+        expression: Expr,
+        /// Alias for the generated unpivoted value.
+        value_alias: Ident,
+        /// Optional alias for the generated attribute key/index.
+        attribute_alias: Option<Ident>,
+    },
     /// A `MATCH_RECOGNIZE` operation on a table.
     ///
     /// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize>.
@@ -2190,6 +2203,8 @@ pub enum RepetitionQuantifier {
     AtMost(u32),
     /// `{n,m}
     Range(u32, u32),
+    /// A reluctant (non-greedy) quantifier, for example `*?` or `{n,m}?`.
+    Reluctant(Box<RepetitionQuantifier>),
 }
 
 impl fmt::Display for RepetitionQuantifier {
@@ -2203,6 +2218,7 @@ impl fmt::Display for RepetitionQuantifier {
             AtLeast(n) => write!(f, "{{{n},}}"),
             AtMost(n) => write!(f, "{{,{n}}}"),
             Range(n, m) => write!(f, "{{{n},{m}}}"),
+            Reluctant(quantifier) => write!(f, "{quantifier}?"),
         }
     }
 }
@@ -2227,7 +2243,7 @@ impl fmt::Display for TableFactor {
                     json_path.fmt(f)?;
                 }
                 if !partitions.is_empty() {
-                    write!(f, "PARTITION ({})", display_comma_separated(partitions))?;
+                    write!(f, " PARTITION ({})", display_comma_separated(partitions))?;
                 }
                 if let Some(args) = args {
                     write!(f, "(")?;
@@ -2430,6 +2446,17 @@ impl fmt::Display for TableFactor {
                 )?;
                 if let Some(alias) = alias {
                     write!(f, " {alias}")?;
+                }
+                Ok(())
+            }
+            TableFactor::UnpivotExpr {
+                expression,
+                value_alias,
+                attribute_alias,
+            } => {
+                write!(f, "UNPIVOT {expression} AS {value_alias}")?;
+                if let Some(attribute_alias) = attribute_alias {
+                    write!(f, " AT {attribute_alias}")?;
                 }
                 Ok(())
             }
@@ -2899,6 +2926,7 @@ pub enum OrderByKind {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+#[cfg_attr(feature = "visitor", visit(with = "visit_order_by"))]
 /// Represents an `ORDER BY` clause with its kind and optional `INTERPOLATE`.
 pub struct OrderBy {
     /// The kind of ordering (expressions or `ALL`).
@@ -2935,10 +2963,11 @@ impl fmt::Display for OrderBy {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+#[cfg_attr(feature = "visitor", visit(with = "visit_order_by_expr"))]
 pub struct OrderByExpr {
     /// The expression to order by.
     pub expr: Expr,
-    /// Ordering options such as `ASC`/`DESC` and `NULLS` behavior.
+    /// Ordering options such as `ASC`/`DESC`/`USING <operator>` and `NULLS` behavior.
     pub options: OrderByOptions,
     /// Optional `WITH FILL` clause (ClickHouse extension) which specifies how to fill gaps.
     pub with_fill: Option<WithFill>,
@@ -2956,7 +2985,8 @@ impl From<Ident> for OrderByExpr {
 
 impl fmt::Display for OrderByExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}", self.expr, self.options)?;
+        write!(f, "{}", self.expr)?;
+        write!(f, "{}", self.options)?;
         if let Some(ref with_fill) = self.with_fill {
             write!(f, " {with_fill}")?
         }
@@ -3031,22 +3061,47 @@ impl fmt::Display for InterpolateExpr {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+/// The sort order for an `ORDER BY` expression.
+///
+/// See PostgreSQL `USING` operator:
+/// <https://www.postgresql.org/docs/current/sql-select.html>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
-/// Options for an `ORDER BY` expression (ASC/DESC and NULLS FIRST/LAST).
+pub enum OrderBySort {
+    /// `ASC`
+    Asc,
+    /// `DESC`
+    Desc,
+    /// PostgreSQL `USING <operator>` ordering.
+    ///
+    /// See <https://www.postgresql.org/docs/current/sql-select.html>
+    Using(ObjectName),
+}
+
+#[derive(Default, Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// Options for an `ORDER BY` expression.
 pub struct OrderByOptions {
-    /// Optional `ASC` (`Some(true)`) or `DESC` (`Some(false)`).
-    pub asc: Option<bool>,
+    /// Optional sort order: `ASC`, `DESC`, or `USING <operator>`.
+    pub sort: Option<OrderBySort>,
     /// Optional `NULLS FIRST` (`Some(true)`) or `NULLS LAST` (`Some(false)`).
     pub nulls_first: Option<bool>,
 }
 
 impl fmt::Display for OrderByOptions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.asc {
-            Some(true) => write!(f, " ASC")?,
-            Some(false) => write!(f, " DESC")?,
+        match &self.sort {
+            Some(OrderBySort::Asc) => write!(f, " ASC")?,
+            Some(OrderBySort::Desc) => write!(f, " DESC")?,
+            Some(OrderBySort::Using(op)) => {
+                if op.0.len() > 1 {
+                    write!(f, " USING OPERATOR({op})")?;
+                } else {
+                    write!(f, " USING {op}")?;
+                }
+            }
             None => (),
         }
         match self.nulls_first {
@@ -3700,8 +3755,11 @@ pub struct SelectInto {
     pub unlogged: bool,
     /// `TABLE` keyword present.
     pub table: bool,
-    /// Name of the target table.
-    pub name: ObjectName,
+    /// Target(s) of the `INTO` clause.
+    ///
+    /// [Postgres]: https://www.postgresql.org/docs/current/sql-selectinto.html
+    /// [MySQL]: https://dev.mysql.com/doc/refman/9.7/en/select-into.html
+    pub targets: Vec<Expr>,
 }
 
 impl fmt::Display for SelectInto {
@@ -3710,7 +3768,14 @@ impl fmt::Display for SelectInto {
         let unlogged = if self.unlogged { " UNLOGGED" } else { "" };
         let table = if self.table { " TABLE" } else { "" };
 
-        write!(f, "INTO{}{}{} {}", temporary, unlogged, table, self.name)
+        write!(
+            f,
+            "INTO{}{}{} {}",
+            temporary,
+            unlogged,
+            table,
+            display_comma_separated(&self.targets)
+        )
     }
 }
 
@@ -3751,6 +3816,7 @@ impl fmt::Display for GroupByWithModifier {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+#[cfg_attr(feature = "visitor", visit(with = "visit_group_by"))]
 /// Represents the two syntactic forms that `GROUP BY` can take, including
 /// `GROUP BY ALL` with optional modifiers and ordinary `GROUP BY <exprs>`.
 pub enum GroupByExpr {

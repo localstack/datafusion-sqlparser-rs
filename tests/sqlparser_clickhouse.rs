@@ -390,7 +390,7 @@ fn parse_alter_table_add_projection() {
                             kind: OrderByKind::Expressions(vec![OrderByExpr {
                                 expr: Identifier(Ident::new("b")),
                                 options: OrderByOptions {
-                                    asc: None,
+                                    sort: None,
                                     nulls_first: None,
                                 },
                                 with_fill: None,
@@ -767,7 +767,8 @@ fn parse_create_table_with_nested_data_types() {
                         name: Ident::new("m"),
                         data_type: DataType::Map(
                             Box::new(DataType::String(None)),
-                            Box::new(DataType::UInt16)
+                            Box::new(DataType::UInt16),
+                            MapBracketKind::Parentheses
                         ),
                         options: vec![],
                     },
@@ -776,6 +777,16 @@ fn parse_create_table_with_nested_data_types() {
         }
         _ => unreachable!(),
     }
+}
+
+#[test]
+fn reject_angle_bracket_array_type() {
+    assert_eq!(
+        clickhouse()
+            .parse_sql_statements("CREATE TABLE t (a ARRAY<INT>)")
+            .unwrap_err(),
+        ParserError("Expected: (, found: <".to_string())
+    );
 }
 
 #[test]
@@ -1218,7 +1229,7 @@ fn parse_select_order_by_with_fill_interpolate() {
                 OrderByExpr {
                     expr: Expr::Identifier(Ident::new("fname")),
                     options: OrderByOptions {
-                        asc: Some(true),
+                        sort: Some(OrderBySort::Asc),
                         nulls_first: Some(true),
                     },
                     with_fill: Some(WithFill {
@@ -1230,7 +1241,7 @@ fn parse_select_order_by_with_fill_interpolate() {
                 OrderByExpr {
                     expr: Expr::Identifier(Ident::new("lname")),
                     options: OrderByOptions {
-                        asc: Some(false),
+                        sort: Some(OrderBySort::Desc),
                         nulls_first: Some(false),
                     },
                     with_fill: Some(WithFill {
@@ -1842,6 +1853,234 @@ fn parse_inner_array_join() {
             assert_eq!(join.join_operator, JoinOperator::InnerArrayJoin);
         }
         _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_in_unparenthesized_expr() {
+    // IN [expr] parses to IN ([expr]) and does not cause regressions
+    clickhouse().expr_parses_to("x IN 'a'", "x IN ('a')");
+
+    // The branch must not fire when the next token is `(` (regressions).
+    clickhouse().verified_expr("x IN (1, 2, 3)");
+    clickhouse().verified_stmt("SELECT * FROM t WHERE x IN (SELECT y FROM u)");
+}
+
+#[test]
+fn parse_in_unparenthesized_dictionary_placeholder() {
+    // IN [{placeholder:Type}] parses to IN ({placholder:Type})
+    clickhouse().expr_parses_to("x IN {ids:Array(UInt64)}", "x IN ({ids: Array(UInt64)})");
+    clickhouse().expr_parses_to(
+        "x NOT IN {ids:Array(UInt64)}",
+        "x NOT IN ({ids: Array(UInt64)})",
+    );
+    clickhouse().verified_expr("x IN ({ids: Array(UInt64)})");
+    // Precedence: the trailing `AND` is not swallowed.
+    clickhouse().verified_expr("x IN ({p: Array(UInt64)}) AND y = 1");
+}
+
+#[test]
+fn parse_alter_table_column_position() {
+    clickhouse().verified_stmt("ALTER TABLE t ADD COLUMN c Nullable(UInt8) FIRST");
+    clickhouse().verified_stmt("ALTER TABLE t ADD COLUMN c UInt8 DEFAULT 0 AFTER a");
+    clickhouse().verified_stmt("ALTER TABLE t ON CLUSTER cl ADD COLUMN c UInt8 AFTER a");
+    clickhouse().verified_stmt("ALTER TABLE t MODIFY COLUMN c UInt16 FIRST");
+    clickhouse().verified_stmt("ALTER TABLE t ADD COLUMN c UInt8 AFTER `order`");
+    clickhouse().verified_stmt(r#"ALTER TABLE t ADD COLUMN c UInt8 AFTER "order""#);
+
+    match clickhouse()
+        .verified_stmt("ALTER TABLE t ADD COLUMN c UInt8 FIRST, ADD COLUMN d UInt8 AFTER c")
+    {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            let positions: Vec<_> = operations
+                .into_iter()
+                .map(|op| match op {
+                    AlterTableOperation::AddColumn {
+                        column_position, ..
+                    } => column_position,
+                    _ => unreachable!(),
+                })
+                .collect();
+            assert_eq!(
+                positions,
+                vec![
+                    Some(MySQLColumnPosition::First),
+                    Some(MySQLColumnPosition::After(Ident::new("c"))),
+                ]
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    assert!(clickhouse()
+        .parse_sql_statements("ALTER TABLE t ADD COLUMN c UInt8 AFTER")
+        .is_err());
+}
+
+#[test]
+fn parse_alter_table_modify_order_by() {
+    clickhouse().verified_stmt("ALTER TABLE events MODIFY ORDER BY (region, user.id)");
+    clickhouse_and_generic().verified_stmt("ALTER TABLE events MODIFY ORDER BY region");
+    clickhouse_and_generic().verified_stmt("ALTER TABLE events MODIFY ORDER BY ()");
+    clickhouse_and_generic().verified_stmt("ALTER TABLE events MODIFY ORDER BY tuple()");
+    clickhouse_and_generic()
+        .verified_stmt("ALTER TABLE events ON CLUSTER c MODIFY ORDER BY (a, toDate(ts))");
+    clickhouse_and_generic()
+        .verified_stmt("ALTER TABLE events ADD COLUMN b UInt8, MODIFY ORDER BY (a, b)");
+    // A column named `order` is still handled by MODIFY COLUMN.
+    clickhouse_and_generic().verified_stmt("ALTER TABLE events MODIFY COLUMN `order` UInt8");
+
+    match clickhouse_and_generic().verified_stmt("ALTER TABLE events MODIFY ORDER BY (a)") {
+        Statement::AlterTable(AlterTable { operations, .. }) => {
+            assert_eq!(
+                operations,
+                vec![AlterTableOperation::ModifyOrderBy {
+                    order_by: OneOrManyWithParens::Many(vec![Expr::Identifier(Ident::new("a"))]),
+                }]
+            );
+        }
+        _ => unreachable!(),
+    }
+
+    for sql in [
+        "ALTER TABLE events MODIFY ORDER BY",
+        "ALTER TABLE events MODIFY ORDER BY (a",
+        "ALTER TABLE events MODIFY ORDER BY (,)",
+        "ALTER TABLE events MODIFY ORDER BY (a) b",
+        "CREATE TABLE events (a UInt8) ENGINE = MergeTree ORDER BY (a",
+    ] {
+        assert!(
+            clickhouse_and_generic().parse_sql_statements(sql).is_err(),
+            "{sql}"
+        );
+    }
+}
+
+#[test]
+fn parse_object_type_parameter() {
+    for dialects in [
+        clickhouse(),
+        TestedDialects::new(vec![Box::new(GenericDialect {})]),
+    ] {
+        let statements = dialects
+            .parse_sql_statements("CREATE TABLE t (o Object('json'))")
+            .unwrap();
+        let [Statement::CreateTable(CreateTable { columns, .. })] = statements.as_slice() else {
+            unreachable!();
+        };
+
+        assert_eq!(
+            columns[0].data_type,
+            DataType::Custom(
+                ObjectName::from(vec![Ident::new("Object")]),
+                vec!["json".to_string()]
+            )
+        );
+
+        let formatted = statements[0].to_string();
+        assert_eq!(
+            dialects.parse_sql_statements(&formatted).unwrap(),
+            statements
+        );
+    }
+
+    clickhouse_and_generic().verified_stmt("CREATE TABLE t (o OBJECT())");
+    clickhouse_and_generic().verified_stmt("CREATE TABLE t (o OBJECT(city VARCHAR NOT NULL))");
+
+    for (sql, modifiers) in [
+        ("CREATE TABLE t (o OBJECT(10))", vec!["10"]),
+        ("CREATE TABLE t (o OBJECT(foo))", vec!["foo"]),
+        ("CREATE TABLE t (o OBJECT(foo, bar))", vec!["foo", "bar"]),
+    ] {
+        for dialects in [
+            clickhouse(),
+            TestedDialects::new(vec![Box::new(GenericDialect {})]),
+        ] {
+            let statements = dialects.parse_sql_statements(sql).unwrap();
+            let [Statement::CreateTable(CreateTable { columns, .. })] = statements.as_slice()
+            else {
+                unreachable!();
+            };
+
+            assert_eq!(
+                columns[0].data_type,
+                DataType::Custom(
+                    ObjectName::from(vec![Ident::new("OBJECT")]),
+                    modifiers
+                        .iter()
+                        .map(|modifier| (*modifier).to_owned())
+                        .collect(),
+                )
+            );
+
+            let formatted = statements[0].to_string();
+            assert_eq!(
+                dialects.parse_sql_statements(&formatted).unwrap(),
+                statements
+            );
+        }
+    }
+}
+
+#[test]
+fn parse_tuple_element_access() {
+    for (sql, canonical) in [
+        ("SELECT t.1 FROM t", "SELECT t . 1 FROM t"),
+        (
+            "SELECT t.1 AS a, t.2 AS b FROM (SELECT (1, 'x') AS t)",
+            "SELECT t . 1 AS a, t . 2 AS b FROM (SELECT (1, 'x') AS t)",
+        ),
+        ("SELECT (1, 'a').1", "SELECT (1, 'a') . 1"),
+        ("SELECT tuple(1, 'a').2", "SELECT tuple(1, 'a') . 2"),
+        ("SELECT arr[1].1 FROM t", "SELECT arr[1] . 1 FROM t"),
+        ("SELECT `t`.1 FROM t", "SELECT `t` . 1 FROM t"),
+        ("SELECT t.1 + 1 FROM t", "SELECT t . 1 + 1 FROM t"),
+        (
+            "SELECT * FROM t WHERE t.1 = 1",
+            "SELECT * FROM t WHERE t . 1 = 1",
+        ),
+        ("SELECT t.1.2 FROM t", "SELECT t . 1 . 2 FROM t"),
+        (
+            "SELECT ((1, 2), 3).1.2, tuple(1, (2, 3)).2.1",
+            "SELECT ((1, 2), 3) . 1 . 2, tuple(1, (2, 3)) . 2 . 1",
+        ),
+    ] {
+        clickhouse().one_statement_parses_to(sql, canonical);
+    }
+
+    let select = clickhouse().verified_only_select("SELECT t . 1 FROM t");
+    assert_eq!(
+        select.projection[0],
+        UnnamedExpr(Expr::CompoundFieldAccess {
+            root: Box::new(Identifier(Ident::new("t"))),
+            access_chain: vec![AccessExpr::Dot(Expr::Value(number("1").with_empty_span()))],
+        })
+    );
+
+    let select = clickhouse().verified_only_select("SELECT t . 1 . 2 FROM t");
+    assert_eq!(
+        select.projection[0],
+        UnnamedExpr(Expr::CompoundFieldAccess {
+            root: Box::new(Identifier(Ident::new("t"))),
+            access_chain: vec![
+                AccessExpr::Dot(Expr::Value(number("1").with_empty_span())),
+                AccessExpr::Dot(Expr::Value(number("2").with_empty_span())),
+            ],
+        })
+    );
+
+    clickhouse().verified_stmt("SELECT 1.5, 1 + 0.5");
+    clickhouse().one_statement_parses_to("SELECT .5, 1e3", "SELECT 0.5, 1000");
+
+    assert!(clickhouse().parse_sql_statements("SELECT t.").is_err());
+    assert!(clickhouse().parse_sql_statements("SELECT t.1.").is_err());
+
+    let unsupported = all_dialects_where(|d| !d.supports_tuple_element_access());
+    unsupported.verified_stmt("SELECT (1, 'a') . 1");
+    for dialect in unsupported.dialects {
+        assert!(TestedDialects::new(vec![dialect])
+            .parse_sql_statements("SELECT t.1 FROM t")
+            .is_err());
     }
 }
 

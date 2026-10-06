@@ -55,7 +55,7 @@ use crate::{
 
 pub use self::data_type::{
     ArrayElemTypeDef, BinaryLength, CharLengthUnits, CharacterLength, DataType, EnumMember,
-    ExactNumberInfo, IntervalFields, StructBracketKind, TimezoneInfo,
+    ExactNumberInfo, IntervalFields, MapBracketKind, StructBracketKind, TimezoneInfo,
 };
 pub use self::dcl::{
     AlterRoleOperation, CreateRole, Grant, ResetConfig, Revoke, RoleOption, SecondaryRoles,
@@ -67,30 +67,31 @@ pub use self::ddl::{
     AlterIndexOperation, AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
     AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy,
     AlterPolicyOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
-    AlterTableLock, AlterTableOperation, AlterTableType, AlterType, AlterTypeAddValue,
-    AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue,
-    ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
-    ColumnPolicyProperty, ConstraintCharacteristics, CreateCollation, CreateCollationDefinition,
-    CreateConnector, CreateDomain, CreateExtension, CreateFunction, CreateIndex, CreateOperator,
+    AlterTableLock, AlterTableOperation, AlterTableType, AlterTextSearch, AlterTextSearchOperation,
+    AlterTextSearchOption, AlterType, AlterTypeAddValue, AlterTypeAddValuePosition,
+    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, ClusteredBy, ColumnDef,
+    ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy, ColumnPolicyProperty,
+    ConstraintCharacteristics, CreateCollation, CreateCollationDefinition, CreateConnector,
+    CreateDomain, CreateExtension, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
-    CreateTable, CreateTrigger, CreateView, Deduplicate, DeferrableInitial, DistStyle,
-    DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass, DropOperatorFamily,
-    DropOperatorSignature, DropPolicy, DropTrigger, ForValues, FunctionReturnType, GeneratedAs,
-    GeneratedExpressionMode, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
-    IdentityPropertyKind, IdentityPropertyOrder, IndexColumn, IndexOption, IndexType,
-    KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes, OperatorClassItem,
-    OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose, Owner, Partition,
-    PartitionBoundValue, ProcedureExecuteAs, ProcedureParam, ReferentialAction,
-    RenameTableNameKind, ReplicaIdentity, TagsColumnOption, TriggerObjectKind, Truncate,
-    UserDefinedTypeCompositeAttributeDef, UserDefinedTypeInternalLength,
-    UserDefinedTypeRangeOption, UserDefinedTypeRepresentation, UserDefinedTypeSqlDefinitionOption,
-    UserDefinedTypeStorage, ViewColumnDef,
+    CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
+    DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
+    DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger, ForValues,
+    FunctionReturnType, GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
+    IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder, IndexColumn,
+    IndexOption, IndexType, KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes,
+    OperatorClassItem, OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose,
+    Owner, Partition, PartitionBoundValue, ProcedureExecuteAs, ProcedureParam, ReferentialAction,
+    RenameTableNameKind, ReplicaIdentity, TagsColumnOption, TextSearchObjectType,
+    TriggerObjectKind, Truncate, UserDefinedTypeCompositeAttributeDef,
+    UserDefinedTypeInternalLength, UserDefinedTypeRangeOption, UserDefinedTypeRepresentation,
+    UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, ViewColumnDef, WithData,
 };
 pub use self::dml::{
     Delete, Insert, Merge, MergeAction, MergeClause, MergeClauseKind, MergeInsertExpr,
-    MergeInsertKind, MergeUpdateExpr, MultiTableInsertIntoClause, MultiTableInsertType,
-    MultiTableInsertValue, MultiTableInsertValues, MultiTableInsertWhenClause, OutputClause,
-    Update,
+    MergeInsertKind, MergeUpdateExpr, MergeUpdateKind, MultiTableInsertIntoClause,
+    MultiTableInsertType, MultiTableInsertValue, MultiTableInsertValues,
+    MultiTableInsertWhenClause, OutputClause, Update,
 };
 pub use self::operator::{BinaryOperator, UnaryOperator};
 pub use self::query::{
@@ -102,7 +103,7 @@ pub use self::query::{
     JsonTableNestedColumn, LateralView, LimitClause, LockClause, LockType, MatchRecognizePattern,
     MatchRecognizeSymbol, Measure, NamedWindowDefinition, NamedWindowExpr, NonBlock, Offset,
     OffsetRows, OpenJsonTableColumn, OrderBy, OrderByExpr, OrderByKind, OrderByOptions,
-    PipeOperator, PivotValueSource, ProjectionSelect, Query, RenameSelectItem,
+    OrderBySort, PipeOperator, PivotValueSource, ProjectionSelect, Query, RenameSelectItem,
     RepetitionQuantifier, ReplaceSelectElement, ReplaceSelectItem, RowsPerMatch, Select,
     SelectFlavor, SelectInto, SelectItem, SelectItemQualifiedWildcardKind, SelectModifiers,
     SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table, TableAlias,
@@ -141,8 +142,9 @@ mod dml;
 pub mod helpers;
 pub mod table_constraints;
 pub use table_constraints::{
-    CheckConstraint, ConstraintUsingIndex, ForeignKeyConstraint, FullTextOrSpatialConstraint,
-    IndexConstraint, PrimaryKeyConstraint, TableConstraint, UniqueConstraint,
+    CheckConstraint, ConstraintUsingIndex, ExcludeConstraint, ExcludeConstraintElement,
+    ExcludeConstraintOperator, ForeignKeyConstraint, FullTextOrSpatialConstraint, IndexConstraint,
+    PrimaryKeyConstraint, TableConstraint, UniqueConstraint,
 };
 mod operator;
 mod query;
@@ -376,17 +378,24 @@ impl From<&str> for Ident {
     }
 }
 
+pub(crate) fn fmt_ident(
+    f: &mut fmt::Formatter,
+    value: &str,
+    quote_style: Option<char>,
+) -> fmt::Result {
+    match quote_style {
+        Some('[') => write!(f, "[{value}]"),
+        Some(q) => {
+            let escaped = value::escape_quoted_string(value, q);
+            write!(f, "{q}{escaped}{q}")
+        }
+        None => f.write_str(value),
+    }
+}
+
 impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.quote_style {
-            Some(q) if q == '"' || q == '\'' || q == '`' => {
-                let escaped = value::escape_quoted_string(&self.value, q);
-                write!(f, "{q}{escaped}{q}")
-            }
-            Some('[') => write!(f, "[{}]", self.value),
-            None => f.write_str(&self.value),
-            _ => panic!("unexpected quote style"),
-        }
+        fmt_ident(f, &self.value, self.quote_style)
     }
 }
 
@@ -946,6 +955,17 @@ pub enum Expr {
     IsDistinctFrom(Box<Expr>, Box<Expr>),
     /// `IS NOT DISTINCT FROM` operator
     IsNotDistinctFrom(Box<Expr>, Box<Expr>),
+    /// `<expr> IS [NOT] JSON [VALUE|SCALAR|ARRAY|OBJECT] [WITH|WITHOUT UNIQUE [KEYS]]`
+    IsJson {
+        /// Expression being tested.
+        expr: Box<Expr>,
+        /// Optional JSON shape constraint.
+        kind: Option<JsonPredicateType>,
+        /// Optional duplicate-key handling constraint for JSON objects.
+        unique_keys: Option<JsonKeyUniqueness>,
+        /// `true` when `NOT` is present.
+        negated: bool,
+    },
     /// `<expr> IS [ NOT ] [ form ] NORMALIZED`
     IsNormalized {
         /// Expression being tested.
@@ -1014,7 +1034,7 @@ pub enum Expr {
         /// Pattern expression.
         pattern: Box<Expr>,
         /// Optional escape character.
-        escape_char: Option<ValueWithSpan>,
+        escape_char: Option<Box<Expr>>,
     },
     /// `ILIKE` (case-insensitive `LIKE`)
     ILike {
@@ -1028,7 +1048,7 @@ pub enum Expr {
         /// Pattern expression.
         pattern: Box<Expr>,
         /// Optional escape character.
-        escape_char: Option<ValueWithSpan>,
+        escape_char: Option<Box<Expr>>,
     },
     /// `SIMILAR TO` regex
     SimilarTo {
@@ -1039,7 +1059,7 @@ pub enum Expr {
         /// Pattern expression.
         pattern: Box<Expr>,
         /// Optional escape character.
-        escape_char: Option<ValueWithSpan>,
+        escape_char: Option<Box<Expr>>,
     },
     /// MySQL: `RLIKE` regex or `REGEXP` regex
     RLike {
@@ -1108,12 +1128,6 @@ pub enum Expr {
         expr: Box<Expr>,
         /// Target data type.
         data_type: DataType,
-        /// [MySQL] allows CAST(... AS type ARRAY) in functional index definitions for InnoDB
-        /// multi-valued indices. It's not really a datatype, and is only allowed in `CAST` in key
-        /// specifications, so it's a flag here.
-        ///
-        /// [MySQL]: https://dev.mysql.com/doc/refman/8.4/en/cast-functions.html#function_cast
-        array: bool,
         /// Optional CAST(string_expression AS type FORMAT format_string_expression) as used by [BigQuery]
         ///
         /// [BigQuery]: https://cloud.google.com/bigquery/docs/reference/standard-sql/format-elements#formatting_syntax
@@ -1303,13 +1317,12 @@ pub enum Expr {
         /// Struct field definitions.
         fields: Vec<StructField>,
     },
-    /// `BigQuery` specific: An named expression in a typeless struct [1]
+    /// A named expression: `1 AS A`. Used in `BigQuery` typeless structs [1]
+    /// and in aliased function arguments, e.g. `XMLFOREST(a AS x)` in
+    /// PostgreSQL [2].
     ///
-    /// Syntax
-    /// ```sql
-    /// 1 AS A
-    /// ```
     /// [1]: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types#struct_type
+    /// [2]: https://www.postgresql.org/docs/current/functions-xml.html#FUNCTIONS-PRODUCING-XML-XMLFOREST
     Named {
         /// The expression being named.
         expr: Box<Expr>,
@@ -1478,9 +1491,14 @@ pub enum AccessExpr {
     Subscript(Subscript),
 }
 
+const fn is_number_expr(expr: &Expr) -> bool {
+    matches!(expr, Expr::Value(v) if matches!(v.value, Value::Number(_, _)))
+}
+
 impl fmt::Display for AccessExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            AccessExpr::Dot(expr) if is_number_expr(expr) => write!(f, " . {expr}"),
             AccessExpr::Dot(expr) => write!(f, ".{expr}"),
             AccessExpr::Subscript(subscript) => write!(f, "[{subscript}]"),
         }
@@ -1742,8 +1760,13 @@ impl fmt::Display for Expr {
             Expr::CompoundIdentifier(s) => write!(f, "{}", display_separated(s, ".")),
             Expr::CompoundFieldAccess { root, access_chain } => {
                 write!(f, "{root}")?;
+                let mut prev_is_number = is_number_expr(root);
                 for field in access_chain {
-                    write!(f, "{field}")?;
+                    match field {
+                        AccessExpr::Dot(expr) if prev_is_number => write!(f, " . {expr}")?,
+                        _ => write!(f, "{field}")?,
+                    }
+                    prev_is_number = matches!(field, AccessExpr::Dot(expr) if is_number_expr(expr));
                 }
                 Ok(())
             }
@@ -1755,6 +1778,25 @@ impl fmt::Display for Expr {
             Expr::IsNotNull(ast) => write!(f, "{ast} IS NOT NULL"),
             Expr::IsUnknown(ast) => write!(f, "{ast} IS UNKNOWN"),
             Expr::IsNotUnknown(ast) => write!(f, "{ast} IS NOT UNKNOWN"),
+            Expr::IsJson {
+                expr,
+                kind,
+                unique_keys,
+                negated,
+            } => {
+                write!(f, "{expr} IS ")?;
+                if *negated {
+                    write!(f, "NOT ")?;
+                }
+                write!(f, "JSON")?;
+                if let Some(kind) = kind {
+                    write!(f, " {kind}")?;
+                }
+                if let Some(unique_keys) = unique_keys {
+                    write!(f, " {unique_keys}")?;
+                }
+                Ok(())
+            }
             Expr::InList {
                 expr,
                 list,
@@ -1871,16 +1913,10 @@ impl fmt::Display for Expr {
                 negated,
             } => {
                 let not_ = if *negated { "NOT " } else { "" };
-                if form.is_none() {
-                    write!(f, "{expr} IS {not_}NORMALIZED")
+                if let Some(form) = form {
+                    write!(f, "{} IS {}{} NORMALIZED", expr, not_, form)
                 } else {
-                    write!(
-                        f,
-                        "{} IS {}{} NORMALIZED",
-                        expr,
-                        not_,
-                        form.as_ref().unwrap()
-                    )
+                    write!(f, "{expr} IS {not_}NORMALIZED")
                 }
             }
             Expr::SimilarTo {
@@ -1933,23 +1969,39 @@ impl fmt::Display for Expr {
                     if add_parens { ")" } else { "" },
                 )
             }
-            Expr::UnaryOp { op, expr } => {
-                if op == &UnaryOperator::PGPostfixFactorial {
-                    write!(f, "{expr}{op}")
-                } else if matches!(
-                    op,
-                    UnaryOperator::Not
-                        | UnaryOperator::Hash
-                        | UnaryOperator::AtDashAt
-                        | UnaryOperator::DoubleAt
-                        | UnaryOperator::QuestionDash
-                        | UnaryOperator::QuestionPipe
-                ) {
-                    write!(f, "{op} {expr}")
-                } else {
-                    write!(f, "{op}{expr}")
+            Expr::UnaryOp { op, expr } => match op {
+                UnaryOperator::PGPostfixFactorial => {
+                    if matches!(
+                        expr.as_ref(),
+                        Expr::UnaryOp {
+                            op: UnaryOperator::PGPostfixFactorial,
+                            ..
+                        }
+                    ) {
+                        write!(f, "{expr} {op}")
+                    } else {
+                        write!(f, "{expr}{op}")
+                    }
                 }
-            }
+                UnaryOperator::Not
+                | UnaryOperator::BitwiseNot
+                | UnaryOperator::Hash
+                | UnaryOperator::AtDashAt
+                | UnaryOperator::DoubleAt
+                | UnaryOperator::PGAbs
+                | UnaryOperator::QuestionDash
+                | UnaryOperator::QuestionPipe
+                | UnaryOperator::PGSquareRoot
+                | UnaryOperator::PGCubeRoot => write!(f, "{op} {expr}"),
+                UnaryOperator::Minus | UnaryOperator::BangNot => {
+                    if starts_with_operator_char(expr) {
+                        write!(f, "{op} {expr}")
+                    } else {
+                        write!(f, "{op}{expr}")
+                    }
+                }
+                UnaryOperator::Plus | UnaryOperator::PGPrefixFactorial => write!(f, "{op}{expr}"),
+            },
             Expr::Convert {
                 is_try,
                 expr,
@@ -1981,13 +2033,13 @@ impl fmt::Display for Expr {
                 kind,
                 expr,
                 data_type,
-                array,
                 format,
             } => match kind {
                 CastKind::Cast => {
-                    write!(f, "CAST({expr} AS {data_type}")?;
-                    if *array {
-                        write!(f, " ARRAY")?;
+                    if matches!(data_type, DataType::Unspecified) {
+                        write!(f, "CAST({expr} AS")?;
+                    } else {
+                        write!(f, "CAST({expr} AS {data_type}")?;
                     }
                     if let Some(format) = format {
                         write!(f, " FORMAT {format}")?;
@@ -4009,6 +4061,11 @@ pub enum Statement {
     /// A `CREATE SERVER` statement.
     CreateServer(CreateServerStatement),
     /// ```sql
+    /// CREATE FOREIGN TABLE
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigntable.html)
+    CreateForeignTable(CreateForeignTable),
+    /// ```sql
     /// CREATE POLICY
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createpolicy.html)
@@ -4033,6 +4090,10 @@ pub enum Statement {
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createopclass.html)
     CreateOperatorClass(CreateOperatorClass),
+    /// A `CREATE TEXT SEARCH` statement.
+    ///
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/textsearch-intro.html)
+    CreateTextSearch(CreateTextSearch),
     /// ```sql
     /// ALTER TABLE
     /// ```
@@ -4097,6 +4158,10 @@ pub enum Statement {
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-alteropclass.html)
     AlterOperatorClass(AlterOperatorClass),
+    /// An `ALTER TEXT SEARCH` statement.
+    ///
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/textsearch-configuration.html)
+    AlterTextSearch(AlterTextSearch),
     /// ```sql
     /// ALTER ROLE
     /// ```
@@ -4810,17 +4875,6 @@ pub enum Statement {
         operation: AlterStageOperation,
     },
     /// ```sql
-    /// CREATE [OR REPLACE] WAREHOUSE [IF NOT EXISTS] <name>
-    /// ```
-    CreateWarehouse {
-        /// `OR REPLACE` flag.
-        or_replace: bool,
-        /// `IF NOT EXISTS` flag.
-        if_not_exists: bool,
-        /// Warehouse name.
-        name: ObjectName,
-    },
-    /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse>
@@ -5123,6 +5177,14 @@ pub enum Statement {
         /// Optional filter (e.g. `LIKE`).
         filter: Option<ShowStatementFilter>,
     },
+    /// ```sql
+    /// CREATE [ OR REPLACE ] WAREHOUSE [ IF NOT EXISTS ] <name>
+    ///   [ [ WITH ] <property> = <value> [ ... ] ]
+    /// ```
+    /// Snowflake-specific statement to create a virtual warehouse.
+    ///
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-warehouse>
+    CreateWarehouse(CreateWarehouse),
     /// ```sql
     /// ASSERT <condition> [AS <message>]
     /// ```
@@ -5515,6 +5577,20 @@ pub enum Statement {
     /// Snowflake `LIST`
     /// See: <https://docs.snowflake.com/en/sql-reference/sql/list>
     List(FileStagingCommand),
+    /// Snowflake `PUT`
+    /// ```sql
+    /// PUT 'file://<path>' <internalStage> [ <option> = <value> ... ]
+    /// ```
+    /// Options include `PARALLEL`, `AUTO_COMPRESS`, `SOURCE_COMPRESSION`, `OVERWRITE`.
+    /// See: <https://docs.snowflake.com/en/sql-reference/sql/put>
+    Put {
+        /// Local source URI as written in the statement, e.g. `file:///tmp/data.csv`.
+        source: String,
+        /// Target internal stage (e.g. `@mystage`, `@~`, `@%table`).
+        stage: ObjectName,
+        /// Trailing options (`PARALLEL=4`, `AUTO_COMPRESS=TRUE`, ...).
+        options: KeyValueOptions,
+    },
     /// Snowflake `REMOVE`
     /// See: <https://docs.snowflake.com/en/sql-reference/sql/remove>
     Remove(FileStagingCommand),
@@ -6275,6 +6351,7 @@ impl fmt::Display for Statement {
             Statement::CreateServer(stmt) => {
                 write!(f, "{stmt}")
             }
+            Statement::CreateForeignTable(stmt) => write!(f, "{stmt}"),
             Statement::CreatePolicy(policy) => write!(f, "{policy}"),
             Statement::CreateConnector(create_connector) => create_connector.fmt(f),
             Statement::CreateOperator(create_operator) => create_operator.fmt(f),
@@ -6282,6 +6359,7 @@ impl fmt::Display for Statement {
                 create_operator_family.fmt(f)
             }
             Statement::CreateOperatorClass(create_operator_class) => create_operator_class.fmt(f),
+            Statement::CreateTextSearch(create_text_search) => create_text_search.fmt(f),
             Statement::AlterTable(alter_table) => write!(f, "{alter_table}"),
             Statement::AlterIndex { name, operation } => {
                 write!(f, "ALTER INDEX {name} {operation}")
@@ -6313,6 +6391,7 @@ impl fmt::Display for Statement {
             Statement::AlterOperatorClass(alter_operator_class) => {
                 write!(f, "{alter_operator_class}")
             }
+            Statement::AlterTextSearch(alter_text_search) => write!(f, "{alter_text_search}"),
             Statement::AlterRole { name, operation } => {
                 write!(f, "ALTER ROLE {name} {operation}")
             }
@@ -6481,8 +6560,8 @@ impl fmt::Display for Statement {
                     write!(f, " SESSION")?;
                 }
                 write!(f, " STATUS")?;
-                if filter.is_some() {
-                    write!(f, " {}", filter.as_ref().unwrap())?;
+                if let Some(filter) = filter {
+                    write!(f, " {}", filter)?;
                 }
                 Ok(())
             }
@@ -6499,8 +6578,8 @@ impl fmt::Display for Statement {
                     write!(f, " SESSION")?;
                 }
                 write!(f, " VARIABLES")?;
-                if filter.is_some() {
-                    write!(f, " {}", filter.as_ref().unwrap())?;
+                if let Some(filter) = filter {
+                    write!(f, " {}", filter)?;
                 }
                 Ok(())
             }
@@ -6933,8 +7012,8 @@ impl fmt::Display for Statement {
                 if !copy_options.options.is_empty() {
                     write!(f, " COPY_OPTIONS=({copy_options})")?;
                 }
-                if comment.is_some() {
-                    write!(f, " COMMENT='{}'", comment.as_ref().unwrap())?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT='{}'", comment)?;
                 }
                 Ok(())
             }
@@ -6947,18 +7026,6 @@ impl fmt::Display for Statement {
                     f,
                     "ALTER STAGE {if_exists}{name} {operation}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
-                )
-            }
-            Statement::CreateWarehouse {
-                or_replace,
-                if_not_exists,
-                name,
-            } => {
-                write!(
-                    f,
-                    "CREATE {or_replace}WAREHOUSE {if_not_exists}{name}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
-                    if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )
             }
             Statement::AlterWarehouse {
@@ -7275,6 +7342,7 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateWarehouse(s) => write!(f, "{s}"),
             Statement::CopyIntoSnowflake {
                 kind,
                 into,
@@ -7358,12 +7426,11 @@ impl fmt::Display for Statement {
             }
             Statement::Pragma { name, value, is_eq } => {
                 write!(f, "PRAGMA {name}")?;
-                if value.is_some() {
-                    let val = value.as_ref().unwrap();
+                if let Some(value) = value {
                     if *is_eq {
-                        write!(f, " = {val}")?;
+                        write!(f, " = {value}")?;
                     } else {
-                        write!(f, "({val})")?;
+                        write!(f, "({value})")?;
                     }
                 }
                 Ok(())
@@ -7477,6 +7544,17 @@ impl fmt::Display for Statement {
             Statement::WaitFor(s) => write!(f, "{s}"),
             Statement::Return(r) => write!(f, "{r}"),
             Statement::List(command) => write!(f, "LIST {command}"),
+            Statement::Put {
+                source,
+                stage,
+                options,
+            } => {
+                write!(f, "PUT '{source}' {stage}")?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
             Statement::Remove(command) => write!(f, "REMOVE {command}"),
             Statement::ExportData(e) => write!(f, "{e}"),
             Statement::CreateUser(s) => write!(f, "{s}"),
@@ -8528,34 +8606,22 @@ pub struct Grantee {
 
 impl fmt::Display for Grantee {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.grantee_type {
-            GranteesType::Role => {
-                write!(f, "ROLE ")?;
+        let keyword = match self.grantee_type {
+            GranteesType::Role => "ROLE",
+            GranteesType::Share => "SHARE",
+            GranteesType::User => "USER",
+            GranteesType::Group => "GROUP",
+            GranteesType::Public => "PUBLIC",
+            GranteesType::DatabaseRole => "DATABASE ROLE",
+            GranteesType::Application => "APPLICATION",
+            GranteesType::ApplicationRole => "APPLICATION ROLE",
+            GranteesType::None => "",
+        };
+        f.write_str(keyword)?;
+        if let Some(name) = &self.name {
+            if !keyword.is_empty() {
+                f.write_str(" ")?;
             }
-            GranteesType::Share => {
-                write!(f, "SHARE ")?;
-            }
-            GranteesType::User => {
-                write!(f, "USER ")?;
-            }
-            GranteesType::Group => {
-                write!(f, "GROUP ")?;
-            }
-            GranteesType::Public => {
-                write!(f, "PUBLIC ")?;
-            }
-            GranteesType::DatabaseRole => {
-                write!(f, "DATABASE ROLE ")?;
-            }
-            GranteesType::Application => {
-                write!(f, "APPLICATION ")?;
-            }
-            GranteesType::ApplicationRole => {
-                write!(f, "APPLICATION ROLE ")?;
-            }
-            GranteesType::None => (),
-        }
-        if let Some(ref name) = self.name {
             name.fmt(f)?;
         }
         Ok(())
@@ -9007,6 +9073,11 @@ pub enum FunctionArgOperator {
     Colon,
     /// function(arg1 VALUE value1)
     Value,
+    /// function(arg1 value1), with no operator between the name and the value,
+    /// as in PostgreSQL `XMLPARSE(DOCUMENT value)`
+    ///
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/datatype-xml.html#DATATYPE-XML-CREATING)
+    Space,
 }
 
 impl fmt::Display for FunctionArgOperator {
@@ -9017,6 +9088,7 @@ impl fmt::Display for FunctionArgOperator {
             FunctionArgOperator::Assignment => f.write_str(":="),
             FunctionArgOperator::Colon => f.write_str(":"),
             FunctionArgOperator::Value => f.write_str("VALUE"),
+            FunctionArgOperator::Space => Ok(()),
         }
     }
 }
@@ -9059,14 +9131,41 @@ impl fmt::Display for FunctionArg {
                 name,
                 arg,
                 operator,
-            } => write!(f, "{name} {operator} {arg}"),
+            } => fmt_named_function_arg(f, name, operator, arg),
             FunctionArg::ExprNamed {
                 name,
                 arg,
                 operator,
-            } => write!(f, "{name} {operator} {arg}"),
+            } => fmt_named_function_arg(f, name, operator, arg),
             FunctionArg::Unnamed(unnamed_arg) => write!(f, "{unnamed_arg}"),
         }
+    }
+}
+
+/// Whether `expr` renders with an operator character first. A prefix `-` or `!`
+/// must not abut one, since `--` starts a line comment and compound tokens
+/// like `!!` or `!~` alter the parsed AST or fail to parse.
+fn starts_with_operator_char(mut expr: &Expr) -> bool {
+    loop {
+        match expr {
+            Expr::UnaryOp { op, .. } => return !matches!(op, UnaryOperator::Not),
+            Expr::BinaryOp { left, .. } => expr = left,
+            _ => return false,
+        }
+    }
+}
+
+/// `FunctionArgOperator::Space` has no token of its own, so the name and the
+/// value are separated by a single space instead.
+fn fmt_named_function_arg(
+    f: &mut fmt::Formatter,
+    name: &impl fmt::Display,
+    operator: &FunctionArgOperator,
+    arg: &FunctionArgExpr,
+) -> fmt::Result {
+    match operator {
+        FunctionArgOperator::Space => write!(f, "{name} {arg}"),
+        _ => write!(f, "{name} {operator} {arg}"),
     }
 }
 
@@ -9182,6 +9281,14 @@ pub struct Function {
     /// The arguments to the function, including any options specified within the
     /// delimiting parentheses.
     pub args: FunctionArguments,
+    /// A clause used with certain aggregate functions to control the ordering
+    /// within grouped sets before the function is applied.
+    ///
+    /// Syntax:
+    /// ```plaintext
+    /// <aggregate_function>(expression) WITHIN GROUP (ORDER BY key [ASC | DESC], ...)
+    /// ```
+    pub within_group: Vec<OrderByExpr>,
     /// e.g. `x > 5` in `COUNT(x) FILTER (WHERE x > 5)`
     pub filter: Option<Box<Expr>>,
     /// Indicates how `NULL`s should be handled in the calculation.
@@ -9195,14 +9302,6 @@ pub struct Function {
     pub null_treatment: Option<NullTreatment>,
     /// The `OVER` clause, indicating a window function call.
     pub over: Option<WindowType>,
-    /// A clause used with certain aggregate functions to control the ordering
-    /// within grouped sets before the function is applied.
-    ///
-    /// Syntax:
-    /// ```plaintext
-    /// <aggregate_function>(expression) WITHIN GROUP (ORDER BY key [ASC | DESC], ...)
-    /// ```
-    pub within_group: Vec<OrderByExpr>,
 }
 
 impl fmt::Display for Function {
@@ -9311,6 +9410,13 @@ pub enum FunctionArgumentClause {
     ///
     /// [BigQuery]: https://cloud.google.com/bigquery/docs/reference/standard-sql/navigation_functions#first_value
     IgnoreOrRespectNulls(NullTreatment),
+    /// The inline `WHERE` filter clause on an aggregate call, e.g.
+    /// `COUNT(* WHERE cond)` / `SUM(x WHERE cond)` / `ARRAY_AGG(x WHERE cond ORDER BY ..)`.
+    /// Popularized by [GoogleSQL]; equivalent to the standard `AGG(x) FILTER (WHERE cond)`.
+    /// Accepted for all dialects since `WHERE` cannot otherwise begin a function argument.
+    ///
+    /// [GoogleSQL]: https://cloud.google.com/bigquery/docs/reference/standard-sql/aggregate_functions#grouping_and_filtering
+    Where(Expr),
     /// Specifies the the ordering for some ordered set aggregates, e.g. `ARRAY_AGG` on [BigQuery].
     ///
     /// [BigQuery]: https://cloud.google.com/bigquery/docs/reference/standard-sql/aggregate_functions#array_agg
@@ -9352,6 +9458,7 @@ impl fmt::Display for FunctionArgumentClause {
             FunctionArgumentClause::IgnoreOrRespectNulls(null_treatment) => {
                 write!(f, "{null_treatment}")
             }
+            FunctionArgumentClause::Where(expr) => write!(f, "WHERE {expr}"),
             FunctionArgumentClause::OrderBy(order_by) => {
                 write!(f, "ORDER BY {}", display_comma_separated(order_by))
             }
@@ -9445,6 +9552,52 @@ pub enum AnalyzeFormat {
     TRADITIONAL,
     /// Tree-style explain output.
     TREE,
+}
+
+/// Optional type constraint for `IS JSON`.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum JsonPredicateType {
+    /// `VALUE` form.
+    Value,
+    /// `SCALAR` form.
+    Scalar,
+    /// `ARRAY` form.
+    Array,
+    /// `OBJECT` form.
+    Object,
+}
+
+impl fmt::Display for JsonPredicateType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JsonPredicateType::Value => write!(f, "VALUE"),
+            JsonPredicateType::Scalar => write!(f, "SCALAR"),
+            JsonPredicateType::Array => write!(f, "ARRAY"),
+            JsonPredicateType::Object => write!(f, "OBJECT"),
+        }
+    }
+}
+
+/// Optional duplicate-key handling for `IS JSON`.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum JsonKeyUniqueness {
+    /// `WITH UNIQUE KEYS` form.
+    WithUniqueKeys,
+    /// `WITHOUT UNIQUE KEYS` form.
+    WithoutUniqueKeys,
+}
+
+impl fmt::Display for JsonKeyUniqueness {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JsonKeyUniqueness::WithUniqueKeys => write!(f, "WITH UNIQUE KEYS"),
+            JsonKeyUniqueness::WithoutUniqueKeys => write!(f, "WITHOUT UNIQUE KEYS"),
+        }
+    }
 }
 
 impl fmt::Display for AnalyzeFormat {
@@ -10143,7 +10296,7 @@ impl fmt::Display for CreateServerStatement {
     }
 }
 
-/// A key/value option for `CREATE SERVER`.
+/// A key/value entry in a Postgres `OPTIONS ( ... )` clause.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -11607,10 +11760,7 @@ impl Display for MySQLColumnPosition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             MySQLColumnPosition::First => write!(f, "FIRST"),
-            MySQLColumnPosition::After(ident) => {
-                let column_name = &ident.value;
-                write!(f, "AFTER {column_name}")
-            }
+            MySQLColumnPosition::After(ident) => write!(f, "AFTER {ident}"),
         }
     }
 }
@@ -13222,6 +13372,45 @@ impl fmt::Display for CreateUser {
     }
 }
 
+/// ```sql
+/// CREATE [ OR REPLACE ] WAREHOUSE [ IF NOT EXISTS ] <name>
+///   [ [ WITH ] <property> = <value> [ ... ] ]
+/// ```
+/// Snowflake-specific statement to create a virtual warehouse.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/create-warehouse>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateWarehouse {
+    /// `OR REPLACE` flag.
+    pub or_replace: bool,
+    /// `IF NOT EXISTS` flag.
+    pub if_not_exists: bool,
+    /// Warehouse name.
+    pub name: ObjectName,
+    /// Warehouse properties and parameters (e.g. `WAREHOUSE_SIZE = 'XSMALL'`).
+    pub options: KeyValueOptions,
+}
+
+impl fmt::Display for CreateWarehouse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CREATE")?;
+        if self.or_replace {
+            write!(f, " OR REPLACE")?;
+        }
+        write!(f, " WAREHOUSE")?;
+        if self.if_not_exists {
+            write!(f, " IF NOT EXISTS")?;
+        }
+        write!(f, " {}", self.name)?;
+        if !self.options.options.is_empty() {
+            write!(f, " {}", self.options)?;
+        }
+        Ok(())
+    }
+}
+
 /// Modifies the properties of a user
 ///
 /// [Snowflake Syntax:](https://docs.snowflake.com/en/sql-reference/sql/alter-user)
@@ -13670,13 +13859,16 @@ pub enum Reset {
     /// Resets all session parameters to their default values.
     ALL,
 
+    /// Resets session authorization to the session user.
+    SessionAuthorization,
+
     /// Resets a specific session parameter to its default value.
     ConfigurationParameter(ObjectName),
 }
 
 /// Resets a session parameter to its default value.
 /// ```sql
-/// RESET { ALL | <configuration_parameter> }
+/// RESET { ALL | SESSION AUTHORIZATION | <configuration_parameter> }
 /// ```
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -13734,7 +13926,8 @@ impl fmt::Display for OptimizerHint {
                 f.write_str(prefix)?;
                 f.write_str(&self.prefix)?;
                 f.write_str("+")?;
-                f.write_str(&self.text)
+                f.write_str(&self.text)?;
+                f.write_str("\n")
             }
             OptimizerHintStyle::MultiLine => {
                 f.write_str("/*")?;
@@ -13751,6 +13944,7 @@ impl fmt::Display for ResetStatement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.reset {
             Reset::ALL => write!(f, "RESET ALL"),
+            Reset::SessionAuthorization => write!(f, "RESET SESSION AUTHORIZATION"),
             Reset::ConfigurationParameter(param) => write!(f, "RESET {}", param),
         }
     }
@@ -13942,6 +14136,12 @@ impl From<CreateOperatorClass> for Statement {
     }
 }
 
+impl From<CreateTextSearch> for Statement {
+    fn from(c: CreateTextSearch) -> Self {
+        Self::CreateTextSearch(c)
+    }
+}
+
 impl From<AlterSchema> for Statement {
     fn from(a: AlterSchema) -> Self {
         Self::AlterSchema(a)
@@ -13981,6 +14181,12 @@ impl From<AlterOperatorFamily> for Statement {
 impl From<AlterOperatorClass> for Statement {
     fn from(a: AlterOperatorClass) -> Self {
         Self::AlterOperatorClass(a)
+    }
+}
+
+impl From<AlterTextSearch> for Statement {
+    fn from(a: AlterTextSearch) -> Self {
+        Self::AlterTextSearch(a)
     }
 }
 
@@ -14101,6 +14307,12 @@ impl From<ExportData> for Statement {
 impl From<CreateUser> for Statement {
     fn from(c: CreateUser) -> Self {
         Self::CreateUser(c)
+    }
+}
+
+impl From<CreateWarehouse> for Statement {
+    fn from(c: CreateWarehouse) -> Self {
+        Self::CreateWarehouse(c)
     }
 }
 
