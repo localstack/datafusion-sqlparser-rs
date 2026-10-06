@@ -10006,6 +10006,7 @@ fn test_revoke() {
     let sql = "REVOKE ALL PRIVILEGES ON users, auth FROM analyst";
     match verified_stmt(sql) {
         Statement::Revoke(Revoke {
+            caller,
             privileges,
             objects: Some(GrantObjects::Tables(tables)),
             grantees,
@@ -10013,6 +10014,7 @@ fn test_revoke() {
             granted_by,
             cascade,
         }) => {
+            assert!(!caller);
             assert_eq!(
                 Privileges::All {
                     with_privileges_keyword: true
@@ -10034,6 +10036,7 @@ fn test_revoke_with_cascade() {
     let sql = "REVOKE ALL PRIVILEGES ON users, auth FROM analyst CASCADE";
     match all_dialects_except(|d| d.is::<MySqlDialect>()).verified_stmt(sql) {
         Statement::Revoke(Revoke {
+            caller,
             privileges,
             objects: Some(GrantObjects::Tables(tables)),
             grantees,
@@ -10041,6 +10044,7 @@ fn test_revoke_with_cascade() {
             granted_by,
             cascade,
         }) => {
+            assert!(!caller);
             assert_eq!(
                 Privileges::All {
                     with_privileges_keyword: true
