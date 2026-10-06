@@ -11115,12 +11115,14 @@ fn test_revoke() {
     match verified_stmt(sql) {
         Statement::Revoke(Revoke {
             grant_option_for: false,
+            caller,
             privileges,
             objects: Some(GrantObjects::Tables(tables)),
             grantees,
             granted_by,
             cascade,
         }) => {
+            assert!(!caller);
             assert_eq!(
                 Privileges::All {
                     with_privileges_keyword: true
@@ -11142,12 +11144,14 @@ fn test_revoke_with_cascade() {
     match verified_stmt(sql) {
         Statement::Revoke(Revoke {
             grant_option_for: false,
+            caller,
             privileges,
             objects: Some(GrantObjects::Tables(tables)),
             grantees,
             granted_by,
             cascade,
         }) => {
+            assert!(!caller);
             assert_eq!(
                 Privileges::All {
                     with_privileges_keyword: true
