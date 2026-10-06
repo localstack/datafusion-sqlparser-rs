@@ -501,6 +501,8 @@ impl Spanned for CreateRole {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Grant {
+    /// Whether this is a direct caller grant.
+    pub caller: bool,
     /// Privileges being granted.
     pub privileges: Privileges,
     /// Optional objects the privileges apply to.
@@ -523,7 +525,15 @@ pub struct Grant {
 
 impl fmt::Display for Grant {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "GRANT {privileges}", privileges = self.privileges)?;
+        write!(f, "GRANT ")?;
+        if self.caller && matches!(self.privileges, Privileges::Actions(_)) {
+            write!(f, "CALLER ")?;
+        }
+        if self.caller && matches!(self.privileges, Privileges::All { .. }) {
+            write!(f, "ALL CALLER PRIVILEGES")?;
+        } else {
+            write!(f, "{}", self.privileges)?;
+        }
         if let Some(ref objects) = self.objects {
             write!(f, " ON {objects}")?;
         }
@@ -560,6 +570,8 @@ pub struct Revoke {
     /// Whether `GRANT OPTION FOR` is present, withdrawing the right to grant
     /// the privileges rather than the privileges themselves.
     pub grant_option_for: bool,
+    /// Whether this is a direct caller revoke.
+    pub caller: bool,
     /// Privileges to revoke.
     pub privileges: Privileges,
     /// Optional objects from which to revoke.
@@ -580,7 +592,14 @@ impl fmt::Display for Revoke {
         if self.grant_option_for {
             write!(f, "GRANT OPTION FOR ")?;
         }
-        write!(f, "{}", self.privileges)?;
+        if self.caller && matches!(self.privileges, Privileges::Actions(_)) {
+            write!(f, "CALLER ")?;
+        }
+        if self.caller && matches!(self.privileges, Privileges::All { .. }) {
+            write!(f, "ALL CALLER PRIVILEGES")?;
+        } else {
+            write!(f, "{}", self.privileges)?;
+        }
         if let Some(ref objects) = self.objects {
             write!(f, " ON {objects}")?;
         }
