@@ -4038,6 +4038,7 @@ fn parse_grant() {
     let sql = "GRANT ALL ON *.* TO 'jeffrey'@'%'";
     let stmt = mysql().verified_stmt(sql);
     if let Statement::Grant(Grant {
+        caller,
         privileges,
         objects,
         grantees,
@@ -4047,6 +4048,7 @@ fn parse_grant() {
         current_grants: _,
     }) = stmt
     {
+        assert!(!caller);
         assert_eq!(
             privileges,
             Privileges::All {
@@ -4085,6 +4087,7 @@ fn parse_revoke() {
     let stmt = mysql_and_generic().verified_stmt(sql);
     if let Statement::Revoke(Revoke {
         grant_option_for: false,
+        caller,
         privileges,
         objects,
         grantees,
@@ -4092,6 +4095,7 @@ fn parse_revoke() {
         cascade,
     }) = stmt
     {
+        assert!(!caller);
         assert_eq!(
             privileges,
             Privileges::All {
