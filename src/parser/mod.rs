@@ -11540,9 +11540,10 @@ impl<'a> Parser<'a> {
                 return true;
             }
         }
-        if cc.validated.is_none()
-            || (dialect_of!(self is SnowflakeDialect)
-                && matches!(self.state, ParserState::AlterTable))
+        if (cc.enabled.is_some() || cc.enforced.is_some())
+            && (cc.validated.is_none()
+                || (dialect_of!(self is SnowflakeDialect)
+                    && matches!(self.state, ParserState::AlterTable)))
         {
             if self.parse_keyword(Keyword::VALIDATE) {
                 cc.validated = Some(true);
@@ -12327,7 +12328,14 @@ impl<'a> Parser<'a> {
                 characteristics.enforced = Some(false);
             }
         }
-        if characteristics.enforced.is_some() {
+        characteristics.enabled = if self.parse_keyword(Keyword::ENABLE) {
+            Some(true)
+        } else if self.parse_keyword(Keyword::DISABLE) {
+            Some(false)
+        } else {
+            None
+        };
+        if characteristics.enforced.is_some() || characteristics.enabled.is_some() {
             characteristics.validated = if self.parse_keyword(Keyword::VALIDATE) {
                 Some(true)
             } else if self.parse_keyword(Keyword::NOVALIDATE) {
