@@ -6866,6 +6866,12 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let ignore_hybrid_tables = clone.is_some() && self.parse_keyword(Keyword::IGNORE);
+        if ignore_hybrid_tables {
+            self.expect_keyword(Keyword::HYBRID)?;
+            self.expect_keyword(Keyword::TABLES)?;
+        }
+
         // Snowflake also allows `WITH MANAGED ACCESS` after `CLONE <src>`.
         if !with_managed_access {
             with_managed_access =
@@ -6884,6 +6890,7 @@ impl<'a> Parser<'a> {
             options,
             default_collate_spec,
             clone,
+            ignore_hybrid_tables,
             comment,
             with_tags,
         })
@@ -6985,6 +6992,7 @@ impl<'a> Parser<'a> {
             with_tags: None,
             with_contacts: None,
             from_share,
+            from_listing: None,
         })
     }
 
@@ -7069,6 +7077,15 @@ impl<'a> Parser<'a> {
         // Snowflake allows `RETURNS <type> NOT NULL` as a nullability annotation
         // on the return type.  Consume it here so the body loop does not choke.
         let return_not_null = self.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+        let scalar_return = matches!(return_type, Some(FunctionReturnType::DataType(ref data_type)) if !matches!(data_type, DataType::Table(_)));
+        if !return_not_null
+            && scalar_return
+            && self.peek_keyword(Keyword::NULL)
+            && matches!(self.peek_nth_token(1).token, Token::Word(ref word) if word.keyword == Keyword::LANGUAGE)
+            && matches!(self.peek_nth_token(2).token, Token::Word(ref word) if word.value.eq_ignore_ascii_case("JAVASCRIPT"))
+        {
+            self.next_token();
+        }
 
         #[derive(Default)]
         struct Body {
@@ -7080,11 +7097,6 @@ impl<'a> Parser<'a> {
             security: Option<FunctionSecurity>,
         }
         let mut body = Body::default();
-        // Map `RETURNS <type> NOT NULL` to STRICT (closest equivalent: function
-        // guarantees it does not return NULL).
-        if return_not_null {
-            body.called_on_null = Some(FunctionCalledOnNull::Strict);
-        }
         let mut set_params: Vec<FunctionDefinitionSetParam> = Vec::new();
         let mut options: Vec<SqlOption> = Vec::new();
         loop {
@@ -7187,6 +7199,21 @@ impl<'a> Parser<'a> {
             } else {
                 break;
             }
+        }
+
+        if return_not_null
+            && !(scalar_return
+                && body
+                    .language
+                    .as_ref()
+                    .is_some_and(|language| language.value.eq_ignore_ascii_case("JAVASCRIPT")))
+        {
+            if body.called_on_null.is_some() {
+                return Err(ParserError::ParserError(
+                    "CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT specified more than once".into(),
+                ));
+            }
+            body.called_on_null = Some(FunctionCalledOnNull::Strict);
         }
 
         Ok(CreateFunction {
