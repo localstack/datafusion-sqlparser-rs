@@ -3294,8 +3294,30 @@ pub fn parse_create_database(
                     builder = builder.clone_clause(Some(parser.parse_object_name(false)?));
                 }
                 Keyword::FROM => {
-                    parser.expect_keyword(Keyword::SHARE)?;
-                    builder = builder.from_share(Some(parser.parse_object_name(false)?));
+                    if parser.parse_keyword(Keyword::LISTING) {
+                        let listing = if matches!(parser.peek_token().token, Token::Word(_)) {
+                            let ident = parser.parse_identifier()?;
+                            let mut characters = ident.value.chars();
+                            let unquoted = characters.next().is_some_and(|character| {
+                                character.is_ascii_alphabetic() || character == '_'
+                            }) && characters.all(|character| {
+                                character.is_ascii_alphanumeric() || matches!(character, '_' | '$')
+                            });
+                            if ident.quote_style.is_some()
+                                && (!unquoted || ident.value != ident.value.to_uppercase())
+                            {
+                                ident.to_string()
+                            } else {
+                                ident.value.to_uppercase()
+                            }
+                        } else {
+                            parser.parse_literal_string()?.to_uppercase()
+                        };
+                        builder.from_listing = Some(listing);
+                    } else {
+                        parser.expect_keyword(Keyword::SHARE)?;
+                        builder = builder.from_share(Some(parser.parse_object_name(false)?));
+                    }
                 }
                 Keyword::DATA_RETENTION_TIME_IN_DAYS => {
                     parser.expect_token(&Token::Eq)?;

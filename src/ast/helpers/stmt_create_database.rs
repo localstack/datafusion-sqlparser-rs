@@ -105,6 +105,8 @@ pub struct CreateDatabaseBuilder {
     pub with_contacts: Option<Vec<ContactEntry>>,
     /// Optional `FROM SHARE <share>` source.
     pub from_share: Option<ObjectName>,
+    /// Global name of an imported data exchange listing.
+    pub from_listing: Option<String>,
 }
 
 impl CreateDatabaseBuilder {
@@ -138,6 +140,7 @@ impl CreateDatabaseBuilder {
             with_tags: None,
             with_contacts: None,
             from_share: None,
+            from_listing: None,
         }
     }
 
@@ -311,6 +314,7 @@ impl CreateDatabaseBuilder {
             with_tags: self.with_tags,
             with_contacts: self.with_contacts,
             from_share: self.from_share,
+            from_listing: self.from_listing,
         }
     }
 }
@@ -344,6 +348,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 with_tags,
                 with_contacts,
                 from_share,
+                from_listing,
             } => Ok(Self {
                 db_name,
                 if_not_exists,
@@ -368,6 +373,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 with_tags,
                 with_contacts,
                 from_share,
+                from_listing,
             }),
             _ => Err(ParserError::ParserError(format!(
                 "Expected create database statement, but received: {stmt}"

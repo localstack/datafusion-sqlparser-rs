@@ -6667,6 +6667,7 @@ impl<'a> Parser<'a> {
             with_tags: None,
             with_contacts: None,
             from_share,
+            from_listing: None,
         })
     }
 
