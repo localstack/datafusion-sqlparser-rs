@@ -5081,6 +5081,8 @@ pub enum Statement {
         ///
         /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-clone#databases-schemas)
         clone: Option<ObjectName>,
+        /// Whether cloning skips hybrid tables (`IGNORE HYBRID TABLES`).
+        ignore_hybrid_tables: bool,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
         /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
@@ -5139,6 +5141,8 @@ pub enum Statement {
         with_contacts: Option<Vec<ContactEntry>>,
         /// `FROM SHARE <share>` — creates a database from a share.
         from_share: Option<ObjectName>,
+        /// Global name of an imported data exchange listing.
+        from_listing: Option<String>,
     },
     /// ```sql
     /// CREATE FUNCTION
@@ -7944,6 +7948,7 @@ impl fmt::Display for Statement {
                 with_tags,
                 with_contacts,
                 from_share,
+                from_listing,
             } => {
                 write!(
                     f,
@@ -7965,6 +7970,13 @@ impl fmt::Display for Statement {
                 }
                 if let Some(share) = from_share {
                     write!(f, " FROM SHARE {share}")?;
+                }
+                if let Some(listing) = from_listing {
+                    write!(
+                        f,
+                        " FROM LISTING '{}'",
+                        value::escape_single_quote_string(listing)
+                    )?;
                 }
 
                 if let Some(value) = data_retention_time_in_days {
@@ -8749,6 +8761,7 @@ impl fmt::Display for Statement {
                 options,
                 default_collate_spec,
                 clone,
+                ignore_hybrid_tables,
                 comment,
                 with_tags,
             } => {
@@ -8779,6 +8792,10 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+
+                if *ignore_hybrid_tables {
+                    write!(f, " IGNORE HYBRID TABLES")?;
                 }
 
                 if let Some(tags) = with_tags {
