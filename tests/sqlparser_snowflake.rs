@@ -11324,3 +11324,19 @@ fn execute_task_using_config() {
         assert!(Parser::parse_sql(&SnowflakeDialect {}, sql).is_err(), "{sql}");
     }
 }
+
+#[test]
+fn test_array_keyword_is_not_a_type_suffix() {
+    // `v ARRAY` is a parameter named `v` of type ARRAY, not an array of a
+    // custom type `v` (the SQL-standard `<type> ARRAY` suffix does not exist
+    // in Snowflake).
+    match snowflake().verified_stmt("CREATE FUNCTION f(v ARRAY) RETURNS ARRAY AS 'v'") {
+        Statement::CreateFunction(CreateFunction { args: Some(args), .. }) => {
+            assert_eq!(1, args.len());
+            assert_eq!(Some(Ident::new("v")), args[0].name);
+            assert!(matches!(args[0].data_type, DataType::Array(ArrayElemTypeDef::None)));
+        }
+        other => panic!("expected CreateFunction, got {other:?}"),
+    }
+    snowflake().verified_stmt("CREATE TABLE t (a INT, b ARRAY)");
+}

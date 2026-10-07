@@ -1194,6 +1194,11 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// `ARRAY` is a semi-structured type of its own in Snowflake, never a suffix.
+    fn supports_type_qualified_array(&self) -> bool {
+        false
+    }
+
     // Snowflake supports double-dot notation when the schema name is not specified
     // In this case the default PUBLIC schema is used
     //

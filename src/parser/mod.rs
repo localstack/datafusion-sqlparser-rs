@@ -15716,8 +15716,8 @@ impl<'a> Parser<'a> {
         }
 
         // Type-qualified array, e.g. `INT ARRAY` or `INT ARRAY[3]`. One-dimensional
-        // with a single optional size. The `ARRAY` keyword is unambiguous everywhere.
-        if self.parse_keyword(Keyword::ARRAY) {
+        // with a single optional size.
+        if self.dialect.supports_type_qualified_array() && self.parse_keyword(Keyword::ARRAY) {
             let size = if self.consume_token(&Token::LBracket) {
                 let size = self.maybe_parse(|p| p.parse_literal_uint())?;
                 self.expect_token(&Token::RBracket)?;

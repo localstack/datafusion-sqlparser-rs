@@ -1507,6 +1507,16 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if a data type may be followed by the SQL-standard `ARRAY`
+    /// suffix, e.g. `INT ARRAY` or `INT ARRAY[3]`.
+    ///
+    /// Dialects whose `ARRAY` is a type of its own (Snowflake) return false, so
+    /// that `x ARRAY` in a parameter or column list stays a name followed by a
+    /// type rather than becoming an array of a custom type `x`.
+    fn supports_type_qualified_array(&self) -> bool {
+        true
+    }
+
     /// Returns true if the dialect supports array type definition with brackets with
     /// an optional size. For example:
     /// ```CREATE TABLE my_table (arr1 INT[], arr2 INT[3])```
