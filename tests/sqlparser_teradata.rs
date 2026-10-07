@@ -116,12 +116,19 @@ fn parse_leading_comma_before_table_options() {
     let dialect = all_dialects_where(|d| d.supports_leading_comma_before_table_options());
     dialect.verified_stmt("CREATE TABLE foo, FALLBACK (id INT)");
 
+    // Checked per dialect: the error position may differ between dialects
+    // (Snowflake accepts commas between table options, so it fails later).
     let unsupported_dialects =
         all_dialects_where(|d| !d.supports_leading_comma_before_table_options());
-    assert_eq!(
-        unsupported_dialects.parse_sql_statements("CREATE TABLE foo, FALLBACK (id INT)"),
-        Err(ParserError::ParserError(
-            "Expected: end of statement, found: ,".to_string()
-        ))
-    );
+    for dialect in &unsupported_dialects.dialects {
+        let expected = if dialect.is::<sqlparser::dialect::SnowflakeDialect>() {
+            "Expected: end of statement, found: FALLBACK"
+        } else {
+            "Expected: end of statement, found: ,"
+        };
+        assert_eq!(
+            sqlparser::parser::Parser::parse_sql(&**dialect, "CREATE TABLE foo, FALLBACK (id INT)"),
+            Err(ParserError::ParserError(expected.to_string()))
+        );
+    }
 }
