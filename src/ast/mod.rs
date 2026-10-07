@@ -4883,6 +4883,7 @@ pub enum Statement {
     ///
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-warehouse>
     CreateWarehouse(CreateWarehouse),
+    /// ```sql
     /// ALTER WAREHOUSE [IF EXISTS] [<name>] <operation>
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/alter-warehouse>
