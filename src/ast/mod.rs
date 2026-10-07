@@ -4958,6 +4958,8 @@ pub enum Statement {
         ///
         /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-clone#databases-schemas)
         clone: Option<ObjectName>,
+        /// Whether cloning skips hybrid tables (`IGNORE HYBRID TABLES`).
+        ignore_hybrid_tables: bool,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
         /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
@@ -8621,6 +8623,7 @@ impl fmt::Display for Statement {
                 options,
                 default_collate_spec,
                 clone,
+                ignore_hybrid_tables,
                 comment,
                 with_tags,
             } => {
@@ -8651,6 +8654,10 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+
+                if *ignore_hybrid_tables {
+                    write!(f, " IGNORE HYBRID TABLES")?;
                 }
 
                 if let Some(tags) = with_tags {

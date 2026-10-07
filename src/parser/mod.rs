@@ -6548,6 +6548,12 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let ignore_hybrid_tables = clone.is_some() && self.parse_keyword(Keyword::IGNORE);
+        if ignore_hybrid_tables {
+            self.expect_keyword(Keyword::HYBRID)?;
+            self.expect_keyword(Keyword::TABLES)?;
+        }
+
         // Snowflake also allows `WITH MANAGED ACCESS` after `CLONE <src>`.
         if !with_managed_access {
             with_managed_access =
@@ -6566,6 +6572,7 @@ impl<'a> Parser<'a> {
             options,
             default_collate_spec,
             clone,
+            ignore_hybrid_tables,
             comment,
             with_tags,
         })
