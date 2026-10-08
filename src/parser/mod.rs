@@ -24230,6 +24230,12 @@ impl<'a> Parser<'a> {
             Keyword::TABLE,
             Keyword::VIEW,
         ]) {
+            Some(Keyword::ACCOUNT)
+                if self.peek_keywords(&[Keyword::STARTS, Keyword::WITH])
+                    | self.peek_keyword(Keyword::LIMIT) =>
+            {
+                (Some(ShowStatementInParentType::Account), None)
+            }
             // If we see these next keywords it means we don't have a parent name
             Some(Keyword::DATABASE)
                 if self.peek_keywords(&[Keyword::STARTS, Keyword::WITH])
