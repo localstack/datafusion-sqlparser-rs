@@ -861,7 +861,7 @@ impl<'a> Parser<'a> {
                     self.parse_throw().map(Into::into)
                 }
                 Keyword::ROLLBACK => self.parse_rollback(),
-                Keyword::ABORT => self.parse_abort(),
+                Keyword::ABORT if self.dialect.supports_abort_statement() => self.parse_abort(),
                 Keyword::ASSERT => self.parse_assert(),
                 // `PREPARE`, `EXECUTE` and `DEALLOCATE` are Postgres-specific
                 // syntaxes. They are used for Postgres prepared statement.
@@ -4705,9 +4705,13 @@ impl<'a> Parser<'a> {
                         Ok(Expr::IsUnknown(Box::new(expr)))
                     } else if self.parse_keywords(&[Keyword::NOT, Keyword::UNKNOWN]) {
                         Ok(Expr::IsNotUnknown(Box::new(expr)))
-                    } else if self.parse_keyword(Keyword::JSON) {
+                    } else if self.dialect.supports_is_json_predicate()
+                        && self.parse_keyword(Keyword::JSON)
+                    {
                         self.parse_is_json_predicate(expr, false)
-                    } else if self.parse_keywords(&[Keyword::NOT, Keyword::JSON]) {
+                    } else if self.dialect.supports_is_json_predicate()
+                        && self.parse_keywords(&[Keyword::NOT, Keyword::JSON])
+                    {
                         self.parse_is_json_predicate(expr, true)
                     } else if let Ok(is_normalized) = self.parse_unicode_is_normalized(expr) {
                         Ok(is_normalized)
@@ -4885,12 +4889,14 @@ impl<'a> Parser<'a> {
 
     /// Parse the `ESCAPE CHAR` portion of `LIKE`, `ILIKE`, and `SIMILAR TO`
     pub fn parse_escape_char(&mut self) -> Result<Option<Box<Expr>>, ParserError> {
-        if self.parse_keyword(Keyword::ESCAPE) {
+        if !self.parse_keyword(Keyword::ESCAPE) {
+            Ok(None)
+        } else if self.dialect.supports_like_escape_expression() {
             Ok(Some(Box::new(self.parse_subexpr(
                 self.dialect.prec_value(Precedence::Like),
             )?)))
         } else {
-            Ok(None)
+            Ok(Some(Box::new(Expr::Value(self.parse_value()?))))
         }
     }
 
@@ -6044,7 +6050,8 @@ impl<'a> Parser<'a> {
             .parse_one_of_keywords(&[Keyword::TEMP, Keyword::TEMPORARY])
             .is_some();
         let volatile = self.parse_keyword(Keyword::VOLATILE);
-        let unlogged = self.peek_keywords(&[Keyword::UNLOGGED, Keyword::TABLE]);
+        let unlogged = self.dialect.supports_table_logging_options()
+            && self.peek_keywords(&[Keyword::UNLOGGED, Keyword::TABLE]);
         if unlogged {
             self.expect_keyword(Keyword::UNLOGGED)?;
         }
@@ -6066,7 +6073,9 @@ impl<'a> Parser<'a> {
             || create_view_params.is_some();
         if self.peek_keywords(&[Keyword::SNAPSHOT, Keyword::TABLE]) {
             self.parse_create_snapshot_table().map(Into::into)
-        } else if self.peek_keywords(&[Keyword::TEXT, Keyword::SEARCH]) {
+        } else if self.dialect.supports_text_search_statements()
+            && self.peek_keywords(&[Keyword::TEXT, Keyword::SEARCH])
+        {
             self.parse_create_text_search().map(Into::into)
         } else if self.parse_keyword(Keyword::TABLE) {
             self.parse_create_table(
@@ -10317,7 +10326,8 @@ impl<'a> Parser<'a> {
     /// Parse a `CREATE INDEX` statement.
     pub fn parse_create_index(&mut self, unique: bool) -> Result<CreateIndex, ParserError> {
         let concurrently = self.parse_keyword(Keyword::CONCURRENTLY);
-        let r#async = self.parse_keyword(Keyword::ASYNC);
+        let r#async =
+            self.dialect.supports_create_index_async() && self.parse_keyword(Keyword::ASYNC);
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
 
         let mut using = None;
@@ -11833,7 +11843,8 @@ impl<'a> Parser<'a> {
             // since `CHECK` requires parentheses, we can parse the inner expression in ParserState::Normal
             let expr: Expr = self.with_state(ParserState::Normal, |p| p.parse_expr())?;
             self.expect_token(&Token::RParen)?;
-            let no_inherit = self.parse_keywords(&[Keyword::NO, Keyword::INHERIT]);
+            let no_inherit = self.dialect.supports_check_no_inherit()
+                && self.parse_keywords(&[Keyword::NO, Keyword::INHERIT]);
 
             let mut enforced = if self.parse_keyword(Keyword::ENFORCED) {
                 Some(true)
@@ -12415,7 +12426,8 @@ impl<'a> Parser<'a> {
                 self.expect_token(&Token::LParen)?;
                 let expr = Box::new(self.parse_expr()?);
                 self.expect_token(&Token::RParen)?;
-                let no_inherit = self.parse_keywords(&[Keyword::NO, Keyword::INHERIT]);
+                let no_inherit = self.dialect.supports_check_no_inherit()
+                    && self.parse_keywords(&[Keyword::NO, Keyword::INHERIT]);
 
                 let mut enforced = if self.parse_keyword(Keyword::ENFORCED) {
                     Some(true)
@@ -12809,7 +12821,9 @@ impl<'a> Parser<'a> {
 
     /// Parse an optional `INCLUDE (col, ...)` clause on a table constraint.
     pub fn parse_optional_include_columns(&mut self) -> Result<Vec<Ident>, ParserError> {
-        if self.parse_keyword(Keyword::INCLUDE) {
+        if self.dialect.supports_constraint_include_columns()
+            && self.parse_keyword(Keyword::INCLUDE)
+        {
             self.expect_token(&Token::LParen)?;
             let columns = self.parse_comma_separated(|p| p.parse_identifier())?;
             self.expect_token(&Token::RParen)?;
@@ -13722,9 +13736,13 @@ impl<'a> Parser<'a> {
         } else if self.parse_keywords(&[Keyword::VALIDATE, Keyword::CONSTRAINT]) {
             let name = self.parse_identifier()?;
             AlterTableOperation::ValidateConstraint { name }
-        } else if self.parse_keywords(&[Keyword::SET, Keyword::LOGGED]) {
+        } else if self.dialect.supports_table_logging_options()
+            && self.parse_keywords(&[Keyword::SET, Keyword::LOGGED])
+        {
             AlterTableOperation::SetLogged
-        } else if self.parse_keywords(&[Keyword::SET, Keyword::UNLOGGED]) {
+        } else if self.dialect.supports_table_logging_options()
+            && self.parse_keywords(&[Keyword::SET, Keyword::UNLOGGED])
+        {
             AlterTableOperation::SetUnlogged
         } else if self.parse_keyword(Keyword::RESET) {
             self.expect_token(&Token::LParen)?;
@@ -13821,7 +13839,9 @@ impl<'a> Parser<'a> {
 
     /// Parse an `ALTER <object>` statement and dispatch to the appropriate alter handler.
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
-        if self.peek_keywords(&[Keyword::TEXT, Keyword::SEARCH]) {
+        if self.dialect.supports_text_search_statements()
+            && self.peek_keywords(&[Keyword::TEXT, Keyword::SEARCH])
+        {
             return self.parse_alter_text_search().map(Into::into);
         }
 
@@ -23580,7 +23600,7 @@ impl<'a> Parser<'a> {
             self.parse_comma_separated(Parser::parse_function_args)?
         };
 
-        if self.parse_keyword(Keyword::WHERE) {
+        if self.dialect.supports_aggregate_where_clause() && self.parse_keyword(Keyword::WHERE) {
             clauses.push(FunctionArgumentClause::Where(self.parse_expr()?));
         }
 
@@ -24893,7 +24913,7 @@ impl<'a> Parser<'a> {
             .is_some();
         let unlogged = self.parse_keyword(Keyword::UNLOGGED);
         let table = self.parse_keyword(Keyword::TABLE);
-        let targets = self.parse_comma_separated(Parser::parse_expr)?;
+        let targets = self.parse_comma_separated(Parser::parse_select_into_target)?;
 
         Ok(SelectInto {
             temporary,
@@ -24901,6 +24921,25 @@ impl<'a> Parser<'a> {
             table,
             targets,
         })
+    }
+
+    fn parse_select_into_target(&mut self) -> Result<Expr, ParserError> {
+        let start = self.peek_token_ref().clone();
+        let target = self.parse_expr()?;
+        if self.dialect.supports_select_into_expression_targets()
+            || matches!(target, Expr::Identifier(_) | Expr::CompoundIdentifier(_))
+            || matches!(
+                &target,
+                Expr::Value(ValueWithSpan {
+                    value: Value::Placeholder(p),
+                    ..
+                }) if p.starts_with(':')
+            )
+        {
+            Ok(target)
+        } else {
+            self.expected("a variable name after INTO", start)
+        }
     }
 
     fn parse_pragma_value(&mut self) -> Result<ValueWithSpan, ParserError> {
@@ -26218,7 +26257,7 @@ impl<'a> Parser<'a> {
         }
         let peeked_token = self.peek_token();
         match peeked_token.token {
-            Token::SingleQuotedString(_) => Ok(KeyValueOption {
+            Token::SingleQuotedString(_) | Token::DollarQuotedString(_) => Ok(KeyValueOption {
                 option_name: key.value.clone(),
                 option_value: KeyValueOptionKind::Single(self.parse_value()?),
             }),
@@ -26250,6 +26289,20 @@ impl<'a> Parser<'a> {
             }),
             Token::Word(word) => {
                 self.next_token();
+                // `IDENTIFIER('<name>')` is kept verbatim, like a bare word.
+                if word.value.eq_ignore_ascii_case("IDENTIFIER")
+                    && self.consume_token(&Token::LParen)
+                {
+                    let name = self.parse_value()?;
+                    self.expect_token(&Token::RParen)?;
+                    return Ok(KeyValueOption {
+                        option_name: key.value.clone(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::Placeholder(format!("{}({name})", word.value))
+                                .with_span(peeked_token.span),
+                        ),
+                    });
+                }
                 // A dotted identifier value (e.g. `DEFAULT_NAMESPACE = db.schema`)
                 // is a single compound option value: the parts join with `.`,
                 // unquoted parts fold to upper case to match Snowflake's
