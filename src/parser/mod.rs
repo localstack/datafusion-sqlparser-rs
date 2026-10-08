@@ -21015,7 +21015,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn maybe_parse_action_create_object_type(&mut self) -> Option<ActionCreateObjectType> {
+    /// Whether an object-type phrase belongs to the Snowflake schema CREATE privilege grammar.
+    pub fn is_schema_create_privilege(privilege: &str) -> bool {
         // Schema privileges include object types that are not ordinary CREATE
         // statement keywords. Match their complete token sequence before the
         // existing single-word alternatives can consume a prefix.
@@ -21041,6 +21042,10 @@ impl<'a> Parser<'a> {
             "INTERACTIVE TABLE", "ONLINE FEATURE TABLE", "TAG", "TASK",
             "TYPE", "WORKSPACE", "VIEW", "MATERIALIZED VIEW", "SEMANTIC VIEW",
         ];
+        SCHEMA_TYPES.contains(&privilege)
+    }
+
+    fn maybe_parse_action_create_object_type(&mut self) -> Option<ActionCreateObjectType> {
         let mut phrase = String::new();
         let mut count = 0;
         while count < 8 {
@@ -21078,7 +21083,7 @@ impl<'a> Parser<'a> {
                 || is_word(self, on + 1, Keyword::DATABASE)
                 || ((is_word(self, on + 1, Keyword::ALL) || is_word(self, on + 1, Keyword::FUTURE))
                     && is_word(self, on + 2, Keyword::SCHEMAS)));
-        if count > 0 && before_schema_target && SCHEMA_TYPES.contains(&phrase.as_str())
+        if count > 0 && before_schema_target && Self::is_schema_create_privilege(&phrase)
         {
             for _ in 0..count {
                 self.next_token();
