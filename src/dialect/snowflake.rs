@@ -2068,6 +2068,9 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
     } else if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
         let execute_as = if parser.parse_keyword(Keyword::CALLER) {
             ProcedureExecuteAs::Caller
+        } else if parser.parse_keyword(Keyword::RESTRICTED) {
+            parser.expect_keyword_is(Keyword::CALLER)?;
+            ProcedureExecuteAs::RestrictedCaller
         } else {
             parser.expect_keyword_is(Keyword::OWNER)?;
             ProcedureExecuteAs::Owner
