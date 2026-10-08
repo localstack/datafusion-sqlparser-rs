@@ -1517,6 +1517,74 @@ pub trait Dialect: Debug + Any {
         true
     }
 
+    /// Returns true if the `ESCAPE` operand of `LIKE`/`ILIKE` may be an expression.
+    ///
+    /// When false the operand is a single value (a string literal, `NULL` or a
+    /// placeholder), so `a LIKE 'b' ESCAPE '!' = TRUE` compares the predicate
+    /// rather than folding `= TRUE` into the escape.
+    fn supports_like_escape_expression(&self) -> bool {
+        true
+    }
+
+    /// Returns true if a MERGE clause may take the action `THEN DO NOTHING`.
+    fn supports_merge_do_nothing(&self) -> bool {
+        true
+    }
+
+    /// Returns true if MERGE accepts `UPDATE SET *` and `INSERT *`.
+    fn supports_merge_wildcard(&self) -> bool {
+        true
+    }
+
+    /// Returns true if the SQL/JSON `expr IS [NOT] JSON` predicate is supported.
+    fn supports_is_json_predicate(&self) -> bool {
+        true
+    }
+
+    /// Returns true if an aggregate's argument list may end in `WHERE <cond>`, as in
+    /// `count(x WHERE x > 1)`.
+    fn supports_aggregate_where_clause(&self) -> bool {
+        true
+    }
+
+    /// Returns true if `CREATE`/`ALTER TEXT SEARCH ...` statements are supported.
+    fn supports_text_search_statements(&self) -> bool {
+        true
+    }
+
+    /// Returns true if tables may be `UNLOGGED`: `CREATE UNLOGGED TABLE` and
+    /// `ALTER TABLE ... SET LOGGED | UNLOGGED`.
+    fn supports_table_logging_options(&self) -> bool {
+        true
+    }
+
+    /// Returns true if `ABORT [TRANSACTION]` is accepted as a synonym for `ROLLBACK`.
+    fn supports_abort_statement(&self) -> bool {
+        true
+    }
+
+    /// Returns true if a `CHECK` constraint may be followed by `NO INHERIT`.
+    fn supports_check_no_inherit(&self) -> bool {
+        true
+    }
+
+    /// Returns true if a `PRIMARY KEY` or `UNIQUE` table constraint may carry
+    /// `INCLUDE (col, ...)`. Index definitions are unaffected.
+    fn supports_constraint_include_columns(&self) -> bool {
+        true
+    }
+
+    /// Returns true if `CREATE INDEX ASYNC` is supported.
+    fn supports_create_index_async(&self) -> bool {
+        true
+    }
+
+    /// Returns true if a `SELECT ... INTO` target may be any expression. When
+    /// false it must be a name or a `:variable` placeholder.
+    fn supports_select_into_expression_targets(&self) -> bool {
+        true
+    }
+
     /// Returns true if the dialect supports array type definition with brackets with
     /// an optional size. For example:
     /// ```CREATE TABLE my_table (arr1 INT[], arr2 INT[3])```

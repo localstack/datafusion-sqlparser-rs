@@ -27,7 +27,6 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    visit_expressions,
     AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupPolicyPhase, BackupSetTargetKind, ModifyBackupAction,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
@@ -55,7 +54,6 @@ use crate::ast::{
     StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
     WrappedCollection,
 };
-use core::ops::ControlFlow;
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
 use crate::parser::{IsOptional, Parser, ParserError};
@@ -1199,6 +1197,55 @@ impl Dialect for SnowflakeDialect {
         false
     }
 
+    // PostgreSQL grammar upstream accepts for every dialect; Snowflake rejects it.
+    fn supports_like_escape_expression(&self) -> bool {
+        false
+    }
+
+    fn supports_merge_do_nothing(&self) -> bool {
+        false
+    }
+
+    fn supports_merge_wildcard(&self) -> bool {
+        false
+    }
+
+    fn supports_is_json_predicate(&self) -> bool {
+        false
+    }
+
+    fn supports_aggregate_where_clause(&self) -> bool {
+        false
+    }
+
+    fn supports_text_search_statements(&self) -> bool {
+        false
+    }
+
+    fn supports_table_logging_options(&self) -> bool {
+        false
+    }
+
+    fn supports_abort_statement(&self) -> bool {
+        false
+    }
+
+    fn supports_check_no_inherit(&self) -> bool {
+        false
+    }
+
+    fn supports_constraint_include_columns(&self) -> bool {
+        false
+    }
+
+    fn supports_create_index_async(&self) -> bool {
+        false
+    }
+
+    fn supports_select_into_expression_targets(&self) -> bool {
+        false
+    }
+
     // Snowflake supports double-dot notation when the schema name is not specified
     // In this case the default PUBLIC schema is used
     //
@@ -1882,6 +1929,22 @@ fn parse_alter_dynamic_table_column_comments(
     Ok(operations)
 }
 
+/// Whether the tokens `parser` consumed since `start` contain a subquery.
+///
+/// A token scan rather than an AST walk, so it does not need the `visitor`
+/// feature: every subquery form (`IN (...)`, `EXISTS (...)`, a scalar
+/// `(...)`) opens with an unquoted `SELECT` or `VALUES`, and neither keyword
+/// can appear unquoted anywhere else in an expression.
+fn consumed_subquery(parser: &Parser, start: usize) -> bool {
+    (start..parser.index()).any(|i| {
+        matches!(
+            &parser.token_at(i).token,
+            Token::Word(w) if w.quote_style.is_none()
+                && matches!(w.keyword, Keyword::SELECT | Keyword::VALUES)
+        )
+    })
+}
+
 /// Parse the property list of `ALTER DYNAMIC TABLE … SET/UNSET`. Properties are
 /// space- or comma-separated. Each becomes an [`SqlOption::KeyValue`] whose
 /// value is a string literal — including identifier values (`WAREHOUSE = wh`)
@@ -1928,20 +1991,10 @@ fn parse_alter_dynamic_table_property(
             Value::Null
         } else {
             parser.expect_token(&Token::LParen)?;
+            let predicate_start = parser.index();
             let predicate = parser.parse_expr()?;
             parser.expect_token(&Token::RParen)?;
-            if visit_expressions(&predicate, |expr| {
-                if matches!(
-                    expr,
-                    Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
-                ) {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-                })
-                .is_break()
-            {
+            if consumed_subquery(parser, predicate_start) {
                 return Err(ParserError::ParserError(
                     "FROZEN WHERE clauses cannot contain subqueries".to_string(),
                 ));
@@ -3123,20 +3176,10 @@ pub fn parse_create_table(
                 Keyword::NoKeyword if word.value.eq_ignore_ascii_case("FROZEN") => {
                     parser.expect_keyword_is(Keyword::WHERE)?;
                     parser.expect_token(&Token::LParen)?;
+                    let predicate_start = parser.index();
                     let predicate = parser.parse_expr()?;
                     parser.expect_token(&Token::RParen)?;
-                    if visit_expressions(&predicate, |expr| {
-                        if matches!(
-                            expr,
-                            Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
-                        ) {
-                            ControlFlow::Break(())
-                        } else {
-                            ControlFlow::Continue(())
-                        }
-                    })
-                    .is_break()
-                    {
+                    if consumed_subquery(parser, predicate_start) {
                         return Err(ParserError::ParserError(
                             "FROZEN WHERE clauses cannot contain subqueries".to_string(),
                         ));
@@ -3648,6 +3691,12 @@ pub fn parse_create_file_format(
             }
             if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
                 break;
+            }
+            // `TYPE` names one format; a parenthesized list is a syntax error.
+            if let [Token::Word(w), Token::Eq, Token::LParen] = parser.peek_tokens() {
+                if w.value.eq_ignore_ascii_case("TYPE") {
+                    return parser.expected("a file format type", parser.peek_nth_token(2));
+                }
             }
             let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
             if parsed.options.is_empty() {

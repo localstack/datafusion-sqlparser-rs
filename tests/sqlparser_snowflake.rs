@@ -11342,6 +11342,80 @@ fn test_array_keyword_is_not_a_type_suffix() {
 }
 
 #[test]
+fn test_postgres_only_grammar_is_rejected() {
+    // Upstream accepts these for every dialect; Snowflake has none of them.
+    for sql in [
+        "MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN DO NOTHING",
+        "MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE SET *",
+        "MERGE INTO t USING s ON t.a = s.a WHEN NOT MATCHED THEN INSERT *",
+        "SELECT a IS JSON FROM t",
+        "SELECT a IS NOT JSON FROM t",
+        "SELECT count(x WHERE x > 1) FROM t",
+        "CREATE TEXT SEARCH CONFIGURATION c (PARSER = p)",
+        "ALTER TEXT SEARCH CONFIGURATION c RENAME TO d",
+        "CREATE UNLOGGED TABLE t (a INT)",
+        "ALTER TABLE t SET UNLOGGED",
+        "ALTER TABLE t SET LOGGED",
+        "ABORT",
+        "ABORT TRANSACTION",
+        "CREATE TABLE t (a INT, CHECK (a > 0) NO INHERIT)",
+        "CREATE TABLE t (a INT CHECK (a > 0) NO INHERIT)",
+        "CREATE TABLE t (a INT, PRIMARY KEY (a) INCLUDE (b))",
+        "CREATE TABLE t (a INT, UNIQUE (a) INCLUDE (b))",
+        "CREATE INDEX ASYNC i ON t (b)",
+        "SELECT a INTO 1 FROM t",
+        "SELECT a INTO $x FROM t",
+        "CREATE FILE FORMAT f TYPE = (CSV)",
+        "CREATE FILE FORMAT f COMMENT = 'c' TYPE = (CSV, JSON)",
+    ] {
+        assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
+    }
+    // Index-level INCLUDE is Snowflake (hybrid tables) and still parses.
+    snowflake().verified_stmt("CREATE INDEX i ON t(b) INCLUDE (a)");
+    snowflake().verified_stmt("SELECT a, b INTO x, db.s.y FROM t");
+    snowflake()
+        .verified_stmt("MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE ALL BY NAME");
+}
+
+#[test]
+fn test_create_warehouse_property_values() {
+    snowflake().verified_stmt("CREATE WAREHOUSE w COMMENT=$$x$$");
+    snowflake().verified_stmt("CREATE WAREHOUSE w RESOURCE_MONITOR=IDENTIFIER('rm')");
+    // Snowflake rejects a property after the TAG clause.
+    assert!(snowflake()
+        .parse_sql_statements("CREATE WAREHOUSE w TAG (t = 'v') COMMENT = 'x'")
+        .is_err());
+}
+
+#[test]
+fn test_like_escape_is_a_single_value() {
+    // The escape binds only its value, so a trailing comparison applies to the
+    // whole predicate rather than folding into the escape.
+    let expr = snowflake().verified_expr("a LIKE 'b' ESCAPE '!' = true");
+    let Expr::BinaryOp {
+        left,
+        op: BinaryOperator::Eq,
+        ..
+    } = expr
+    else {
+        panic!("expected `(a LIKE 'b' ESCAPE '!') = true`, got {expr:?}");
+    };
+    let Expr::Like {
+        escape_char: Some(escape),
+        ..
+    } = *left
+    else {
+        panic!("expected LIKE on the left");
+    };
+    assert_eq!(*escape, Expr::value(Value::SingleQuotedString("!".into())));
+    snowflake().verified_expr("a LIKE 'b' ESCAPE NULL");
+    snowflake().verified_expr("a LIKE 'b' ESCAPE ?");
+    assert!(snowflake()
+        .parse_sql_statements("SELECT a LIKE 'b' ESCAPE ('' || '#')")
+        .is_err());
+}
+
+#[test]
 fn test_grant_create_backup_schema_privileges() {
     for target in [
         "SCHEMA db1.sc1",

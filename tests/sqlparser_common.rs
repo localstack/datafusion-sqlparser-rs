@@ -2454,7 +2454,8 @@ fn parse_like() {
 
 #[test]
 fn parse_like_escape_expression() {
-    verified_expr("'a%' LIKE 'a#%' ESCAPE ('' || '#')");
+    let dialects = all_dialects_where(|d| d.supports_like_escape_expression());
+    dialects.verified_expr("'a%' LIKE 'a#%' ESCAPE ('' || '#')");
 }
 
 #[test]
@@ -6420,19 +6421,20 @@ fn parse_aggregate_with_group_by() {
 
 #[test]
 fn parse_aggregate_with_where_filter() {
+    let dialects = all_dialects_where(|d| d.supports_aggregate_where_clause());
     // The inline `WHERE` filter inside an aggregate call, e.g. `COUNT(* WHERE cond)` /
     // `SUM(x WHERE cond)`, is the in-argument spelling of the standard
     // `AGG(x) FILTER (WHERE cond)`. Popularized by GoogleSQL, it is accepted for all
     // dialects (`verified_stmt` round-trips through every dialect).
-    verified_stmt("SELECT COUNT(* WHERE x > 1) FROM t");
-    verified_stmt("SELECT SUM(x WHERE y > 0) FROM t");
+    dialects.verified_stmt("SELECT COUNT(* WHERE x > 1) FROM t");
+    dialects.verified_stmt("SELECT SUM(x WHERE y > 0) FROM t");
     // Co-occurs with (and precedes) an in-argument ORDER BY.
-    verified_stmt("SELECT ARRAY_AGG(x WHERE x > 100 ORDER BY x DESC) FROM t");
+    dialects.verified_stmt("SELECT ARRAY_AGG(x WHERE x > 100 ORDER BY x DESC) FROM t");
     // A compound predicate referencing multiple columns round-trips intact.
-    verified_stmt("SELECT ARRAY_AGG(a WHERE b > 0 AND c < 10) FROM t");
+    dialects.verified_stmt("SELECT ARRAY_AGG(a WHERE b > 0 AND c < 10) FROM t");
 
     // The filter is captured as a FunctionArgumentClause::Where holding the predicate.
-    let select = verified_only_select("SELECT SUM(salary WHERE dept = 1) FROM emp");
+    let select = dialects.verified_only_select("SELECT SUM(salary WHERE dept = 1) FROM emp");
     let Expr::Function(func) = expr_from_projection(&select.projection[0]) else {
         panic!("expected a function projection");
     };
@@ -9877,16 +9879,17 @@ fn parse_rollback() {
 
 #[test]
 fn parse_abort() {
-    one_statement_parses_to("ABORT", "ROLLBACK");
-    one_statement_parses_to("ABORT TRANSACTION", "ROLLBACK");
-    one_statement_parses_to("ABORT WORK", "ROLLBACK");
-    one_statement_parses_to("ABORT AND CHAIN", "ROLLBACK AND CHAIN");
-    one_statement_parses_to("ABORT AND NO CHAIN", "ROLLBACK");
-    one_statement_parses_to("ABORT TRANSACTION AND CHAIN", "ROLLBACK AND CHAIN");
-    one_statement_parses_to("ABORT WORK AND NO CHAIN", "ROLLBACK");
+    let dialects = all_dialects_where(|d| d.supports_abort_statement());
+    dialects.one_statement_parses_to("ABORT", "ROLLBACK");
+    dialects.one_statement_parses_to("ABORT TRANSACTION", "ROLLBACK");
+    dialects.one_statement_parses_to("ABORT WORK", "ROLLBACK");
+    dialects.one_statement_parses_to("ABORT AND CHAIN", "ROLLBACK AND CHAIN");
+    dialects.one_statement_parses_to("ABORT AND NO CHAIN", "ROLLBACK");
+    dialects.one_statement_parses_to("ABORT TRANSACTION AND CHAIN", "ROLLBACK AND CHAIN");
+    dialects.one_statement_parses_to("ABORT WORK AND NO CHAIN", "ROLLBACK");
 
     assert_eq!(
-        parse_sql_statements("ABORT TO test1").unwrap_err(),
+        dialects.parse_sql_statements("ABORT TO test1").unwrap_err(),
         ParserError::ParserError("Expected: end of statement, found: TO".to_string()),
     );
 }
@@ -10065,8 +10068,9 @@ fn test_create_index_with_with_clause() {
 
 #[test]
 fn parse_create_index_async() {
-    verified_stmt("CREATE INDEX ASYNC my_index ON my_table(col1)");
-    verified_stmt("CREATE UNIQUE INDEX ASYNC my_index ON my_table(col1)");
+    let dialects = all_dialects_where(|d| d.supports_create_index_async());
+    dialects.verified_stmt("CREATE INDEX ASYNC my_index ON my_table(col1)");
+    dialects.verified_stmt("CREATE UNIQUE INDEX ASYNC my_index ON my_table(col1)");
 }
 
 #[test]
@@ -10700,8 +10704,9 @@ VALUES (1, 'abc')";
     all_dialects().verified_stmt(sql);
 
     // MERGE with wildcard (UPDATE SET * and INSERT *)
+    let merge_wildcard = all_dialects_where(|d| d.supports_merge_wildcard());
     let sql = "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *";
-    match verified_stmt(sql) {
+    match merge_wildcard.verified_stmt(sql) {
         Statement::Merge(merge) => {
             assert_eq!(merge.clauses.len(), 2);
 
@@ -10723,11 +10728,11 @@ VALUES (1, 'abc')";
         _ => panic!("Expected MERGE statement"),
     }
 
-    verified_stmt("MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = 1 THEN UPDATE SET *");
+    merge_wildcard.verified_stmt("MERGE INTO target USING source ON target.id = source.id WHEN MATCHED AND source.active = 1 THEN UPDATE SET *");
 
-    verified_stmt("MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED BY TARGET THEN INSERT *");
+    merge_wildcard.verified_stmt("MERGE INTO target USING source ON target.id = source.id WHEN NOT MATCHED BY TARGET THEN INSERT *");
 
-    verified_stmt("MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT (a, b) VALUES (source.a, source.b)");
+    merge_wildcard.verified_stmt("MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT (a, b) VALUES (source.a, source.b)");
 
     let sql = concat!(
         "MERGE INTO t1 AS target ",
@@ -10736,7 +10741,7 @@ VALUES (1, 'abc')";
         "WHEN MATCHED THEN UPDATE SET * ",
         "WHEN NOT MATCHED THEN INSERT *"
     );
-    verified_stmt(sql);
+    merge_wildcard.verified_stmt(sql);
 }
 
 #[test]
@@ -11327,6 +11332,7 @@ fn parse_is_boolean() {
 
 #[test]
 fn parse_is_json_predicate() {
+    let dialects = all_dialects_where(|d| d.supports_is_json_predicate());
     use self::Expr::*;
 
     // Assert the full AST once for a case that exercises every field.
@@ -11338,24 +11344,24 @@ fn parse_is_json_predicate() {
             unique_keys: Some(JsonKeyUniqueness::WithoutUniqueKeys),
             negated: true,
         },
-        verified_expr(sql)
+        dialects.verified_expr(sql)
     );
 
     // The remaining forms only need to round-trip.
-    verified_expr("a IS JSON");
-    verified_expr("a IS NOT JSON");
-    verified_expr("a IS JSON VALUE");
-    verified_expr("a IS JSON SCALAR");
-    verified_expr("a IS JSON ARRAY");
-    verified_expr("a IS JSON OBJECT");
-    verified_expr("a IS JSON WITH UNIQUE KEYS");
-    verified_expr("a IS JSON WITHOUT UNIQUE KEYS");
+    dialects.verified_expr("a IS JSON");
+    dialects.verified_expr("a IS NOT JSON");
+    dialects.verified_expr("a IS JSON VALUE");
+    dialects.verified_expr("a IS JSON SCALAR");
+    dialects.verified_expr("a IS JSON ARRAY");
+    dialects.verified_expr("a IS JSON OBJECT");
+    dialects.verified_expr("a IS JSON WITH UNIQUE KEYS");
+    dialects.verified_expr("a IS JSON WITHOUT UNIQUE KEYS");
 
-    all_dialects().expr_parses_to("a IS JSON WITH UNIQUE", "a IS JSON WITH UNIQUE KEYS");
-    all_dialects().expr_parses_to("a IS JSON WITHOUT UNIQUE", "a IS JSON WITHOUT UNIQUE KEYS");
+    dialects.expr_parses_to("a IS JSON WITH UNIQUE", "a IS JSON WITH UNIQUE KEYS");
+    dialects.expr_parses_to("a IS JSON WITHOUT UNIQUE", "a IS JSON WITHOUT UNIQUE KEYS");
 
     assert_matches!(
-        verified_expr("NOT a IS JSON"),
+        dialects.verified_expr("NOT a IS JSON"),
         Expr::UnaryOp {
             op: UnaryOperator::Not,
             expr
@@ -11365,7 +11371,8 @@ fn parse_is_json_predicate() {
 
 #[test]
 fn parse_is_json_predicate_invalid() {
-    let dialects = all_dialects();
+    let dialects = all_dialects_where(|d| d.supports_is_json_predicate());
+    let dialects = dialects;
 
     let invalid = [
         "SELECT * FROM t WHERE a IS JSON WITH FROM",
@@ -17943,15 +17950,17 @@ fn column_check_enforced() {
 
 #[test]
 fn table_check_no_inherit() {
-    all_dialects().verified_stmt("CREATE TABLE t (a INT, CONSTRAINT c CHECK (a > 0) NO INHERIT)");
-    all_dialects().verified_stmt("CREATE TABLE t (a INT, CHECK (a > 0) NO INHERIT)");
-    all_dialects().verified_stmt("CREATE TABLE t (a INT, CHECK (a > 0) NO INHERIT NOT ENFORCED)");
+    let dialects = all_dialects_where(|d| d.supports_check_no_inherit());
+    dialects.verified_stmt("CREATE TABLE t (a INT, CONSTRAINT c CHECK (a > 0) NO INHERIT)");
+    dialects.verified_stmt("CREATE TABLE t (a INT, CHECK (a > 0) NO INHERIT)");
+    dialects.verified_stmt("CREATE TABLE t (a INT, CHECK (a > 0) NO INHERIT NOT ENFORCED)");
 }
 
 #[test]
 fn column_check_no_inherit() {
-    all_dialects().verified_stmt("CREATE TABLE t (x INT CHECK (x > 1) NO INHERIT)");
-    all_dialects().verified_stmt("CREATE TABLE t (x INT CHECK (x > 1) NO INHERIT NOT ENFORCED)");
+    let dialects = all_dialects_where(|d| d.supports_check_no_inherit());
+    dialects.verified_stmt("CREATE TABLE t (x INT CHECK (x > 1) NO INHERIT)");
+    dialects.verified_stmt("CREATE TABLE t (x INT CHECK (x > 1) NO INHERIT NOT ENFORCED)");
 }
 
 #[test]
@@ -20092,21 +20101,22 @@ fn parse_table_factor_paren_chain_no_exponential_blowup() {
 
 #[test]
 fn parse_unlogged_table_logging_controls_in_all_dialects() {
-    match all_dialects().verified_stmt("CREATE UNLOGGED TABLE t (a INT)") {
+    let dialects = all_dialects_where(|d| d.supports_table_logging_options());
+    match dialects.verified_stmt("CREATE UNLOGGED TABLE t (a INT)") {
         Statement::CreateTable(CreateTable { unlogged, .. }) => {
             assert!(unlogged);
         }
         _ => unreachable!("Expected CREATE TABLE"),
     }
 
-    match all_dialects().verified_stmt("ALTER TABLE t SET LOGGED") {
+    match dialects.verified_stmt("ALTER TABLE t SET LOGGED") {
         Statement::AlterTable(AlterTable { operations, .. }) => {
             assert_eq!(vec![AlterTableOperation::SetLogged], operations);
         }
         _ => unreachable!("Expected ALTER TABLE"),
     }
 
-    match all_dialects().verified_stmt("ALTER TABLE t SET UNLOGGED") {
+    match dialects.verified_stmt("ALTER TABLE t SET UNLOGGED") {
         Statement::AlterTable(AlterTable { operations, .. }) => {
             assert_eq!(vec![AlterTableOperation::SetUnlogged], operations);
         }
