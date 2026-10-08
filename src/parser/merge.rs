@@ -109,7 +109,7 @@ impl Parser<'_> {
                 Keyword::DELETE,
                 Keyword::DO,
             ]) {
-                Some(Keyword::DO) => {
+                Some(Keyword::DO) if self.dialect.supports_merge_do_nothing() => {
                     let do_token = self.get_current_token().clone();
                     let nothing_token = self.expect_keyword(Keyword::NOTHING)?;
                     MergeAction::DoNothing {
@@ -135,7 +135,8 @@ impl Parser<'_> {
                         MergeUpdateKind::AllByName
                     } else {
                         self.expect_keyword_is(Keyword::SET)?;
-                        if self.consume_token(&Token::Mul) {
+                        if self.dialect.supports_merge_wildcard() && self.consume_token(&Token::Mul)
+                        {
                             MergeUpdateKind::Wildcard
                         } else {
                             MergeUpdateKind::Set(
@@ -190,7 +191,7 @@ impl Parser<'_> {
 
                     let insert_token = self.get_current_token().clone();
 
-                    if self.consume_token(&Token::Mul) {
+                    if self.dialect.supports_merge_wildcard() && self.consume_token(&Token::Mul) {
                         let star_token = self.get_current_token().clone();
                         MergeAction::Insert(MergeInsertExpr {
                             insert_token: insert_token.into(),
