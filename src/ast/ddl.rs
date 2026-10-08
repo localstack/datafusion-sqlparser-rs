@@ -5583,6 +5583,11 @@ pub enum AlterSchemaOperation {
         /// The new name for the schema.
         name: ObjectName,
     },
+    /// Exchange the schema with another schema.
+    SwapWith {
+        /// The schema to exchange with.
+        name: ObjectName,
+    },
     /// Change the owner of the schema.
     OwnerTo {
         /// The new owner of the schema.
@@ -5608,6 +5613,7 @@ impl fmt::Display for AlterSchemaOperation {
                 write!(f, "SET OPTIONS ({})", display_comma_separated(options))
             }
             AlterSchemaOperation::Rename { name } => write!(f, "RENAME TO {name}"),
+            AlterSchemaOperation::SwapWith { name } => write!(f, "SWAP WITH {name}"),
             AlterSchemaOperation::OwnerTo { owner } => write!(f, "OWNER TO {owner}"),
         }
     }

@@ -2874,7 +2874,9 @@ impl Spanned for AlterSchemaOperation {
             AlterSchemaOperation::SetOptionsParens { options } => {
                 union_spans(options.iter().map(|i| i.span()))
             }
-            AlterSchemaOperation::Rename { name } => name.span(),
+            AlterSchemaOperation::Rename { name } | AlterSchemaOperation::SwapWith { name } => {
+                name.span()
+            }
             AlterSchemaOperation::OwnerTo { owner } => {
                 if let Owner::Ident(ident) = owner {
                     ident.span
