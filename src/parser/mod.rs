@@ -20619,6 +20619,10 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::ComputePools(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
+            } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
+                Some(GrantObjects::ApplicationPackages(
+                    self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                ))
             } else if self.parse_keywords(&[Keyword::FAILOVER, Keyword::GROUP]) {
                 Some(GrantObjects::FailoverGroup(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
@@ -20881,6 +20885,8 @@ impl<'a> Parser<'a> {
             "APPLY STORAGE LIFECYCLE POLICY",
             "APPLY CONTACT",
             "EMBED",
+            "DEVELOP",
+            "INSTALL",
         ] {
             if parse_words(self, &privilege.split_whitespace().collect::<Vec<_>>()) {
                 return Ok(Action::SnowflakePrivilege(privilege.to_string()));

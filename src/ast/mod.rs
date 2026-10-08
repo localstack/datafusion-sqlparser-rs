@@ -12175,6 +12175,8 @@ pub enum GrantObjects {
     },
     /// Grant privileges on specific databases
     Databases(Vec<ObjectName>),
+    /// Grant privileges on application packages
+    ApplicationPackages(Vec<ObjectName>),
     /// Grant privileges on specific schemas
     Schemas(Vec<ObjectName>),
     /// Grant privileges on specific sequences
@@ -12479,6 +12481,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::ComputePools(objects) => {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
+            }
+            GrantObjects::ApplicationPackages(objects) => {
+                write!(f, "APPLICATION PACKAGE {}", display_comma_separated(objects))
             }
             GrantObjects::Connections(objects) => {
                 write!(f, "CONNECTION {}", display_comma_separated(objects))
