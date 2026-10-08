@@ -24231,6 +24231,7 @@ impl<'a> Parser<'a> {
         let (parent_type, parent_name) = match self.parse_one_of_keywords(&[
             Keyword::ACCOUNT,
             Keyword::APPLICATION,
+            Keyword::CLASS,
             Keyword::DATABASE,
             Keyword::SCHEMA,
             Keyword::TABLE,
@@ -24271,13 +24272,14 @@ impl<'a> Parser<'a> {
                     Keyword::APPLICATION => {
                         (Some(ShowStatementInParentType::Application), parent_name)
                     }
+                    Keyword::CLASS => (Some(ShowStatementInParentType::Class), parent_name),
                     Keyword::DATABASE => (Some(ShowStatementInParentType::Database), parent_name),
                     Keyword::SCHEMA => (Some(ShowStatementInParentType::Schema), parent_name),
                     Keyword::TABLE => (Some(ShowStatementInParentType::Table), parent_name),
                     Keyword::VIEW => (Some(ShowStatementInParentType::View), parent_name),
                     _ => {
                         return self.expected_ref(
-                            "one of ACCOUNT, APPLICATION, DATABASE, SCHEMA, TABLE or VIEW",
+                            "one of ACCOUNT, APPLICATION, CLASS, DATABASE, SCHEMA, TABLE or VIEW",
                             self.peek_token_ref(),
                         )
                     }
