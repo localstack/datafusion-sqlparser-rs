@@ -14534,6 +14534,9 @@ impl<'a> Parser<'a> {
         } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_object_name(false)?;
             AlterSchemaOperation::Rename { name: new_name }
+        } else if self.parse_keywords(&[Keyword::SWAP, Keyword::WITH]) {
+            let name = self.parse_object_name(false)?;
+            AlterSchemaOperation::SwapWith { name }
         } else if self.parse_keywords(&[Keyword::OWNER, Keyword::TO]) {
             let owner = self.parse_owner()?;
             AlterSchemaOperation::OwnerTo { owner }
@@ -21825,6 +21828,7 @@ impl<'a> Parser<'a> {
         // existing single-word alternatives can consume a prefix.
         const SCHEMA_TYPES: &[&str] = &[
             "AGENT", "ALERT", "APPLICATION SERVICE", "ARTIFACT REPOSITORY",
+            "BACKUP POLICY", "BACKUP SET",
             "CONTACT", "CORTEX SEARCH SERVICE", "DATA METRIC FUNCTION",
             "DATASET", "DBT PROJECT", "EVENT TABLE", "EXPERIMENT",
             "FILE FORMAT", "FUNCTION", "GATEWAY", "GIT REPOSITORY",
