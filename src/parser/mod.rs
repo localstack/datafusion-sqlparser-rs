@@ -21015,6 +21015,7 @@ impl<'a> Parser<'a> {
         // existing single-word alternatives can consume a prefix.
         const SCHEMA_TYPES: &[&str] = &[
             "AGENT", "ALERT", "APPLICATION SERVICE", "ARTIFACT REPOSITORY",
+            "BACKUP POLICY", "BACKUP SET",
             "CONTACT", "CORTEX SEARCH SERVICE", "DATA METRIC FUNCTION",
             "DATASET", "DBT PROJECT", "EVENT TABLE", "EXPERIMENT",
             "FILE FORMAT", "FUNCTION", "GATEWAY", "GIT REPOSITORY",

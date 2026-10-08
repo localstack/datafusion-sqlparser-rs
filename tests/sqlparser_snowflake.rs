@@ -11403,3 +11403,33 @@ fn execute_task_using_config() {
         assert!(Parser::parse_sql(&SnowflakeDialect {}, sql).is_err(), "{sql}");
     }
 }
+
+#[test]
+fn test_grant_create_backup_schema_privileges() {
+    for target in [
+        "SCHEMA db1.sc1",
+        "ALL SCHEMAS IN DATABASE db1",
+        "FUTURE SCHEMAS IN DATABASE db1",
+    ] {
+        for privileges in [
+            "CREATE BACKUP POLICY",
+            "CREATE BACKUP SET",
+            "CREATE BACKUP POLICY, CREATE BACKUP SET",
+            "CREATE TABLE, CREATE BACKUP POLICY",
+            "CREATE BACKUP SET, CREATE MASKING POLICY",
+        ] {
+            snowflake_and_generic()
+                .verified_stmt(&format!("GRANT {privileges} ON {target} TO ROLE role1"));
+            snowflake_and_generic()
+                .verified_stmt(&format!("REVOKE {privileges} ON {target} FROM ROLE role1"));
+        }
+    }
+    for sql in [
+        "GRANT CREATE BACKUP POLICY ON ACCOUNT TO ROLE role1",
+        "GRANT CREATE BACKUP SET ON ALL TABLES IN DATABASE db1 TO ROLE role1",
+        "GRANT CREATE BACKUP POLICY, SELECT ON TABLE t1 TO ROLE role1",
+        "REVOKE CREATE BACKUP SET ON WAREHOUSE w1 FROM ROLE role1",
+    ] {
+        assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
+    }
+}
