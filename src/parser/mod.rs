@@ -8789,11 +8789,13 @@ impl<'a> Parser<'a> {
             ObjectType::Stage
         } else if self.parse_keyword(Keyword::STREAMLIT) {
             ObjectType::Streamlit
+        } else if self.parse_keyword(Keyword::TAG) {
+            ObjectType::Tag
         } else if self.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
             ObjectType::RowAccessPolicy
         } else {
             return self.expected_ref(
-                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, ROW ACCESS POLICY, SCHEMA, STAGE, STREAMLIT, TABLE or VIEW after UNDROP",
+                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, ROW ACCESS POLICY, SCHEMA, STAGE, STREAMLIT, TABLE, TAG or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };
