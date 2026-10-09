@@ -129,13 +129,16 @@ impl fmt::Display for ReplicaIdentity {
 pub struct ExternalTablePartitionColumn {
     /// The partition column.
     pub column: Ident,
-    /// The partition value, always a string literal.
-    pub value: String,
+    /// The partition value, a string literal or NULL.
+    pub value: Option<String>,
 }
 
 impl fmt::Display for ExternalTablePartitionColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} = '{}'", self.column, self.value)
+        match &self.value {
+            Some(value) => write!(f, "{} = '{}'", self.column, value.replace('\'', "''")),
+            None => write!(f, "{} = NULL", self.column),
+        }
     }
 }
 

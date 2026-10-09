@@ -2311,7 +2311,11 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         loop {
             let column = parser.parse_identifier()?;
             parser.expect_token(&Token::Eq)?;
-            let value = parser.parse_literal_string()?;
+            let value = if parser.parse_keyword(Keyword::NULL) {
+                None
+            } else {
+                Some(parser.parse_literal_string()?)
+            };
             partitions.push(ExternalTablePartitionColumn { column, value });
             if !parser.consume_token(&Token::Comma) {
                 break;
