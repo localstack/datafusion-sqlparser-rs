@@ -6475,7 +6475,7 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
-    /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// SHOW [ USER ] PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
         /// Whether only user-defined procedures are requested.
