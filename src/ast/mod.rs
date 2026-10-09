@@ -6478,6 +6478,8 @@ pub enum Statement {
     /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
+        /// Whether only user-defined procedures are requested.
+        user: bool,
         /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
         show_options: ShowStatementOptions,
     },
@@ -10222,8 +10224,12 @@ impl fmt::Display for Statement {
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }
-            Statement::ShowProcedures { show_options } => {
-                write!(f, "SHOW PROCEDURES{show_options}")?;
+            Statement::ShowProcedures { user, show_options } => {
+                write!(
+                    f,
+                    "SHOW {}PROCEDURES{show_options}",
+                    if *user { "USER " } else { "" }
+                )?;
                 Ok(())
             }
             Statement::ShowConnections { filter } => {

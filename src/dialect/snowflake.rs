@@ -1110,8 +1110,11 @@ impl SnowflakeDialect {
             if parser.parse_keyword(Keyword::SECRETS) {
                 return Some(parse_show_secrets(parser));
             }
+            if parser.parse_keywords(&[Keyword::USER, Keyword::PROCEDURES]) {
+                return Some(parse_show_procedures(parser, true));
+            }
             if parser.parse_keyword(Keyword::PROCEDURES) {
-                return Some(parse_show_procedures(parser));
+                return Some(parse_show_procedures(parser, false));
             }
             if parser.parse_keyword(Keyword::CONNECTIONS) {
                 return Some(parse_show_connections(parser));
@@ -6844,9 +6847,9 @@ fn parse_show_indexes(terse: bool, parser: &mut Parser) -> Result<Statement, Par
 }
 
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`
-fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> {
+fn parse_show_procedures(parser: &mut Parser, user: bool) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
-    Ok(Statement::ShowProcedures { show_options })
+    Ok(Statement::ShowProcedures { user, show_options })
 }
 
 /// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`
