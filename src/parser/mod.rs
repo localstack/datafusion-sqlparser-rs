@@ -15035,6 +15035,12 @@ impl<'a> Parser<'a> {
                 }
                 Keyword::VARBIT => Ok(DataType::VarBit(self.parse_optional_precision()?)),
                 Keyword::UUID => Ok(DataType::Uuid),
+                Keyword::PERIOD => {
+                    self.expect_token(&Token::LParen)?;
+                    let element = self.parse_data_type()?;
+                    self.expect_token(&Token::RParen)?;
+                    Ok(DataType::Period(Box::new(element)))
+                }
                 Keyword::DATE => Ok(DataType::Date),
                 Keyword::DATE32 => Ok(DataType::Date32),
                 Keyword::DATETIME => Ok(DataType::Datetime(self.parse_optional_precision()?)),
@@ -21620,7 +21626,9 @@ impl<'a> Parser<'a> {
         loop {
             match &self.peek_nth_token_ref(i).token {
                 Token::LParen => i += 1,
-                Token::Word(w) if w.keyword == Keyword::SELECT => return i > 0,
+                Token::Word(w) if matches!(w.keyword, Keyword::SELECT | Keyword::WITH) => {
+                    return i > 0;
+                }
                 _ => return false,
             }
         }
