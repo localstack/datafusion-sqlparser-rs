@@ -20801,6 +20801,8 @@ impl<'a> Parser<'a> {
         ("NOTEBOOKS", &["NOTEBOOKS"], "NOTEBOOK"),
         ("TYPES", &["TYPES"], "TYPE"),
         ("DATA METRIC FUNCTIONS", &["DATA", "METRIC", "FUNCTIONS"], "FUNCTION"),
+        ("WORKSPACES", &["WORKSPACES"], "WORKSPACE"),
+        ("RESTRICTED SESSION SCOPES", &["RESTRICTED", "SESSION", "SCOPES"], "RESTRICTED_SESSION_SCOPE"),
     ];
 
     /// `ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]` for the
