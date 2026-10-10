@@ -12874,6 +12874,16 @@ pub struct Function {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let [ObjectNamePart::Identifier(name)] = self.name.0.as_slice() {
+            if name.value.eq_ignore_ascii_case("SEARCH")
+                && matches!(&self.parameters, FunctionArguments::List(parameters) if parameters.args.is_empty() && parameters.clauses.is_empty() && parameters.duplicate_treatment.is_none()) {
+                if let FunctionArguments::List(arguments) = &self.args {
+                    if let [FunctionArg::Unnamed(wildcard), FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options))] = arguments.args.as_slice() {
+                        return write!(f, "({wildcard}{options})");
+                    }
+                }
+            }
+        }
         if self.uses_odbc_syntax {
             write!(f, "{{fn ")?;
         }

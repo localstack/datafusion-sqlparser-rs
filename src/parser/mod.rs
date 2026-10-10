@@ -2970,7 +2970,33 @@ impl<'a> Parser<'a> {
             });
         }
 
-        let mut args = self.parse_function_argument_list()?;
+        let argument_start = self.index;
+        let search_selector = self.dialect.supports_search_data_selectors()
+            && name.0.len() == 1
+            && name.0[0].as_ident().is_some_and(|ident| {
+                ident.value.eq_ignore_ascii_case("SEARCH")
+                    || ident.value.eq_ignore_ascii_case("SEARCH_IP")
+            })
+            && self.consume_token(&Token::LParen);
+        let selector = if search_selector && !self.peek_sub_query() {
+            let selector = self.parse_search_selector()?;
+            if self.consume_token(&Token::Comma) {
+                Some(selector)
+            } else {
+                self.index = argument_start;
+                None
+            }
+        } else {
+            self.index = argument_start;
+            None
+        };
+        let mut args = if let Some(selector) = selector {
+            let mut arguments = self.parse_function_argument_list()?;
+            arguments.args.insert(0, selector);
+            arguments
+        } else {
+            self.parse_function_argument_list()?
+        };
         let mut parameters = FunctionArguments::None;
         // ClickHouse aggregations support parametric functions like `HISTOGRAM(0.5, 0.6)(x, y)`
         // which (0.5, 0.6) is a parameter to the function.
@@ -21864,6 +21890,50 @@ impl<'a> Parser<'a> {
             other => other.into(),
         };
         Ok(FunctionArg::Unnamed(arg_expr))
+    }
+
+    fn parse_search_selector(&mut self) -> Result<FunctionArg, ParserError> {
+        let first = self.parse_wildcard_expr()?;
+        let arguments = match first {
+            Expr::Wildcard(ref token) | Expr::QualifiedWildcard(_, ref token) => {
+                let options = self.parse_wildcard_additional_options(token.0.clone())?;
+                vec![
+                    FunctionArg::Unnamed(first.into()),
+                    FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options)),
+                ]
+            }
+            first => {
+                let mut expressions = vec![first];
+                while self.consume_token(&Token::Comma) {
+                    expressions.push(self.parse_expr()?);
+                }
+                self.expect_token(&Token::RParen)?;
+                return Ok(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Tuple(
+                    expressions,
+                ))));
+            }
+        };
+        self.expect_token(&Token::RParen)?;
+        Ok(FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(
+            Function {
+                name: ObjectName::from(vec![Ident::new("SEARCH")]),
+                uses_odbc_syntax: false,
+                parameters: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    args: vec![],
+                    clauses: vec![],
+                }),
+                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    args: arguments,
+                    clauses: vec![],
+                }),
+                filter: None,
+                null_treatment: None,
+                over: None,
+                within_group: vec![],
+            },
+        ))))
     }
 
     fn parse_function_named_arg_operator(&mut self) -> Result<FunctionArgOperator, ParserError> {

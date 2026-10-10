@@ -1652,6 +1652,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_search_data_selectors(&self) -> bool {
+        true
+    }
+
     /// See <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
     fn supports_select_wildcard_rename(&self) -> bool {
         true

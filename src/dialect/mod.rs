@@ -1685,6 +1685,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Supports parenthesized lists and filtered wildcards as SEARCH / SEARCH_IP data arguments.
+    fn supports_search_data_selectors(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports the `RENAME` option in a
     /// `SELECT *` wildcard expression.
     ///
