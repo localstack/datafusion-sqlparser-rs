@@ -5681,6 +5681,8 @@ pub enum Statement {
     CreateTag {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Tag name.
@@ -9516,6 +9518,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreateTag {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 allowed_values,
@@ -9523,8 +9526,8 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}TAG {if_not_exists}{name}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    "CREATE {modifier}TAG {if_not_exists}{name}",
+                    modifier = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if !allowed_values.is_empty() {

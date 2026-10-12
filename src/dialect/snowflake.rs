@@ -865,7 +865,7 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] TAG
             if parser.parse_keyword(Keyword::TAG) {
-                return Some(parse_create_tag(or_replace, parser));
+                return Some(parse_create_tag(or_replace, or_alter, parser));
             }
 
             let plain_create = !(or_replace || or_alter || global.is_some() || temporary || volatile
@@ -4932,8 +4932,13 @@ fn parse_show_users(terse: bool, parser: &mut Parser) -> Result<Statement, Parse
 
 /// Parse `CREATE [OR REPLACE] TAG [IF NOT EXISTS] <name>
 ///   [ ALLOWED_VALUES '<val>' [ , ... ] ] [ COMMENT = '<comment>' ]`
-fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
-    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+fn parse_create_tag(
+    or_replace: bool,
+    or_alter: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = !or_alter
+        && parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
 
     let mut allowed_values = Vec::new();
@@ -4955,6 +4960,7 @@ fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, 
 
     Ok(Statement::CreateTag {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         allowed_values,
