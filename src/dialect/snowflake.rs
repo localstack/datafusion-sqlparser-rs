@@ -4983,10 +4983,20 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     let operation = if parser.parse_keyword(Keyword::SET) {
-        let policies = parse_masking_policy_list(parser)?;
-        let force = parser.parse_keyword(Keyword::FORCE);
-        AlterTagOperation::SetMaskingPolicy { policies, force }
+        if parser.parse_keyword(Keyword::DATA) {
+            parser.expect_keywords(&[Keyword::MOVEMENT, Keyword::POLICY])?;
+            let policy = parser.parse_object_name(false)?;
+            let force = parser.parse_keyword(Keyword::FORCE);
+            AlterTagOperation::SetDataMovementPolicy { policy, force }
+        } else {
+            let policies = parse_masking_policy_list(parser)?;
+            let force = parser.parse_keyword(Keyword::FORCE);
+            AlterTagOperation::SetMaskingPolicy { policies, force }
+        }
     } else if parser.parse_keyword(Keyword::UNSET) {
+        if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+            return parser.expected("data movement policy name", parser.peek_token());
+        }
         if matches!(
             &parser.peek_token().token,
             Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("DCM")

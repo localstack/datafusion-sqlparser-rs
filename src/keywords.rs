@@ -729,6 +729,7 @@ define_keywords!(
     MONITOR,
     MONTH,
     MONTHS,
+    MOVEMENT,
     MSCK,
     MULTIRANGE_TYPE_NAME,
     MULTISET,

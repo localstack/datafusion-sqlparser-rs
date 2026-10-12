@@ -2508,6 +2508,13 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// `SET DATA MOVEMENT POLICY <policy> [FORCE]`
+    SetDataMovementPolicy {
+        /// The data movement policy name.
+        policy: ObjectName,
+        /// Replace an existing attachment.
+        force: bool,
+    },
     /// `RENAME TO <new_name>`
     RenameTo {
         /// The new tag name.
@@ -2532,6 +2539,13 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTagOperation::SetDataMovementPolicy { policy, force } => {
+                write!(f, "SET DATA MOVEMENT POLICY {policy}")?;
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
             AlterTagOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
             AlterTagOperation::SetMaskingPolicy { policies, force } => {
                 write!(f, "SET ")?;
