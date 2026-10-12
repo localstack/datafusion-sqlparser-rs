@@ -3535,6 +3535,8 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
         delimiter: KeyValueOptionsDelimiter::Space,
     };
     let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
+    let mut use_privatelink_endpoint = None;
+    let mut aws_access_point_arn = None;
     let mut encryption = empty_options();
     let mut encryption_specified = false;
     let mut credentials = empty_options();
@@ -3562,6 +3564,16 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
                 Token::SingleQuotedString(word) => Ok(word),
                 _ => parser.expected_ref("an endpoint statement", parser.peek_token_ref()),
             }?);
+        } else if use_privatelink_endpoint.is_none()
+            && parser.parse_keyword(Keyword::USE_PRIVATELINK_ENDPOINT)
+        {
+            parser.expect_token(&Token::Eq)?;
+            use_privatelink_endpoint = Some(parse_bool_literal(parser)?);
+        } else if aws_access_point_arn.is_none()
+            && parser.parse_keyword(Keyword::AWS_ACCESS_POINT_ARN)
+        {
+            parser.expect_token(&Token::Eq)?;
+            aws_access_point_arn = Some(parser.parse_literal_string()?);
         } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
             parser.expect_token(&Token::Eq)?;
             credentials.options = parser.parse_key_value_options(true, &[], false)?.options;
@@ -3610,6 +3622,8 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             encryption,
             encryption_specified,
             endpoint,
+            use_privatelink_endpoint,
+            aws_access_point_arn,
             storage_integration,
             credentials,
         },
@@ -3759,6 +3773,8 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         },
         encryption_specified: false,
         endpoint: None,
+        use_privatelink_endpoint: None,
+        aws_access_point_arn: None,
         storage_integration: None,
         credentials: KeyValueOptions {
             options: vec![],
@@ -4051,6 +4067,8 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
             },
             encryption_specified: false,
             endpoint: None,
+            use_privatelink_endpoint: None,
+            aws_access_point_arn: None,
             storage_integration: None,
             credentials: KeyValueOptions {
                 options: vec![],
@@ -4249,6 +4267,8 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
         encryption,
         encryption_specified,
         endpoint,
+        use_privatelink_endpoint: None,
+        aws_access_point_arn: None,
         storage_integration,
         credentials,
     })
