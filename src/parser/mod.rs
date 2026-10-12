@@ -5836,7 +5836,17 @@ impl<'a> Parser<'a> {
             .options;
         let with_tags = self.parse_keyword(Keyword::WITH);
         let tags = if self.parse_keyword(Keyword::TAG) {
-            self.parse_key_value_options(true, &[], false)?.options
+            self.expect_token(&Token::LParen)?;
+            let tags = self.parse_comma_separated(Parser::parse_tag)?;
+            self.expect_token(&Token::RParen)?;
+            tags.into_iter()
+                .map(|tag| KeyValueOption {
+                    option_name: tag.key.to_string(),
+                    option_value: KeyValueOptionKind::Single(
+                        Value::SingleQuotedString(tag.value).with_empty_span(),
+                    ),
+                })
+                .collect()
         } else {
             vec![]
         };
