@@ -13262,6 +13262,8 @@ pub enum ObjectType {
     /// A dynamic table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-dynamic-table>
     DynamicTable,
+    #[doc = "An Iceberg table (Snowflake)."]
+    IcebergTable,
     /// An external table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
     ExternalTable,
@@ -13314,6 +13316,7 @@ impl fmt::Display for ObjectType {
             ObjectType::View => "VIEW",
             ObjectType::MaterializedView => "MATERIALIZED VIEW",
             ObjectType::DynamicTable => "DYNAMIC TABLE",
+            ObjectType::IcebergTable => "ICEBERG TABLE",
             ObjectType::ExternalTable => "EXTERNAL TABLE",
             ObjectType::Index => "INDEX",
             ObjectType::Schema => "SCHEMA",

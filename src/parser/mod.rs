@@ -8790,7 +8790,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a Snowflake `UNDROP <object type> <name>` statement.
     ///
-    /// Grammar for the whole UNDROP family (`TABLE`, `DYNAMIC TABLE`,
+    /// Grammar for the whole UNDROP family (`TABLE`, `DYNAMIC TABLE`, `ICEBERG TABLE`,
     /// `SCHEMA`, `DATABASE`) plus unsupported object kinds, which parse so they can be rejected
     /// downstream with Snowflake's unsupported-feature error rather than a
     /// parse error.
@@ -8801,6 +8801,8 @@ impl<'a> Parser<'a> {
         }
         let object_type = if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
             ObjectType::DynamicTable
+        } else if self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE]) {
+            ObjectType::IcebergTable
         } else if self.parse_keyword(Keyword::TABLE) {
             ObjectType::Table
         } else if self.parse_keyword(Keyword::VIEW) {
@@ -8821,7 +8823,7 @@ impl<'a> Parser<'a> {
             ObjectType::RowAccessPolicy
         } else {
             return self.expected_ref(
-                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, ROW ACCESS POLICY, SCHEMA, STAGE, STREAMLIT, TABLE, TAG or VIEW after UNDROP",
+                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, ICEBERG TABLE, ROW ACCESS POLICY, SCHEMA, STAGE, STREAMLIT, TABLE, TAG or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };
