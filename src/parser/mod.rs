@@ -13402,8 +13402,31 @@ impl<'a> Parser<'a> {
                 }
                 AlterPipeOperation::SetTags(tags)
             } else {
-                let (options, quoted_property_names) =
+                let options_start = self.index;
+                let (mut options, quoted_property_names) =
                     self.parse_key_value_options_with_names(false, &[], false)?;
+                for option in &mut options.options {
+                    if !option.option_name.eq_ignore_ascii_case("LOG_EVENT_LEVEL") {
+                        continue;
+                    }
+                    if let KeyValueOptionKind::Single(value) = &mut option.option_value {
+                        if let Some(token) = self
+                            .tokens
+                            .iter()
+                            .skip(options_start)
+                            .take(self.index - options_start)
+                            .find(|token| token.span == value.span)
+                        {
+                            if let Token::Word(word) = &token.token {
+                                if word.quote_style == Some('"') {
+                                    value.value = Value::DoubleQuotedString(word.value.clone());
+                                } else if word.keyword == Keyword::NULL {
+                                    value.value = Value::Null;
+                                }
+                            }
+                        }
+                    }
+                }
                 AlterPipeOperation::Set {
                     options,
                     quoted_property_names,
