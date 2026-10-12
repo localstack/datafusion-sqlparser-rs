@@ -4960,6 +4960,10 @@ pub enum Statement {
         clone: Option<ObjectName>,
         /// Whether cloning skips hybrid tables (`IGNORE HYBRID TABLES`).
         ignore_hybrid_tables: bool,
+        #[doc = "Historical anchor for a container clone."]
+        clone_version: Option<TableVersion>,
+        #[doc = "Whether the clone skips tables with insufficient data retention."]
+        ignore_insufficient_retention: bool,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
         /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
@@ -4986,6 +4990,10 @@ pub enum Statement {
         transient: bool,
         /// Optional clone source.
         clone: Option<ObjectName>,
+        #[doc = "Historical anchor for a container clone."]
+        clone_version: Option<TableVersion>,
+        #[doc = "Whether the clone skips tables with insufficient data retention."]
+        ignore_insufficient_retention: bool,
         /// Optional data retention time in days.
         data_retention_time_in_days: Option<u64>,
         /// Optional maximum data extension time in days.
@@ -7809,6 +7817,8 @@ impl fmt::Display for Statement {
                 or_replace,
                 transient,
                 clone,
+                clone_version,
+                ignore_insufficient_retention,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -7844,6 +7854,12 @@ impl fmt::Display for Statement {
                 }
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+                if let Some(version) = clone_version {
+                    write!(f, " {version}")?;
+                }
+                if *ignore_insufficient_retention {
+                    write!(f, " IGNORE TABLES WITH INSUFFICIENT DATA RETENTION")?;
                 }
                 if let Some(share) = from_share {
                     write!(f, " FROM SHARE {share}")?;
@@ -8630,6 +8646,8 @@ impl fmt::Display for Statement {
                 default_collate_spec,
                 clone,
                 ignore_hybrid_tables,
+                clone_version,
+                ignore_insufficient_retention,
                 comment,
                 with_tags,
             } => {
@@ -8660,6 +8678,12 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+                if let Some(version) = clone_version {
+                    write!(f, " {version}")?;
+                }
+                if *ignore_insufficient_retention {
+                    write!(f, " IGNORE TABLES WITH INSUFFICIENT DATA RETENTION")?;
                 }
 
                 if *ignore_hybrid_tables {

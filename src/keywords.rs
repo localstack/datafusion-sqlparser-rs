@@ -583,6 +583,7 @@ define_keywords!(
     INSTALL,
     INSTANT,
     INSTEAD,
+    INSUFFICIENT,
     INT,
     INT128,
     INT16,

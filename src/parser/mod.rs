@@ -6584,6 +6584,17 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let clone_version = if clone.is_some()
+            && (self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE))
+        {
+            Some(self.parse_container_clone_version()?)
+        } else {
+            None
+        };
+        let ignore_insufficient_retention = clone.is_some() && self.parse_keywords(&[
+            Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
+            Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+        ]);
         let ignore_hybrid_tables = clone.is_some() && self.parse_keyword(Keyword::IGNORE);
         if ignore_hybrid_tables {
             self.expect_keyword(Keyword::HYBRID)?;
@@ -6609,6 +6620,8 @@ impl<'a> Parser<'a> {
             default_collate_spec,
             clone,
             ignore_hybrid_tables,
+            clone_version,
+            ignore_insufficient_retention,
             comment,
             with_tags,
         })
@@ -6694,6 +6707,8 @@ impl<'a> Parser<'a> {
             or_replace: false,
             transient: false,
             clone,
+            clone_version: None,
+            ignore_insufficient_retention: false,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             external_volume: None,
@@ -19986,6 +20001,23 @@ impl<'a> Parser<'a> {
         } else {
             Ok(pattern)
         }
+    }
+
+    #[doc = "Parse a container clone anchor without consuming subsequent clone modifiers."]
+    pub fn parse_container_clone_version(&mut self) -> Result<TableVersion, ParserError> {
+        let name = self.parse_object_name(true)?;
+        self.expect_token(&Token::LParen)?;
+        let args = self.parse_function_argument_list()?;
+        Ok(TableVersion::Function(Expr::Function(Function {
+            name,
+            uses_odbc_syntax: false,
+            parameters: FunctionArguments::None,
+            args: FunctionArguments::List(args),
+            filter: None,
+            null_treatment: None,
+            over: None,
+            within_group: vec![],
+        })))
     }
 
     /// Parses a the timestamp version specifier (i.e. query historical data)

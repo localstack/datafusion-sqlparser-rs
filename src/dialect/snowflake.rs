@@ -3306,6 +3306,13 @@ pub fn parse_create_database(
             Token::Word(word) => match word.keyword {
                 Keyword::CLONE => {
                     builder = builder.clone_clause(Some(parser.parse_object_name(false)?));
+                    if parser.peek_keyword(Keyword::AT) || parser.peek_keyword(Keyword::BEFORE) {
+                        builder.clone_version = Some(parser.parse_container_clone_version()?);
+                    }
+                    builder.ignore_insufficient_retention = parser.parse_keywords(&[
+                        Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
+                        Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+                    ]);
                 }
                 Keyword::FROM => {
                     if parser.parse_keyword(Keyword::LISTING) {
