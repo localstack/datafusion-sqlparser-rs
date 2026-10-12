@@ -24538,7 +24538,7 @@ impl<'a> Parser<'a> {
         }
         let peeked_token = self.peek_token();
         match peeked_token.token {
-            Token::SingleQuotedString(_) => Ok(KeyValueOption {
+            Token::SingleQuotedString(_) | Token::DollarQuotedString(_) => Ok(KeyValueOption {
                 option_name: key.value.clone(),
                 option_value: KeyValueOptionKind::Single(self.parse_value()?),
             }),
