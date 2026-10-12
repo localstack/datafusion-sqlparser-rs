@@ -2084,14 +2084,31 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
         };
         AlterProcedureOperation::ExecuteAs(execute_as)
     } else if parser.parse_keyword(Keyword::SET) {
-        parser.expect_keyword_is(Keyword::COMMENT)?;
-        parser.expect_token(&Token::Eq)?;
-        AlterProcedureOperation::SetComment {
-            comment: parser.parse_expr()?,
+        let mut parameters = Vec::new();
+        loop {
+            let key = parser.parse_identifier()?;
+            parser.expect_token(&Token::Eq)?;
+            parameters.push(SqlOption::KeyValue { key, value: parser.parse_expr()? });
+            if !parser.consume_token(&Token::Comma)
+                && !matches!(&parser.peek_token_ref().token, Token::Word(word)
+                    if word.quote_style.is_none() && matches!(word.value.to_uppercase().as_str(), "LOG_LEVEL" | "TRACE_LEVEL" | "AUTO_EVENT_LOGGING" | "COMMENT"))
+            {
+                break;
+            }
+        }
+        match parameters.as_slice() {
+            [SqlOption::KeyValue { key, value }] if key.value.eq_ignore_ascii_case("COMMENT") => {
+                AlterProcedureOperation::SetComment { comment: value.clone() }
+            }
+            _ => AlterProcedureOperation::SetParameters { parameters },
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
-        parser.expect_keyword_is(Keyword::COMMENT)?;
-        AlterProcedureOperation::UnsetComment
+        let parameters = parser.parse_comma_separated(Parser::parse_identifier)?;
+        if matches!(parameters.as_slice(), [key] if key.value.eq_ignore_ascii_case("COMMENT")) {
+            AlterProcedureOperation::UnsetComment
+        } else {
+            AlterProcedureOperation::UnsetParameters { parameters }
+        }
     } else {
         return parser.expected_ref(
             "RENAME TO, SET COMMENT, UNSET COMMENT, or EXECUTE AS after ALTER PROCEDURE",

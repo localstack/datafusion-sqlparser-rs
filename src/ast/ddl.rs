@@ -7333,6 +7333,16 @@ pub enum AlterProcedureOperation {
     },
     /// `UNSET COMMENT`
     UnsetComment,
+    /// Set procedure configuration parameters.
+    SetParameters {
+        /// Parameter assignments.
+        parameters: Vec<SqlOption>,
+    },
+    /// Remove procedure configuration overrides.
+    UnsetParameters {
+        /// Parameter names.
+        parameters: Vec<Ident>,
+    },
     /// `EXECUTE AS { CALLER | OWNER }`
     ExecuteAs(ProcedureExecuteAs),
 }
@@ -7359,6 +7369,12 @@ impl fmt::Display for AlterProcedureOperation {
             AlterProcedureOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
             AlterProcedureOperation::SetComment { comment } => write!(f, "SET COMMENT = {comment}"),
             AlterProcedureOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterProcedureOperation::SetParameters { parameters } => {
+                write!(f, "SET {}", display_separated(parameters, " "))
+            }
+            AlterProcedureOperation::UnsetParameters { parameters } => {
+                write!(f, "UNSET {}", display_comma_separated(parameters))
+            }
             AlterProcedureOperation::ExecuteAs(execute_as) => write!(f, "EXECUTE AS {execute_as}"),
         }
     }
