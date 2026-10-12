@@ -18542,9 +18542,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_show_tasks(&mut self, terse: bool) -> Result<Statement, ParserError> {
-        let show_options = self.parse_show_stmt_options()?;
+        let mut root_only = false;
+        let show_options = self.parse_show_stmt_options_with_limit(|parser| {
+            root_only = parser.parse_keywords(&[Keyword::ROOT, Keyword::ONLY]);
+            parser.maybe_parse_show_stmt_limit()
+        })?;
         Ok(Statement::ShowTasks {
             terse,
+            root_only,
             show_options,
         })
     }
@@ -24345,6 +24350,7 @@ impl<'a> Parser<'a> {
         ]) {
             Some(Keyword::ACCOUNT)
                 if self.peek_keywords(&[Keyword::STARTS, Keyword::WITH])
+                    | self.peek_keywords(&[Keyword::ROOT, Keyword::ONLY])
                     | self.peek_keyword(Keyword::LIMIT) =>
             {
                 (Some(ShowStatementInParentType::Account), None)
@@ -24352,12 +24358,14 @@ impl<'a> Parser<'a> {
             // If we see these next keywords it means we don't have a parent name
             Some(Keyword::DATABASE)
                 if self.peek_keywords(&[Keyword::STARTS, Keyword::WITH])
+                    | self.peek_keywords(&[Keyword::ROOT, Keyword::ONLY])
                     | self.peek_keyword(Keyword::LIMIT) =>
             {
                 (Some(ShowStatementInParentType::Database), None)
             }
             Some(Keyword::SCHEMA)
                 if self.peek_keywords(&[Keyword::STARTS, Keyword::WITH])
+                    | self.peek_keywords(&[Keyword::ROOT, Keyword::ONLY])
                     | self.peek_keyword(Keyword::LIMIT) =>
             {
                 (Some(ShowStatementInParentType::Schema), None)

@@ -8528,6 +8528,7 @@ fn test_show_tasks_like() {
         Statement::ShowTasks {
             terse,
             show_options,
+            ..
         } => {
             assert!(!terse);
             // The presence of LIKE is captured by ShowStatementOptions; rely on

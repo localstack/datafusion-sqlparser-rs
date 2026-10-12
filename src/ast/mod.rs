@@ -5443,6 +5443,8 @@ pub enum Statement {
     ShowTasks {
         /// `true` when terse output format was requested.
         terse: bool,
+        /// Whether only non-finalizer tasks without a predecessor are requested.
+        root_only: bool,
         /// Additional options for `SHOW` statements.
         show_options: ShowStatementOptions,
     },
@@ -9264,13 +9266,15 @@ impl fmt::Display for Statement {
             }
             Statement::ShowTasks {
                 terse,
+                root_only,
                 show_options,
             } => {
                 write!(
                     f,
-                    "SHOW {terse}TASKS{show_options}",
+                    "SHOW {terse}TASKS",
                     terse = if *terse { "TERSE " } else { "" },
                 )?;
+                show_options.fmt_with_root_only(f, *root_only)?;
                 Ok(())
             }
             Statement::ShowStreams {
@@ -15742,6 +15746,12 @@ pub struct ShowStatementOptions {
 
 impl Display for ShowStatementOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_with_root_only(f, false)
+    }
+}
+
+impl ShowStatementOptions {
+    fn fmt_with_root_only(&self, f: &mut fmt::Formatter<'_>, root_only: bool) -> fmt::Result {
         let (like_in_infix, like_in_suffix) = match &self.filter_position {
             Some(ShowStatementFilterPosition::Infix(filter)) => {
                 (format!(" {filter}"), "".to_string())
@@ -15753,7 +15763,8 @@ impl Display for ShowStatementOptions {
         };
         write!(
             f,
-            "{like_in_infix}{show_in}{starts_with}{limit}{from}{like_in_suffix}",
+            "{like_in_infix}{show_in}{starts_with}{root_only}{limit}{from}{like_in_suffix}",
+            root_only = if root_only { " ROOT ONLY" } else { "" },
             show_in = match &self.show_in {
                 Some(i) => format!(" {i}"),
                 None => String::new(),
