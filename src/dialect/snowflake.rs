@@ -4987,8 +4987,20 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
         let force = parser.parse_keyword(Keyword::FORCE);
         AlterTagOperation::SetMaskingPolicy { policies, force }
     } else if parser.parse_keyword(Keyword::UNSET) {
-        let policies = parse_masking_policy_list(parser)?;
-        AlterTagOperation::UnsetMaskingPolicy { policies }
+        if matches!(
+            &parser.peek_token().token,
+            Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("DCM")
+        ) && matches!(
+            &parser.peek_nth_token_ref(1).token,
+            Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("PROJECT")
+        ) {
+            let _ = parser.next_token();
+            let _ = parser.next_token();
+            AlterTagOperation::UnsetDcmProject
+        } else {
+            let policies = parse_masking_policy_list(parser)?;
+            AlterTagOperation::UnsetMaskingPolicy { policies }
+        }
     } else {
         parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
         let new_name = parser.parse_object_name(false)?;

@@ -2525,6 +2525,8 @@ pub enum AlterTagOperation {
         /// The masking policies to detach.
         policies: Vec<ObjectName>,
     },
+    /// `UNSET DCM PROJECT`
+    UnsetDcmProject,
 }
 
 impl fmt::Display for AlterTagOperation {
@@ -2554,6 +2556,7 @@ impl fmt::Display for AlterTagOperation {
                 }
                 Ok(())
             }
+            AlterTagOperation::UnsetDcmProject => write!(f, "UNSET DCM PROJECT"),
         }
     }
 }
