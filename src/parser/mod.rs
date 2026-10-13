@@ -21791,6 +21791,8 @@ impl<'a> Parser<'a> {
             "IMPORT ORGANIZATION LISTING",
             "MANAGE APPLICATION SPECIFICATIONS",
             "MANAGE CALLER GRANTS",
+            "GRANT MANAGEMENT",
+            "FULL MANAGEMENT",
             "MANAGE VISIBILITY",
             "READ UNREDACTED ERROR TABLE",
             "SELECT ERROR TABLE",
