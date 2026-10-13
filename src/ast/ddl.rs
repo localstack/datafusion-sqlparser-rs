@@ -131,13 +131,16 @@ impl fmt::Display for ReplicaIdentity {
 pub struct ExternalTablePartitionColumn {
     /// The partition column.
     pub column: Ident,
-    /// The partition value, always a string literal.
-    pub value: String,
+    /// The partition value, a string literal or NULL.
+    pub value: Option<String>,
 }
 
 impl fmt::Display for ExternalTablePartitionColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} = '{}'", self.column, self.value)
+        match &self.value {
+            Some(value) => write!(f, "{} = '{}'", self.column, value.replace('\'', "''")),
+            None => write!(f, "{} = NULL", self.column),
+        }
     }
 }
 
@@ -2597,6 +2600,13 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// `SET DATA MOVEMENT POLICY <policy> [FORCE]`
+    SetDataMovementPolicy {
+        /// The data movement policy name.
+        policy: ObjectName,
+        /// Replace an existing attachment.
+        force: bool,
+    },
     /// `RENAME TO <new_name>`
     RenameTo {
         /// The new tag name.
@@ -2614,11 +2624,20 @@ pub enum AlterTagOperation {
         /// The masking policies to detach.
         policies: Vec<ObjectName>,
     },
+    /// `UNSET DCM PROJECT`
+    UnsetDcmProject,
 }
 
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTagOperation::SetDataMovementPolicy { policy, force } => {
+                write!(f, "SET DATA MOVEMENT POLICY {policy}")?;
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
             AlterTagOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
             AlterTagOperation::SetMaskingPolicy { policies, force } => {
                 write!(f, "SET ")?;
@@ -2643,6 +2662,7 @@ impl fmt::Display for AlterTagOperation {
                 }
                 Ok(())
             }
+            AlterTagOperation::UnsetDcmProject => write!(f, "UNSET DCM PROJECT"),
         }
     }
 }
@@ -7832,6 +7852,16 @@ pub enum AlterProcedureOperation {
     },
     /// `UNSET COMMENT`
     UnsetComment,
+    /// Set procedure configuration parameters.
+    SetParameters {
+        /// Parameter assignments.
+        parameters: Vec<SqlOption>,
+    },
+    /// Remove procedure configuration overrides.
+    UnsetParameters {
+        /// Parameter names.
+        parameters: Vec<Ident>,
+    },
     /// `EXECUTE AS { CALLER | OWNER }`
     ExecuteAs(ProcedureExecuteAs),
 }
@@ -7858,6 +7888,12 @@ impl fmt::Display for AlterProcedureOperation {
             AlterProcedureOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
             AlterProcedureOperation::SetComment { comment } => write!(f, "SET COMMENT = {comment}"),
             AlterProcedureOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterProcedureOperation::SetParameters { parameters } => {
+                write!(f, "SET {}", display_separated(parameters, " "))
+            }
+            AlterProcedureOperation::UnsetParameters { parameters } => {
+                write!(f, "UNSET {}", display_comma_separated(parameters))
+            }
             AlterProcedureOperation::ExecuteAs(execute_as) => write!(f, "EXECUTE AS {execute_as}"),
         }
     }
