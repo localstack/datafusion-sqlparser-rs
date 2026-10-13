@@ -1245,6 +1245,10 @@ impl Dialect for SnowflakeDialect {
         false
     }
 
+    fn supports_create_table_multiset(&self) -> bool {
+        false
+    }
+
     fn supports_select_into_expression_targets(&self) -> bool {
         false
     }
@@ -1446,6 +1450,8 @@ impl Dialect for SnowflakeDialect {
         // Snowflake supports the `:` cast operator unlike other dialects
         match &token.token {
             Token::Colon => Some(Ok(self.prec_value(Precedence::DoubleColon))),
+            // `GLOB` is not an operator in Snowflake, so `SELECT a glob` aliases.
+            Token::Word(w) if w.keyword == Keyword::GLOB => Some(Ok(self.prec_unknown())),
             _ => None,
         }
     }
