@@ -6487,7 +6487,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a Snowflake `CREATE [OR REPLACE] ALERT [IF NOT EXISTS] <name>
-    /// [WAREHOUSE = <wh>] [SCHEDULE = '<sched>'] [COMMENT = '<c>']
+    /// [WAREHOUSE = <wh>] [SCHEDULE = '<sched>'] [COMMENT = '<c>'] [RUNBOOK = '<r>']
     /// [SUSPEND_ALERT_AFTER_NUM_FAILURES = <n>] IF (EXISTS (<condition>)) THEN
     /// <action>` statement.
     fn parse_create_alert(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
@@ -6506,6 +6506,7 @@ impl<'a> Parser<'a> {
         let mut comment: Option<String> = None;
         let mut config: Option<String> = None;
         let mut suspend_after_num_failures: Option<u64> = None;
+        let mut runbook = None;
 
         loop {
             if self.parse_keyword(Keyword::WAREHOUSE) {
@@ -6531,6 +6532,9 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::SUSPEND_ALERT_AFTER_NUM_FAILURES) {
                 self.expect_token(&Token::Eq)?;
                 suspend_after_num_failures = Some(self.parse_literal_uint()?);
+            } else if self.parse_keyword(Keyword::RUNBOOK) {
+                self.expect_token(&Token::Eq)?;
+                runbook = Some(self.parse_value()?);
             } else {
                 break;
             }
@@ -6559,6 +6563,7 @@ impl<'a> Parser<'a> {
             comment,
             config,
             suspend_after_num_failures,
+            runbook,
             condition,
             action,
         })
