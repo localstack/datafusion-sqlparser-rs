@@ -55,13 +55,24 @@ pub enum KeyValueOptionsDelimiter {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+#[cfg_attr(feature = "visitor", derive(Visit))]
 /// A single key-value option.
 pub struct KeyValueOption {
     /// The name of the option.
     pub option_name: String,
     /// The value of the option.
     pub option_value: KeyValueOptionKind,
+}
+
+#[cfg(feature = "visitor")]
+impl crate::ast::VisitMut for KeyValueOption {
+    fn visit_dyn(
+        &mut self,
+        visitor: &mut dyn crate::ast::VisitorMut<Break = ()>,
+    ) -> core::ops::ControlFlow<()> {
+        visitor.post_visit_option_name(&mut self.option_name)?;
+        self.option_value.visit_dyn(visitor)
+    }
 }
 
 /// An option can have a single value, multiple values or a nested list of values.

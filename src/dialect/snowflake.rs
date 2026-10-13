@@ -853,7 +853,7 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] TAG
             if parser.parse_keyword(Keyword::TAG) {
-                return Some(parse_create_tag(or_replace, parser));
+                return Some(parse_create_tag(or_replace, or_alter, parser));
             }
 
             let plain_create = !(or_replace || or_alter || global.is_some() || temporary || volatile
@@ -1106,8 +1106,11 @@ impl SnowflakeDialect {
             if parser.parse_keyword(Keyword::SECRETS) {
                 return Some(parse_show_secrets(parser));
             }
+            if parser.parse_keywords(&[Keyword::USER, Keyword::PROCEDURES]) {
+                return Some(parse_show_procedures(parser, true));
+            }
             if parser.parse_keyword(Keyword::PROCEDURES) {
-                return Some(parse_show_procedures(parser));
+                return Some(parse_show_procedures(parser, false));
             }
             if parser.parse_keyword(Keyword::CONNECTIONS) {
                 return Some(parse_show_connections(parser));
@@ -1728,6 +1731,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_search_data_selectors(&self) -> bool {
+        true
+    }
+
     /// See <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
     fn supports_select_wildcard_rename(&self) -> bool {
         true
@@ -2168,20 +2175,40 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
     } else if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::AS]) {
         let execute_as = if parser.parse_keyword(Keyword::CALLER) {
             ProcedureExecuteAs::Caller
+        } else if parser.parse_keyword(Keyword::RESTRICTED) {
+            parser.expect_keyword_is(Keyword::CALLER)?;
+            ProcedureExecuteAs::RestrictedCaller
         } else {
             parser.expect_keyword_is(Keyword::OWNER)?;
             ProcedureExecuteAs::Owner
         };
         AlterProcedureOperation::ExecuteAs(execute_as)
     } else if parser.parse_keyword(Keyword::SET) {
-        parser.expect_keyword_is(Keyword::COMMENT)?;
-        parser.expect_token(&Token::Eq)?;
-        AlterProcedureOperation::SetComment {
-            comment: parser.parse_expr()?,
+        let mut parameters = Vec::new();
+        loop {
+            let key = parser.parse_identifier()?;
+            parser.expect_token(&Token::Eq)?;
+            parameters.push(SqlOption::KeyValue { key, value: parser.parse_expr()? });
+            if !parser.consume_token(&Token::Comma)
+                && !matches!(&parser.peek_token_ref().token, Token::Word(word)
+                    if word.quote_style.is_none() && matches!(word.value.to_uppercase().as_str(), "LOG_LEVEL" | "TRACE_LEVEL" | "AUTO_EVENT_LOGGING" | "COMMENT"))
+            {
+                break;
+            }
+        }
+        match parameters.as_slice() {
+            [SqlOption::KeyValue { key, value }] if key.value.eq_ignore_ascii_case("COMMENT") => {
+                AlterProcedureOperation::SetComment { comment: value.clone() }
+            }
+            _ => AlterProcedureOperation::SetParameters { parameters },
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
-        parser.expect_keyword_is(Keyword::COMMENT)?;
-        AlterProcedureOperation::UnsetComment
+        let parameters = parser.parse_comma_separated(Parser::parse_identifier)?;
+        if matches!(parameters.as_slice(), [key] if key.value.eq_ignore_ascii_case("COMMENT")) {
+            AlterProcedureOperation::UnsetComment
+        } else {
+            AlterProcedureOperation::UnsetParameters { parameters }
+        }
     } else {
         return parser.expected_ref(
             "RENAME TO, SET COMMENT, UNSET COMMENT, or EXECUTE AS after ALTER PROCEDURE",
@@ -2408,7 +2435,11 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         loop {
             let column = parser.parse_identifier()?;
             parser.expect_token(&Token::Eq)?;
-            let value = parser.parse_literal_string()?;
+            let value = if parser.parse_keyword(Keyword::NULL) {
+                None
+            } else {
+                Some(parser.parse_literal_string()?)
+            };
             partitions.push(ExternalTablePartitionColumn { column, value });
             if !parser.consume_token(&Token::Comma) {
                 break;
@@ -3385,6 +3416,13 @@ pub fn parse_create_database(
             Token::Word(word) => match word.keyword {
                 Keyword::CLONE => {
                     builder = builder.clone_clause(Some(parser.parse_object_name(false)?));
+                    if parser.peek_keyword(Keyword::AT) || parser.peek_keyword(Keyword::BEFORE) {
+                        builder.clone_version = Some(parser.parse_container_clone_version()?);
+                    }
+                    builder.ignore_insufficient_retention = parser.parse_keywords(&[
+                        Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
+                        Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+                    ]);
                 }
                 Keyword::FROM => {
                     if parser.parse_keyword(Keyword::LISTING) {
@@ -3590,6 +3628,8 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
         delimiter: KeyValueOptionsDelimiter::Space,
     };
     let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
+    let mut use_privatelink_endpoint = None;
+    let mut aws_access_point_arn = None;
     let mut encryption = empty_options();
     let mut encryption_specified = false;
     let mut credentials = empty_options();
@@ -3617,6 +3657,16 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
                 Token::SingleQuotedString(word) => Ok(word),
                 _ => parser.expected_ref("an endpoint statement", parser.peek_token_ref()),
             }?);
+        } else if use_privatelink_endpoint.is_none()
+            && parser.parse_keyword(Keyword::USE_PRIVATELINK_ENDPOINT)
+        {
+            parser.expect_token(&Token::Eq)?;
+            use_privatelink_endpoint = Some(parse_bool_literal(parser)?);
+        } else if aws_access_point_arn.is_none()
+            && parser.parse_keyword(Keyword::AWS_ACCESS_POINT_ARN)
+        {
+            parser.expect_token(&Token::Eq)?;
+            aws_access_point_arn = Some(parser.parse_literal_string()?);
         } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
             parser.expect_token(&Token::Eq)?;
             credentials.options = parser.parse_key_value_options(true, &[], false)?.options;
@@ -3665,6 +3715,8 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             encryption,
             encryption_specified,
             endpoint,
+            use_privatelink_endpoint,
+            aws_access_point_arn,
             storage_integration,
             credentials,
         },
@@ -3883,6 +3935,8 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
         },
         encryption_specified: false,
         endpoint: None,
+        use_privatelink_endpoint: None,
+        aws_access_point_arn: None,
         storage_integration: None,
         credentials: KeyValueOptions {
             options: vec![],
@@ -4175,6 +4229,8 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
             },
             encryption_specified: false,
             endpoint: None,
+            use_privatelink_endpoint: None,
+            aws_access_point_arn: None,
             storage_integration: None,
             credentials: KeyValueOptions {
                 options: vec![],
@@ -4383,6 +4439,8 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
         encryption,
         encryption_specified,
         endpoint,
+        use_privatelink_endpoint: None,
+        aws_access_point_arn: None,
         storage_integration,
         credentials,
     })
@@ -5010,8 +5068,13 @@ fn parse_show_users(terse: bool, parser: &mut Parser) -> Result<Statement, Parse
 
 /// Parse `CREATE [OR REPLACE] TAG [IF NOT EXISTS] <name>
 ///   [ ALLOWED_VALUES '<val>' [ , ... ] ] [ COMMENT = '<comment>' ]`
-fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
-    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+fn parse_create_tag(
+    or_replace: bool,
+    or_alter: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = !or_alter
+        && parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
 
     let mut allowed_values = Vec::new();
@@ -5033,6 +5096,7 @@ fn parse_create_tag(or_replace: bool, parser: &mut Parser) -> Result<Statement, 
 
     Ok(Statement::CreateTag {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         allowed_values,
@@ -5061,12 +5125,34 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     let operation = if parser.parse_keyword(Keyword::SET) {
-        let policies = parse_masking_policy_list(parser)?;
-        let force = parser.parse_keyword(Keyword::FORCE);
-        AlterTagOperation::SetMaskingPolicy { policies, force }
+        if parser.parse_keyword(Keyword::DATA) {
+            parser.expect_keywords(&[Keyword::MOVEMENT, Keyword::POLICY])?;
+            let policy = parser.parse_object_name(false)?;
+            let force = parser.parse_keyword(Keyword::FORCE);
+            AlterTagOperation::SetDataMovementPolicy { policy, force }
+        } else {
+            let policies = parse_masking_policy_list(parser)?;
+            let force = parser.parse_keyword(Keyword::FORCE);
+            AlterTagOperation::SetMaskingPolicy { policies, force }
+        }
     } else if parser.parse_keyword(Keyword::UNSET) {
-        let policies = parse_masking_policy_list(parser)?;
-        AlterTagOperation::UnsetMaskingPolicy { policies }
+        if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+            return parser.expected("data movement policy name", parser.peek_token());
+        }
+        if matches!(
+            &parser.peek_token().token,
+            Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("DCM")
+        ) && matches!(
+            &parser.peek_nth_token_ref(1).token,
+            Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("PROJECT")
+        ) {
+            let _ = parser.next_token();
+            let _ = parser.next_token();
+            AlterTagOperation::UnsetDcmProject
+        } else {
+            let policies = parse_masking_policy_list(parser)?;
+            AlterTagOperation::UnsetMaskingPolicy { policies }
+        }
     } else {
         parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
         let new_name = parser.parse_object_name(false)?;
@@ -6929,9 +7015,9 @@ fn parse_show_indexes(terse: bool, parser: &mut Parser) -> Result<Statement, Par
 }
 
 /// Parse `SHOW PROCEDURES [LIKE '<pattern>'] [IN <scope>]`
-fn parse_show_procedures(parser: &mut Parser) -> Result<Statement, ParserError> {
+fn parse_show_procedures(parser: &mut Parser, user: bool) -> Result<Statement, ParserError> {
     let show_options = parser.parse_show_stmt_options()?;
-    Ok(Statement::ShowProcedures { show_options })
+    Ok(Statement::ShowProcedures { user, show_options })
 }
 
 /// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`

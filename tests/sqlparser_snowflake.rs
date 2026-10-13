@@ -8625,6 +8625,7 @@ fn test_show_tasks_like() {
         Statement::ShowTasks {
             terse,
             show_options,
+            ..
         } => {
             assert!(!terse);
             // The presence of LIKE is captured by ShowStatementOptions; rely on
@@ -10305,6 +10306,7 @@ fn parse_snowflake_undrop() {
     for (sql, expected_type) in [
         ("UNDROP TABLE t", ObjectType::Table),
         ("UNDROP DYNAMIC TABLE t", ObjectType::DynamicTable),
+        ("UNDROP ICEBERG TABLE t", ObjectType::IcebergTable),
         ("UNDROP SCHEMA s", ObjectType::Schema),
         ("UNDROP DATABASE d", ObjectType::Database),
         ("UNDROP VIEW v", ObjectType::View),
