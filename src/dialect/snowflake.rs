@@ -3415,8 +3415,8 @@ pub fn parse_create_database(
                         };
                     builder = builder.catalog_sync_namespace_mode(Some(mode));
                 }
-                Keyword::WITH => {
-                    if parser.parse_keyword(Keyword::TAG) {
+                Keyword::WITH | Keyword::TAG => {
+                    if word.keyword == Keyword::TAG || parser.parse_keyword(Keyword::TAG) {
                         parser.expect_token(&Token::LParen)?;
                         let tags = parser.parse_comma_separated(Parser::parse_tag)?;
                         parser.expect_token(&Token::RParen)?;
