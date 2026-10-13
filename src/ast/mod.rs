@@ -5076,6 +5076,8 @@ pub enum Statement {
         clone_version: Option<TableVersion>,
         #[doc = "Whether the clone skips tables with insufficient data retention."]
         ignore_insufficient_retention: bool,
+        #[doc = "Whether the clone excludes hybrid tables."]
+        ignore_hybrid_tables: bool,
         /// Optional data retention time in days.
         data_retention_time_in_days: Option<u64>,
         /// Optional maximum data extension time in days.
@@ -7926,6 +7928,7 @@ impl fmt::Display for Statement {
                 clone,
                 clone_version,
                 ignore_insufficient_retention,
+                ignore_hybrid_tables,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -7967,6 +7970,9 @@ impl fmt::Display for Statement {
                 }
                 if *ignore_insufficient_retention {
                     write!(f, " IGNORE TABLES WITH INSUFFICIENT DATA RETENTION")?;
+                }
+                if *ignore_hybrid_tables {
+                    write!(f, " IGNORE HYBRID TABLES")?;
                 }
                 if let Some(share) = from_share {
                     write!(f, " FROM SHARE {share}")?;
