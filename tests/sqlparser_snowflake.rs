@@ -11528,12 +11528,16 @@ fn test_postgres_only_grammar_is_rejected() {
         "SELECT a INTO $x FROM t",
         "CREATE FILE FORMAT f TYPE = (CSV)",
         "CREATE FILE FORMAT f COMMENT = 'c' TYPE = (CSV, JSON)",
+        "CREATE SET TABLE t (a INT)",
+        "CREATE MULTISET TABLE t (a INT)",
     ] {
         assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
     }
     // Index-level INCLUDE is Snowflake (hybrid tables) and still parses.
     snowflake().verified_stmt("CREATE INDEX i ON t(b) INCLUDE (a)");
     snowflake().verified_stmt("SELECT a, b INTO x, db.s.y FROM t");
+    // GLOB is not an operator here, so it stays usable as a bare alias.
+    snowflake().one_statement_parses_to("SELECT a glob, b FROM t", "SELECT a AS glob, b FROM t");
     snowflake()
         .verified_stmt("MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE ALL BY NAME");
 }
