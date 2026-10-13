@@ -1861,8 +1861,7 @@ fn parse_merge() {
     });
     let update_action = MergeAction::Update(MergeUpdateExpr {
         update_token: AttachedToken::empty(),
-        all_by_name: false,
-        assignments: vec![
+        kind: MergeUpdateKind::Set(vec![
             Assignment {
                 target: AssignmentTarget::ColumnName(ObjectName::from(vec![Ident::new("a")])),
                 value: Expr::value(number("1")),
@@ -1871,7 +1870,7 @@ fn parse_merge() {
                 target: AssignmentTarget::ColumnName(ObjectName::from(vec![Ident::new("b")])),
                 value: Expr::value(number("2")),
             },
-        ],
+        ]),
         update_predicate: None,
         delete_predicate: None,
     });
@@ -2233,6 +2232,31 @@ fn parse_big_query_declare() {
         ParserError::ParserError("Expected: a data type name, found: 42".to_owned()),
         bigquery().parse_sql_statements(error_sql).unwrap_err()
     );
+}
+
+#[test]
+fn parse_bigquery_create_external_table_with_connection() {
+    bigquery().one_statement_parses_to(
+        concat!(
+            "CREATE OR REPLACE EXTERNAL TABLE `proj.ds.tbl` ",
+            "WITH CONNECTION `projects/proj/locations/us/connections/c` ",
+            r#"OPTIONS(format = "ICEBERG", uris = ["gs://b/m.json"])"#,
+        ),
+        concat!(
+            "CREATE OR REPLACE EXTERNAL TABLE `proj`.`ds`.`tbl` () ",
+            "WITH CONNECTION `projects/proj/locations/us/connections/c` ",
+            r#"OPTIONS(format = "ICEBERG", uris = ["gs://b/m.json"])"#,
+        ),
+    );
+    bigquery().one_statement_parses_to(
+        "CREATE EXTERNAL TABLE t WITH CONNECTION c",
+        "CREATE EXTERNAL TABLE t () WITH CONNECTION c",
+    );
+    bigquery().verified_stmt(concat!(
+        "CREATE EXTERNAL TABLE t (a INT64, b STRING) ",
+        r#"WITH CONNECTION c OPTIONS(uris = ["gs://x"])"#,
+    ));
+    bigquery().verified_stmt(r#"CREATE EXTERNAL TABLE t (a INT64) OPTIONS(uris = ["gs://x"])"#);
 }
 
 fn bigquery() -> TestedDialects {
@@ -2766,7 +2790,7 @@ fn test_export_data() {
                     kind: OrderByKind::Expressions(vec![OrderByExpr {
                         expr: Expr::Identifier(Ident::new("field1")),
                         options: OrderByOptions {
-                            asc: None,
+                            sort: None,
                             nulls_first: None,
                         },
                         with_fill: None,
@@ -2872,7 +2896,7 @@ fn test_export_data() {
                     kind: OrderByKind::Expressions(vec![OrderByExpr {
                         expr: Expr::Identifier(Ident::new("field1")),
                         options: OrderByOptions {
-                            asc: None,
+                            sort: None,
                             nulls_first: None,
                         },
                         with_fill: None,
@@ -2959,4 +2983,11 @@ fn test_create_snapshot_table() {
     bigquery().verified_stmt(
         "CREATE SNAPSHOT TABLE IF NOT EXISTS dataset_id.table1 CLONE dataset_id.table2 FOR SYSTEM_TIME AS OF TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR) OPTIONS(expiration_timestamp = TIMESTAMP '2025-01-01 00:00:00 UTC')",
     );
+}
+
+#[test]
+fn parse_from_first_select() {
+    bigquery().verified_stmt("FROM t");
+    bigquery().verified_stmt("FROM t SELECT a, b");
+    bigquery().verified_stmt("FROM t |> WHERE a > 1 |> SELECT a");
 }

@@ -27,7 +27,6 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    visit_expressions,
     AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupPolicyPhase, BackupSetTargetKind, ModifyBackupAction,
     AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
@@ -55,7 +54,6 @@ use crate::ast::{
     StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
     WrappedCollection,
 };
-use core::ops::ControlFlow;
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
 use crate::parser::{IsOptional, Parser, ParserError};
@@ -853,16 +851,6 @@ impl SnowflakeDialect {
             // on the emitted DDL.
             let hybrid = parser.parse_keyword(Keyword::HYBRID);
 
-            // CREATE [OR REPLACE] [ TEMP | TEMPORARY | VOLATILE ] FILE FORMAT.
-            // For file formats VOLATILE is a synonym of TEMPORARY.
-            if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
-                return Some(parse_create_file_format(
-                    or_replace,
-                    temporary || volatile,
-                    parser,
-                ));
-            }
-
             // CREATE [OR REPLACE] TAG
             if parser.parse_keyword(Keyword::TAG) {
                 return Some(parse_create_tag(or_replace, or_alter, parser));
@@ -927,6 +915,10 @@ impl SnowflakeDialect {
                     }
                 }
                 return Some(parse_create_database(or_replace, transient, parser));
+            } else if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
+                return Some(parse_create_file_format(
+                    or_replace, temporary, volatile, parser,
+                ));
             } else if parser.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
                 return Some(parser.parse_create_application_role(or_replace, or_alter));
             } else {
@@ -974,6 +966,10 @@ impl SnowflakeDialect {
             Keyword::RM,
         ]) {
             return Some(parse_file_staging_command(kw, parser));
+        }
+
+        if parser.parse_keyword(Keyword::PUT) {
+            return Some(parse_put(parser));
         }
 
         if parser.parse_keyword(Keyword::SHOW) {
@@ -1170,6 +1166,11 @@ impl Dialect for SnowflakeDialect {
         ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch == '_'
     }
 
+    /// See <https://docs.snowflake.com/en/sql-reference/identifiers-syntax>
+    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
+        Some('"')
+    }
+
     fn supports_projection_trailing_commas(&self) -> bool {
         true
     }
@@ -1192,6 +1193,64 @@ impl Dialect for SnowflakeDialect {
 
     fn supports_create_table_optional_column_type(&self) -> bool {
         true
+    }
+
+    /// `ARRAY` is a semi-structured type of its own in Snowflake, never a suffix.
+    fn supports_type_qualified_array(&self) -> bool {
+        false
+    }
+
+    // PostgreSQL grammar upstream accepts for every dialect; Snowflake rejects it.
+    fn supports_like_escape_expression(&self) -> bool {
+        false
+    }
+
+    fn supports_merge_do_nothing(&self) -> bool {
+        false
+    }
+
+    fn supports_merge_wildcard(&self) -> bool {
+        false
+    }
+
+    fn supports_is_json_predicate(&self) -> bool {
+        false
+    }
+
+    fn supports_aggregate_where_clause(&self) -> bool {
+        false
+    }
+
+    fn supports_text_search_statements(&self) -> bool {
+        false
+    }
+
+    fn supports_table_logging_options(&self) -> bool {
+        false
+    }
+
+    fn supports_abort_statement(&self) -> bool {
+        false
+    }
+
+    fn supports_check_no_inherit(&self) -> bool {
+        false
+    }
+
+    fn supports_constraint_include_columns(&self) -> bool {
+        false
+    }
+
+    fn supports_create_index_async(&self) -> bool {
+        false
+    }
+
+    fn supports_create_table_multiset(&self) -> bool {
+        false
+    }
+
+    fn supports_select_into_expression_targets(&self) -> bool {
+        false
     }
 
     // Snowflake supports double-dot notation when the schema name is not specified
@@ -1235,12 +1294,6 @@ impl Dialect for SnowflakeDialect {
 
     /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-immediate>
     fn supports_execute_immediate(&self) -> bool {
-        true
-    }
-
-    /// Snowflake scripting accepts `SELECT ... INTO :var` where the target is a
-    /// local variable placeholder rather than a table name.
-    fn supports_select_into_placeholder_target(&self) -> bool {
         true
     }
 
@@ -1397,6 +1450,8 @@ impl Dialect for SnowflakeDialect {
         // Snowflake supports the `:` cast operator unlike other dialects
         match &token.token {
             Token::Colon => Some(Ok(self.prec_value(Precedence::DoubleColon))),
+            // `GLOB` is not an operator in Snowflake, so `SELECT a glob` aliases.
+            Token::Word(w) if w.keyword == Keyword::GLOB => Some(Ok(self.prec_unknown())),
             _ => None,
         }
     }
@@ -1683,6 +1738,21 @@ fn peek_for_limit_options(parser: &Parser) -> bool {
     }
 }
 
+/// Parse a Snowflake `PUT <source> <stage> [ options ]` statement. The caller
+/// is expected to have already consumed `PUT`.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/sql/put>.
+fn parse_put(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let source = parser.parse_literal_string()?;
+    let stage = parse_snowflake_stage_name(parser)?;
+    let options = parser.parse_key_value_options(false, &[], false)?;
+    Ok(Statement::Put {
+        source,
+        stage,
+        options,
+    })
+}
+
 fn parse_file_staging_command(kw: Keyword, parser: &mut Parser) -> Result<Statement, ParserError> {
     let stage = parse_snowflake_stage_name(parser)?;
     let pattern = if parser.parse_keyword(Keyword::PATTERN) {
@@ -1872,6 +1942,22 @@ fn parse_alter_dynamic_table_column_comments(
     Ok(operations)
 }
 
+/// Whether the tokens `parser` consumed since `start` contain a subquery.
+///
+/// A token scan rather than an AST walk, so it does not need the `visitor`
+/// feature: every subquery form (`IN (...)`, `EXISTS (...)`, a scalar
+/// `(...)`) opens with an unquoted `SELECT` or `VALUES`, and neither keyword
+/// can appear unquoted anywhere else in an expression.
+fn consumed_subquery(parser: &Parser, start: usize) -> bool {
+    (start..parser.index()).any(|i| {
+        matches!(
+            &parser.token_at(i).token,
+            Token::Word(w) if w.quote_style.is_none()
+                && matches!(w.keyword, Keyword::SELECT | Keyword::VALUES)
+        )
+    })
+}
+
 /// Parse the property list of `ALTER DYNAMIC TABLE … SET/UNSET`. Properties are
 /// space- or comma-separated. Each becomes an [`SqlOption::KeyValue`] whose
 /// value is a string literal — including identifier values (`WAREHOUSE = wh`)
@@ -1918,20 +2004,10 @@ fn parse_alter_dynamic_table_property(
             Value::Null
         } else {
             parser.expect_token(&Token::LParen)?;
+            let predicate_start = parser.index();
             let predicate = parser.parse_expr()?;
             parser.expect_token(&Token::RParen)?;
-            if visit_expressions(&predicate, |expr| {
-                if matches!(
-                    expr,
-                    Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
-                ) {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
-                })
-                .is_break()
-            {
+            if consumed_subquery(parser, predicate_start) {
                 return Err(ParserError::ParserError(
                     "FROZEN WHERE clauses cannot contain subqueries".to_string(),
                 ));
@@ -3137,20 +3213,10 @@ pub fn parse_create_table(
                 Keyword::NoKeyword if word.value.eq_ignore_ascii_case("FROZEN") => {
                     parser.expect_keyword_is(Keyword::WHERE)?;
                     parser.expect_token(&Token::LParen)?;
+                    let predicate_start = parser.index();
                     let predicate = parser.parse_expr()?;
                     parser.expect_token(&Token::RParen)?;
-                    if visit_expressions(&predicate, |expr| {
-                        if matches!(
-                            expr,
-                            Expr::InSubquery { .. } | Expr::Exists { .. } | Expr::Subquery(_)
-                        ) {
-                            ControlFlow::Break(())
-                        } else {
-                            ControlFlow::Continue(())
-                        }
-                    })
-                    .is_break()
-                    {
+                    if consumed_subquery(parser, predicate_start) {
                         return Err(ParserError::ParserError(
                             "FROZEN WHERE clauses cannot contain subqueries".to_string(),
                         ));
@@ -3639,6 +3705,80 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             options: copy_options,
             delimiter: KeyValueOptionsDelimiter::Space,
         },
+        comment,
+    })
+}
+
+/// Parse a Snowflake `CREATE FILE FORMAT` statement.
+/// See <https://docs.snowflake.com/en/sql-reference/sql/create-file-format>
+pub fn parse_create_file_format(
+    or_replace: bool,
+    temporary: bool,
+    volatile: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
+    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let name = parser.parse_object_name(true)?;
+    let like_source = if parser.parse_keyword(Keyword::LIKE) {
+        Some(parser.parse_object_name(false)?)
+    } else {
+        None
+    };
+    // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
+    if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon)
+    {
+        return parser.expected(
+            "end of statement after CREATE FILE FORMAT ... LIKE",
+            parser.peek_token(),
+        );
+    }
+
+    // `COMMENT` may appear anywhere among the options (Snowflake accepts any
+    // order, like CREATE TABLE / CREATE DATABASE), so it is parsed in the same
+    // loop rather than only as a trailing clause. It is hoisted into its own
+    // AST field; the remaining key-value options stay in `options`.
+    let mut comment = None;
+    let mut option_list: Vec<KeyValueOption> = Vec::new();
+    let mut delimiter = KeyValueOptionsDelimiter::Space;
+    if like_source.is_none() {
+        loop {
+            if parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_comment_value()?);
+                continue;
+            }
+            if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
+                break;
+            }
+            // `TYPE` names one format; a parenthesized list is a syntax error.
+            if let [Token::Word(w), Token::Eq, Token::LParen] = parser.peek_tokens() {
+                if w.value.eq_ignore_ascii_case("TYPE") {
+                    return parser.expected("a file format type", parser.peek_nth_token(2));
+                }
+            }
+            let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
+            if parsed.options.is_empty() {
+                break;
+            }
+            if parsed.delimiter == KeyValueOptionsDelimiter::Comma {
+                delimiter = KeyValueOptionsDelimiter::Comma;
+            }
+            option_list.extend(parsed.options);
+        }
+    }
+    let options = KeyValueOptions {
+        options: option_list,
+        delimiter,
+    };
+
+    Ok(Statement::CreateFileFormat {
+        or_replace,
+        temporary,
+        volatile,
+        if_not_exists,
+        name,
+        options,
+        like_source,
         comment,
     })
 }
@@ -4180,6 +4320,12 @@ fn parse_select_item_for_data_load(
             // element not present move back
             parser.prev_token();
         }
+    }
+
+    // A trailing `::` means this is a cast expression (e.g.
+    // `$1:"col"::NUMBER(38,0)`), not a stage-load-select-item.
+    if matches!(parser.peek_token_ref().token, Token::DoubleColon) {
+        return parser.expected("stage load select item", parser.peek_token());
     }
 
     // as
@@ -4791,88 +4937,6 @@ fn parse_describe_external_volume(parser: &mut Parser) -> Result<Statement, Pars
 fn parse_show_external_volumes(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowExternalVolumes { filter })
-}
-
-/// Parse `CREATE [OR REPLACE] [TEMPORARY] FILE FORMAT [IF NOT EXISTS] <name> ...`
-fn parse_create_file_format(
-    or_replace: bool,
-    temporary: bool,
-    parser: &mut Parser,
-) -> Result<Statement, ParserError> {
-    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
-    let name = parser.parse_object_name(false)?;
-
-    let mut format_type = None;
-    let mut like_source = None;
-
-    if parser.parse_keyword(Keyword::LIKE) {
-        like_source = Some(parser.parse_object_name(false)?);
-    } else if parser.parse_keyword(Keyword::TYPE) {
-        parser.expect_token(&Token::Eq)?;
-        // A bind placeholder is accepted here so the statement parses; real
-        // Snowflake rejects it downstream as an invalid type. A genuine bind
-        // marker is an unquoted `Ident` whose value is the marker text, which
-        // no literal unquoted type identifier can be.
-        format_type = Some(match parser.peek_token().token {
-            Token::Placeholder(s) => {
-                parser.next_token();
-                Ident::new(s)
-            }
-            _ => parser.parse_identifier()?,
-        });
-    }
-
-    // `LIKE` is mutually exclusive with `TYPE`/options per Snowflake's grammar.
-    if like_source.is_some() && !matches!(parser.peek_token().token, Token::EOF | Token::SemiColon)
-    {
-        return parser.expected(
-            "end of statement after CREATE FILE FORMAT ... LIKE",
-            parser.peek_token(),
-        );
-    }
-
-    // `COMMENT` may appear anywhere among the options (Snowflake accepts any
-    // order, like CREATE TABLE / CREATE DATABASE), so it is parsed in the same
-    // loop rather than only as a trailing clause. It is hoisted into its own
-    // AST field; the remaining key-value options stay in `options`.
-    let mut comment = None;
-    let mut option_list: Vec<KeyValueOption> = Vec::new();
-    let mut delimiter = KeyValueOptionsDelimiter::Space;
-    if like_source.is_none() {
-        loop {
-            if parser.parse_keyword(Keyword::COMMENT) {
-                parser.expect_token(&Token::Eq)?;
-                comment = Some(parser.parse_comment_value()?);
-                continue;
-            }
-            if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
-                break;
-            }
-            let parsed = parser.parse_key_value_options(false, &[Keyword::COMMENT], false)?;
-            if parsed.options.is_empty() {
-                break;
-            }
-            if parsed.delimiter == KeyValueOptionsDelimiter::Comma {
-                delimiter = KeyValueOptionsDelimiter::Comma;
-            }
-            option_list.extend(parsed.options);
-        }
-    }
-    let options = KeyValueOptions {
-        options: option_list,
-        delimiter,
-    };
-
-    Ok(Statement::CreateFileFormat {
-        or_replace,
-        temporary,
-        if_not_exists,
-        name,
-        format_type,
-        options,
-        like_source,
-        comment,
-    })
 }
 
 /// Parse `ALTER FILE FORMAT [IF EXISTS] <name> ...`

@@ -1941,6 +1941,7 @@ fn parse_create_table_with_valid_options() {
                 or_replace: false,
                 or_alter: false,
                 temporary: false,
+                unlogged: false,
                 external: false,
                 global: None,
                 dynamic: false,
@@ -2023,6 +2024,7 @@ fn parse_create_table_with_valid_options() {
                 with_tags: None,
                 base_location: None,
                 external_volume: None,
+                with_connection: None,
                 catalog: None,
                 catalog_table_name: None,
                 metadata_file_path: None,
@@ -2042,6 +2044,9 @@ fn parse_create_table_with_valid_options() {
                 distkey: None,
                 sortkey: None,
                 backup: None,
+                multiset: None,
+                fallback: None,
+                with_data: None,
                 immutable_where: None,
                 backfill_from: None,
                 initialization_warehouse: None,
@@ -2156,6 +2161,7 @@ fn parse_create_table_with_identity_column() {
                 or_replace: false,
                 or_alter: false,
                 temporary: false,
+                unlogged: false,
                 external: false,
                 global: None,
                 dynamic: false,
@@ -2219,6 +2225,7 @@ fn parse_create_table_with_identity_column() {
                 with_tags: None,
                 base_location: None,
                 external_volume: None,
+                with_connection: None,
                 catalog: None,
                 catalog_table_name: None,
                 metadata_file_path: None,
@@ -2238,6 +2245,9 @@ fn parse_create_table_with_identity_column() {
                 distkey: None,
                 sortkey: None,
                 backup: None,
+                multiset: None,
+                fallback: None,
+                with_data: None,
                 immutable_where: None,
                 backfill_from: None,
                 initialization_warehouse: None,
@@ -2973,5 +2983,21 @@ fn parse_mssql_money_constants() {
     assert_eq!(
         &Expr::Value(Value::Placeholder("$0".to_string()).with_empty_span()),
         expr_from_projection(only(&select.projection)),
+    );
+}
+
+#[test]
+fn parse_bracket_quoted_function_argument_name() {
+    let Statement::DropFunction(drop) = ms().verified_stmt("DROP FUNCTION f([Role] INT)") else {
+        panic!("expected a DROP FUNCTION statement");
+    };
+    assert_eq!(
+        drop.func_desc[0].args,
+        Some(vec![OperateFunctionArg {
+            mode: None,
+            name: Some(Ident::with_quote('[', "Role")),
+            data_type: Int(None),
+            default_expr: None,
+        }])
     );
 }

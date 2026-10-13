@@ -521,7 +521,7 @@ impl fmt::Display for Whitespace {
             Whitespace::Space => f.write_str(" "),
             Whitespace::Newline => f.write_str("\n"),
             Whitespace::Tab => f.write_str("\t"),
-            Whitespace::SingleLineComment { prefix, comment } => write!(f, "{prefix}{comment}"),
+            Whitespace::SingleLineComment { prefix, comment } => writeln!(f, "{prefix}{comment}"),
             Whitespace::MultiLineComment(s) => write!(f, "/*{s}*/"),
         }
     }
@@ -1360,24 +1360,12 @@ impl<'a> Tokenizer<'a> {
                         );
                     }
 
-                    // Some dialects support underscore as number separator
-                    // There can only be one at a time and it must be followed by another digit
-                    let is_number_separator = |ch: char, next_char: Option<char>| {
-                        self.dialect.supports_numeric_literal_underscores()
-                            && ch == '_'
-                            && next_char.is_some_and(|next_ch| next_ch.is_ascii_hexdigit())
-                    };
-
-                    let mut s = peeking_next_take_while(chars, |ch, next_ch| {
-                        ch.is_ascii_digit() || is_number_separator(ch, next_ch)
-                    });
+                    let mut s = self.tokenize_number_part(chars, |ch| ch.is_ascii_digit())?;
 
                     // match binary literal that starts with 0x
                     if s == "0" && chars.peek() == Some(&'x') {
                         chars.next();
-                        let s2 = peeking_next_take_while(chars, |ch, next_ch| {
-                            ch.is_ascii_hexdigit() || is_number_separator(ch, next_ch)
-                        });
+                        let s2 = self.tokenize_number_part(chars, |ch| ch.is_ascii_hexdigit())?;
                         return Ok(Some(Token::HexStringLiteral(s2)));
                     }
 
@@ -1399,9 +1387,7 @@ impl<'a> Tokenizer<'a> {
                     }
 
                     // Consume fractional digits.
-                    s += &peeking_next_take_while(chars, |ch, next_ch| {
-                        ch.is_ascii_digit() || is_number_separator(ch, next_ch)
-                    });
+                    s += &self.tokenize_number_part(chars, |ch| ch.is_ascii_digit())?;
 
                     // No fraction -> Token::Period
                     if s == "." {
@@ -1425,12 +1411,16 @@ impl<'a> Tokenizer<'a> {
 
                         match char_clone.peek() {
                             // Definitely an exponent, get original iterator up to speed and use it
-                            Some(&c) if c.is_ascii_digit() => {
+                            Some(&c)
+                                if c.is_ascii_digit()
+                                    || (c == '_'
+                                        && self.dialect.supports_numeric_literal_underscores()) =>
+                            {
                                 for _ in 0..exponent_part.len() {
                                     chars.next();
                                 }
                                 exponent_part +=
-                                    &peeking_take_while(chars, |ch| ch.is_ascii_digit());
+                                    &self.tokenize_number_part(chars, |ch| ch.is_ascii_digit())?;
                                 s += exponent_part.as_str();
                             }
                             // Not an exponent, discard the work done
@@ -2035,20 +2025,40 @@ impl<'a> Tokenizer<'a> {
         })
     }
 
+    fn tokenize_number_part(
+        &self,
+        chars: &mut State,
+        is_digit: impl Fn(char) -> bool,
+    ) -> Result<String, TokenizerError> {
+        let supports_separator = self.dialect.supports_numeric_literal_underscores();
+        let mut s = String::new();
+
+        while let Some(&ch) = chars.peek() {
+            if is_digit(ch) {
+                chars.next();
+                s.push(ch);
+            } else if supports_separator && ch == '_' {
+                let next_char = chars.peekable.clone().nth(1);
+                if s.is_empty() || !next_char.is_some_and(&is_digit) {
+                    return self.tokenizer_error(chars.location(), "Unexpected character '_'");
+                }
+                chars.next();
+                s.push(ch);
+            } else {
+                break;
+            }
+        }
+
+        Ok(s)
+    }
+
     // Consume characters until newline
     fn tokenize_single_line_comment(&self, chars: &mut State) -> String {
-        let mut comment = peeking_take_while(chars, |ch| match ch {
+        peeking_take_while(chars, |ch| match ch {
             '\n' => false,                                           // Always stop at \n
             '\r' if dialect_of!(self is PostgreSqlDialect) => false, // Stop at \r for Postgres
             _ => true, // Keep consuming for other characters
-        });
-
-        if let Some(ch) = chars.next() {
-            assert!(ch == '\n' || ch == '\r');
-            comment.push(ch);
-        }
-
-        comment
+        })
     }
 
     /// Tokenize an identifier or keyword, after the first char is already consumed.
@@ -2590,24 +2600,6 @@ fn peeking_take_while(chars: &mut State, mut predicate: impl FnMut(char) -> bool
     s
 }
 
-/// Same as peeking_take_while, but also passes the next character to the predicate.
-fn peeking_next_take_while(
-    chars: &mut State,
-    mut predicate: impl FnMut(char, Option<char>) -> bool,
-) -> String {
-    let mut s = String::new();
-    while let Some(&ch) = chars.peek() {
-        let next_char = chars.peekable.clone().nth(1);
-        if predicate(ch, next_char) {
-            chars.next(); // consume
-            s.push(ch);
-        } else {
-            break;
-        }
-    }
-    s
-}
-
 fn unescape_single_quoted_string(chars: &mut State<'_>) -> Option<String> {
     Unescape::new(chars).unescape()
 }
@@ -2935,8 +2927,11 @@ mod tests {
         ];
         compare(expected, tokens);
 
-        all_dialects_where(|dialect| dialect.supports_numeric_literal_underscores()).tokenizes_to(
-            "SELECT 10_000, _10_000, 10_00_, 10___0",
+        let numeric_underscore_dialects =
+            all_dialects_where(|dialect| dialect.supports_numeric_literal_underscores());
+
+        numeric_underscore_dialects.tokenizes_to(
+            "SELECT 10_000, _10_000, 1_000.123, 1_000.123_456, 1e1_0",
             vec![
                 Token::make_keyword("SELECT"),
                 Token::Whitespace(Whitespace::Space),
@@ -2946,14 +2941,38 @@ mod tests {
                 Token::make_word("_10_000", None), // leading underscore tokenizes as a word (parsed as column identifier)
                 Token::Comma,
                 Token::Whitespace(Whitespace::Space),
-                Token::Number("10_00".to_string(), false),
-                Token::make_word("_", None), // trailing underscores tokenizes as a word (syntax error in some dialects)
+                Token::Number("1_000.123".to_string(), false), // with decimal digits
                 Token::Comma,
                 Token::Whitespace(Whitespace::Space),
-                Token::Number("10".to_string(), false),
-                Token::make_word("___0", None), // multiple underscores tokenizes as a word (syntax error in some dialects)
+                Token::Number("1_000.123_456".to_string(), false), // with an underscore in the decimal digits
+                Token::Comma,
+                Token::Whitespace(Whitespace::Space),
+                Token::Number("1e1_0".to_string(), false), // with an underscore in the exponent
             ],
         );
+
+        numeric_underscore_dialects.tokenizes_to(
+            "0xFF_FF",
+            vec![Token::HexStringLiteral("FF_FF".to_string())],
+        );
+
+        for dialect in &numeric_underscore_dialects.dialects {
+            for sql in [
+                "SELECT 10_00_",
+                "SELECT 10___0",
+                "SELECT 1_000.123_",
+                "SELECT 1._000",
+                "SELECT 1_a",
+                "SELECT 1e_1",
+                "SELECT 1e1_",
+                "SELECT 1e1__0",
+                "SELECT 0x_1",
+                "SELECT 0x1_",
+            ] {
+                let err = Tokenizer::new(&**dialect, sql).tokenize().unwrap_err();
+                assert_eq!("Unexpected character '_'", err.message);
+            }
+        }
     }
 
     #[test]
@@ -3518,8 +3537,9 @@ mod tests {
                     Token::Number("0".to_string(), false),
                     Token::Whitespace(Whitespace::SingleLineComment {
                         prefix: "--".to_string(),
-                        comment: "this is a comment\n".to_string(),
+                        comment: "this is a comment".to_string(),
                     }),
+                    Token::Whitespace(Whitespace::Newline),
                     Token::Number("1".to_string(), false),
                 ],
             ),
@@ -3539,8 +3559,9 @@ mod tests {
                     Token::Number("0".to_string(), false),
                     Token::Whitespace(Whitespace::SingleLineComment {
                         prefix: "--".to_string(),
-                        comment: "this is a comment\r\n".to_string(),
+                        comment: "this is a comment\r".to_string(),
                     }),
+                    Token::Whitespace(Whitespace::Newline),
                     Token::Number("1".to_string(), false),
                 ],
             ),
@@ -3564,8 +3585,9 @@ mod tests {
             Token::Number("1".to_string(), false),
             Token::Whitespace(Whitespace::SingleLineComment {
                 prefix: "--".to_string(),
-                comment: "\r".to_string(),
+                comment: "".to_string(),
             }),
+            Token::Whitespace(Whitespace::Newline), // Postgres treats \r as newline in single-line comments
             Token::Number("0".to_string(), false),
         ];
         compare(expected, tokens);
@@ -4409,16 +4431,19 @@ mod tests {
             vec![
                 Token::Whitespace(Whitespace::SingleLineComment {
                     prefix: "--".to_string(),
-                    comment: "\n".to_string(),
+                    comment: "".to_string(),
                 }),
+                Token::Whitespace(Whitespace::Newline),
                 Token::Whitespace(Whitespace::SingleLineComment {
                     prefix: "--".to_string(),
-                    comment: " Table structure for table...\n".to_string(),
+                    comment: " Table structure for table...".to_string(),
                 }),
+                Token::Whitespace(Whitespace::Newline),
                 Token::Whitespace(Whitespace::SingleLineComment {
                     prefix: "--".to_string(),
-                    comment: "\n".to_string(),
+                    comment: "".to_string(),
                 }),
+                Token::Whitespace(Whitespace::Newline),
             ],
         );
     }

@@ -92,18 +92,14 @@ pub struct StageLoadSelectItem {
 
 impl fmt::Display for StageParamsObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let url = &self.url.as_ref();
-        let storage_integration = &self.storage_integration.as_ref();
-        let endpoint = &self.endpoint.as_ref();
-
-        if url.is_some() {
-            write!(f, " URL='{}'", url.unwrap())?;
+        if let Some(ref url) = self.url {
+            write!(f, " URL='{url}'")?;
         }
-        if storage_integration.is_some() {
-            write!(f, " STORAGE_INTEGRATION={}", storage_integration.unwrap())?;
+        if let Some(ref storage_integration) = self.storage_integration {
+            write!(f, " STORAGE_INTEGRATION={storage_integration}")?;
         }
-        if endpoint.is_some() {
-            write!(f, " ENDPOINT='{}'", endpoint.unwrap())?;
+        if let Some(ref endpoint) = self.endpoint {
+            write!(f, " ENDPOINT='{endpoint}'")?;
         }
         if let Some(enabled) = self.use_privatelink_endpoint {
             write!(f, " USE_PRIVATELINK_ENDPOINT={}", if enabled { "TRUE" } else { "FALSE" })?;

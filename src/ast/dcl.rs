@@ -538,11 +538,12 @@ impl fmt::Display for Grant {
             write!(f, " ON {objects}")?;
         }
         write!(f, " TO {}", display_comma_separated(&self.grantees))?;
-        if let Some(ref current_grants) = self.current_grants {
-            write!(f, " {current_grants}")?;
-        }
+        // Printed in the order the parser reads them, so the output re-parses.
         if self.with_grant_option {
             write!(f, " WITH GRANT OPTION")?;
+        }
+        if let Some(ref current_grants) = self.current_grants {
+            write!(f, " {current_grants}")?;
         }
         if let Some(ref as_grantor) = self.as_grantor {
             write!(f, " AS {as_grantor}")?;
@@ -561,10 +562,14 @@ impl From<Grant> for crate::ast::Statement {
 }
 
 /// REVOKE privileges ON objects FROM grantees
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-revoke.html)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Revoke {
+    /// Whether `GRANT OPTION FOR` is present, withdrawing the right to grant
+    /// the privileges rather than the privileges themselves.
+    pub grant_option_for: bool,
     /// Whether this is a direct caller revoke.
     pub caller: bool,
     /// Privileges to revoke.
@@ -573,9 +578,6 @@ pub struct Revoke {
     pub objects: Option<GrantObjects>,
     /// Grantees affected by the revoke.
     pub grantees: Vec<Grantee>,
-    /// Whether `GRANT OPTION FOR` is present — flips `grant_option` to false
-    /// without removing the privilege edge itself.
-    pub grant_option_for: bool,
     /// Optional `GRANTED BY` identifier.
     ///
     /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/dcl-statements)

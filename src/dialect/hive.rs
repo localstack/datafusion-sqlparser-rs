@@ -27,6 +27,11 @@ impl Dialect for HiveDialect {
         (ch == '"') || (ch == '`')
     }
 
+    /// See <https://cwiki.apache.org/confluence/display/Hive/LanguageManual+DDL#LanguageManualDDL-RulesforColumnNames>
+    fn identifier_quote_style(&self, _identifier: &str) -> Option<char> {
+        Some('`')
+    }
+
     fn is_identifier_start(&self, ch: char) -> bool {
         ch.is_ascii_lowercase() || ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '$'
     }
@@ -77,6 +82,11 @@ impl Dialect for HiveDialect {
     // See https://github.com/apache/datafusion-sqlparser-rs/issues/2236 for more details.
     /// See <https://hive.apache.org/docs/latest/language/common-table-expression/>
     fn supports_from_first_insert(&self) -> bool {
+        true
+    }
+
+    /// See <https://hive.apache.org/docs/latest/language/languagemanual-types/>
+    fn supports_map_literal_with_angle_brackets(&self) -> bool {
         true
     }
 }

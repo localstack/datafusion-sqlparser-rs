@@ -390,7 +390,7 @@ fn parse_alter_table_add_projection() {
                             kind: OrderByKind::Expressions(vec![OrderByExpr {
                                 expr: Identifier(Ident::new("b")),
                                 options: OrderByOptions {
-                                    asc: None,
+                                    sort: None,
                                     nulls_first: None,
                                 },
                                 with_fill: None,
@@ -767,7 +767,8 @@ fn parse_create_table_with_nested_data_types() {
                         name: Ident::new("m"),
                         data_type: DataType::Map(
                             Box::new(DataType::String(None)),
-                            Box::new(DataType::UInt16)
+                            Box::new(DataType::UInt16),
+                            MapBracketKind::Parentheses
                         ),
                         options: vec![],
                     },
@@ -1218,7 +1219,7 @@ fn parse_select_order_by_with_fill_interpolate() {
                 OrderByExpr {
                     expr: Expr::Identifier(Ident::new("fname")),
                     options: OrderByOptions {
-                        asc: Some(true),
+                        sort: Some(OrderBySort::Asc),
                         nulls_first: Some(true),
                     },
                     with_fill: Some(WithFill {
@@ -1230,7 +1231,7 @@ fn parse_select_order_by_with_fill_interpolate() {
                 OrderByExpr {
                     expr: Expr::Identifier(Ident::new("lname")),
                     options: OrderByOptions {
-                        asc: Some(false),
+                        sort: Some(OrderBySort::Desc),
                         nulls_first: Some(false),
                     },
                     with_fill: Some(WithFill {
@@ -1843,6 +1844,29 @@ fn parse_inner_array_join() {
         }
         _ => unreachable!(),
     }
+}
+
+#[test]
+fn parse_in_unparenthesized_expr() {
+    // IN [expr] parses to IN ([expr]) and does not cause regressions
+    clickhouse().expr_parses_to("x IN 'a'", "x IN ('a')");
+
+    // The branch must not fire when the next token is `(` (regressions).
+    clickhouse().verified_expr("x IN (1, 2, 3)");
+    clickhouse().verified_stmt("SELECT * FROM t WHERE x IN (SELECT y FROM u)");
+}
+
+#[test]
+fn parse_in_unparenthesized_dictionary_placeholder() {
+    // IN [{placeholder:Type}] parses to IN ({placholder:Type})
+    clickhouse().expr_parses_to("x IN {ids:Array(UInt64)}", "x IN ({ids: Array(UInt64)})");
+    clickhouse().expr_parses_to(
+        "x NOT IN {ids:Array(UInt64)}",
+        "x NOT IN ({ids: Array(UInt64)})",
+    );
+    clickhouse().verified_expr("x IN ({ids: Array(UInt64)})");
+    // Precedence: the trailing `AND` is not swallowed.
+    clickhouse().verified_expr("x IN ({p: Array(UInt64)}) AND y = 1");
 }
 
 fn clickhouse() -> TestedDialects {

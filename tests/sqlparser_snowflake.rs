@@ -19,7 +19,9 @@
 //! Test SQL syntax specific to Snowflake. The parser based on the
 //! generic dialect is also tested (on the inputs it can handle).
 
-use sqlparser::ast::helpers::key_value_options::{KeyValueOption, KeyValueOptionKind};
+use sqlparser::ast::helpers::key_value_options::{
+    KeyValueOption, KeyValueOptionKind, KeyValueOptions,
+};
 use sqlparser::ast::helpers::stmt_data_loading::{StageLoadSelectItem, StageLoadSelectItemKind};
 use sqlparser::ast::*;
 use sqlparser::dialect::{Dialect, GenericDialect, SnowflakeDialect};
@@ -50,7 +52,7 @@ fn parse_sf_create_scoped_temporary() {
     // `SCOPED` maps to a plain temporary and drops from the canonical DDL.
     match snowflake().one_statement_parses_to(
         "CREATE SCOPED TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE = CSV",
-        "CREATE TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE = CSV",
+        "CREATE TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE=CSV",
     ) {
         Statement::CreateFileFormat { temporary, .. } => assert!(temporary),
         _ => unreachable!(),
@@ -731,16 +733,19 @@ fn test_snowflake_create_invalid_temporal_table() {
     );
 
     assert_eq!(
-        snowflake().parse_sql_statements("CREATE TEMP VOLATILE TABLE my_table (a INT)"),
-        Err(ParserError::ParserError(
-            "Expected: an object type after CREATE, found: VOLATILE".to_string()
-        ))
-    );
-
-    assert_eq!(
         snowflake().parse_sql_statements("CREATE TEMP TRANSIENT TABLE my_table (a INT)"),
         Err(ParserError::ParserError(
             "Expected: an object type after CREATE, found: TRANSIENT".to_string()
+        ))
+    );
+}
+
+#[test]
+fn test_snowflake_create_invalid_temporal_file_format() {
+    assert_eq!(
+        snowflake().parse_sql_statements("CREATE TEMPORARY VOLATILE FILE FORMAT my_fmt"),
+        Err(ParserError::ParserError(
+            "Expected: an object type after CREATE, found: FILE".to_string()
         ))
     );
 }
@@ -852,8 +857,9 @@ fn test_snowflake_single_line_tokenize() {
         Token::make_keyword("TABLE"),
         Token::Whitespace(Whitespace::SingleLineComment {
             prefix: "#".to_string(),
-            comment: " this is a comment \n".to_string(),
+            comment: " this is a comment ".to_string(),
         }),
+        Token::Whitespace(Whitespace::Newline),
         Token::make_word("table_1", None),
     ];
 
@@ -869,8 +875,9 @@ fn test_snowflake_single_line_tokenize() {
         Token::Whitespace(Whitespace::Space),
         Token::Whitespace(Whitespace::SingleLineComment {
             prefix: "//".to_string(),
-            comment: " this is a comment \n".to_string(),
+            comment: " this is a comment ".to_string(),
         }),
+        Token::Whitespace(Whitespace::Newline),
         Token::make_word("table_1", None),
     ];
 
@@ -1815,7 +1822,6 @@ fn parse_array() {
             kind: CastKind::Cast,
             expr: Box::new(Expr::Identifier(Ident::new("a"))),
             data_type: DataType::Array(ArrayElemTypeDef::None),
-            array: false,
             format: None,
         },
         expr_from_projection(only(&select.projection))
@@ -1925,7 +1931,6 @@ fn parse_semi_structured_data_traversal() {
                     }
                 }),
                 data_type: DataType::Array(ArrayElemTypeDef::None),
-                array: false,
                 format: None,
             }),
             path: JsonPath {
@@ -3184,6 +3189,131 @@ fn test_create_stage_with_copy_options() {
 }
 
 #[test]
+fn test_create_file_format() {
+    let sql = "CREATE FILE FORMAT my_fmt";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateFileFormat {
+            or_replace,
+            temporary,
+            volatile,
+            if_not_exists,
+            name,
+            options,
+            like_source,
+            comment,
+        } => {
+            assert!(!or_replace);
+            assert!(!temporary);
+            assert!(!volatile);
+            assert!(!if_not_exists);
+            assert_eq!("my_fmt", name.to_string());
+            assert!(options.options.is_empty());
+            assert!(like_source.is_none());
+            assert!(comment.is_none());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+
+    let extended_sql = concat!(
+        "CREATE OR REPLACE TEMPORARY FILE FORMAT IF NOT EXISTS my_fmt ",
+        "COMMENT='some-comment'"
+    );
+    match snowflake().verified_stmt(extended_sql) {
+        Statement::CreateFileFormat {
+            or_replace,
+            temporary,
+            if_not_exists,
+            name,
+            comment,
+            ..
+        } => {
+            assert!(or_replace);
+            assert!(temporary);
+            assert!(if_not_exists);
+            assert_eq!("my_fmt", name.to_string());
+            assert_eq!("some-comment", comment.unwrap());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        snowflake().verified_stmt(extended_sql).to_string(),
+        extended_sql
+    );
+}
+
+#[test]
+fn test_create_file_format_with_options() {
+    let sql = concat!(
+        "CREATE FILE FORMAT my_fmt ",
+        "TYPE=CSV FIELD_DELIMITER='|' SKIP_HEADER=1 COMPRESSION=GZIP"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateFileFormat { options, .. } => {
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "TYPE".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("CSV".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "FIELD_DELIMITER".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::SingleQuotedString("|".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "SKIP_HEADER".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Number("1".parse().unwrap(), false).with_empty_span()
+                ),
+            }));
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "COMPRESSION".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("GZIP".to_string()).with_empty_span()
+                ),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_create_file_format_volatile() {
+    let sql = "CREATE VOLATILE FILE FORMAT my_fmt TYPE=JSON STRIP_OUTER_ARRAY=true";
+    match snowflake().verified_stmt(sql) {
+        Statement::CreateFileFormat {
+            temporary,
+            volatile,
+            options,
+            ..
+        } => {
+            assert!(!temporary);
+            assert!(volatile);
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "STRIP_OUTER_ARRAY".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(true).with_empty_span()),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_create_file_format_with_identifier_function() {
+    // The Snowflake driver emits `CREATE TEMP FILE FORMAT identifier(?) ...` when
+    // uploading pandas DataFrames. `TEMP` is an alias of `TEMPORARY` and the name
+    // is a call to the `IDENTIFIER` function with a bind parameter.
+    snowflake().one_statement_parses_to(
+        "CREATE TEMP FILE FORMAT identifier(?) TYPE=PARQUET COMPRESSION=auto",
+        "CREATE TEMPORARY FILE FORMAT identifier(?) TYPE=PARQUET COMPRESSION=auto",
+    );
+}
+
+#[test]
 fn test_copy_into() {
     let sql = concat!(
         "COPY INTO my_company.emp_basic ",
@@ -3500,6 +3630,35 @@ fn test_copy_into_with_transformations() {
         "(SELECT t1.$1:st AS st, $1:index, t2.$1, 4, '5' AS const_str FROM @schema.general_finished T) "
     );
     snowflake().parse_sql_statements(sql1).unwrap();
+}
+
+#[test]
+fn test_copy_into_with_cast_transformation() {
+    let variants = [
+        concat!(
+            "COPY INTO my_company.emp_basic (a) FROM ",
+            r#"(SELECT $1:"A"::NUMBER(38, 0) FROM @stg)"#,
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a) FROM ",
+            "(SELECT $1::NUMBER(38, 0) FROM @stg)",
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a) FROM ",
+            "(SELECT $1:SEQUENCE::NUMBER(38, 0) FROM @stg)",
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a, b) FROM ",
+            r#"(SELECT $1:"A"::VARIANT, $1:"B"::TEXT FROM @stg)"#,
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a, b) FROM ",
+            r#"(SELECT t.$1:plain AS plain, $1:"B"::TEXT FROM @stg AS t)"#,
+        ),
+    ];
+    for sql in variants {
+        snowflake().verified_stmt(sql);
+    }
 }
 
 #[test]
@@ -4626,10 +4785,12 @@ fn test_parse_show_objects() {
     match snowflake().verified_stmt("SHOW TERSE OBJECTS LIKE '%test%' IN abc") {
         Statement::ShowObjects(ShowObjects {
             terse,
+            dynamic,
             show_options,
             ..
         }) => {
             assert!(terse);
+            assert!(!dynamic);
             let name = match show_options.show_in {
                 Some(ShowStatementIn {
                     parent_name: Some(val),
@@ -5133,6 +5294,71 @@ fn parse_ls_and_rm() {
     snowflake()
         .parse_sql_statements("LIST @db1.schema1.stage1/dir1/;")
         .unwrap();
+}
+
+#[test]
+fn test_put() {
+    let sql = "PUT 'file:///tmp/data.csv' @my_stage";
+    match snowflake().verified_stmt(sql) {
+        Statement::Put {
+            source,
+            stage,
+            options,
+        } => {
+            assert_eq!("file:///tmp/data.csv", source);
+            assert_eq!(ObjectName::from(vec!["@my_stage".into()]), stage);
+            assert!(options.options.is_empty());
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_put_with_quoted_stage() {
+    // Stage names can be quoted (e.g. Snowflake driver `write_pandas`)
+    let sql = r#"PUT 'file:///tmp/data.csv' @"my stage" PARALLEL=4"#;
+    match snowflake().verified_stmt(sql) {
+        Statement::Put { stage, .. } => {
+            assert_eq!(ObjectName::from(vec![r#"@"my stage""#.into()]), stage);
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
+}
+
+#[test]
+fn test_put_with_options() {
+    let sql = concat!(
+        "PUT 'file:///tmp/data.csv' @my_stage ",
+        "PARALLEL=8 AUTO_COMPRESS=true SOURCE_COMPRESSION=GZIP OVERWRITE=false"
+    );
+    match snowflake().verified_stmt(sql) {
+        Statement::Put { options, .. } => {
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "PARALLEL".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Number("8".parse().unwrap(), false).with_empty_span()
+                ),
+            }));
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "AUTO_COMPRESS".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(true).with_empty_span()),
+            }));
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "SOURCE_COMPRESSION".to_string(),
+                option_value: KeyValueOptionKind::Single(
+                    Value::Placeholder("GZIP".to_string()).with_empty_span()
+                ),
+            }));
+            assert!(options.options.contains(&KeyValueOption {
+                option_name: "OVERWRITE".to_string(),
+                option_value: KeyValueOptionKind::Single(Value::Boolean(false).with_empty_span()),
+            }));
+        }
+        _ => unreachable!(),
+    };
+    assert_eq!(snowflake().verified_stmt(sql).to_string(), sql);
 }
 
 #[test]
@@ -5647,346 +5873,6 @@ fn test_alter_session_followed_by_statement() {
 }
 
 #[test]
-fn test_nested_join_without_parentheses() {
-    let query = "SELECT DISTINCT p.product_id FROM orders AS o INNER JOIN customers AS c INNER JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
-    assert_eq!(
-        only(
-            snowflake()
-                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o INNER JOIN (customers AS c INNER JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
-                .from
-        )
-        .joins,
-        vec![Join {
-            relation: TableFactor::NestedJoin {
-                table_with_joins: Box::new(TableWithJoins {
-                    relation: TableFactor::Table {
-                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
-                        alias: table_alias(true, "c"),
-                        args: None,
-                        with_hints: vec![],
-                        version: None,
-                        partitions: vec![],
-                        with_ordinality: false,
-                        json_path: None,
-                        sample: None,
-                        index_hints: vec![],
-                    },
-                    joins: vec![Join {
-                        relation: TableFactor::Table {
-                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
-                            alias: table_alias(true, "p"),
-                            args: None,
-                            with_hints: vec![],
-                            version: None,
-                            partitions: vec![],
-                            with_ordinality: false,
-                            json_path: None,
-                            sample: None,
-                            index_hints: vec![],
-                        },
-                        global: false,
-                        join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
-                            left: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("p".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                            op: BinaryOperator::Eq,
-                            right: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("c".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                        })),
-                    }]
-                }),
-                alias: None
-            },
-            global: false,
-            join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
-                left: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("c".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-                op: BinaryOperator::Eq,
-                right: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("o".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-            }))
-        }],
-    );
-
-    let query = "SELECT DISTINCT p.product_id FROM orders AS o JOIN customers AS c JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
-    assert_eq!(
-        only(
-            snowflake()
-                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o JOIN (customers AS c JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
-                .from
-        )
-        .joins,
-        vec![Join {
-            relation: TableFactor::NestedJoin {
-                table_with_joins: Box::new(TableWithJoins {
-                    relation: TableFactor::Table {
-                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
-                        alias: table_alias(true, "c"),
-                        args: None,
-                        with_hints: vec![],
-                        version: None,
-                        partitions: vec![],
-                        with_ordinality: false,
-                        json_path: None,
-                        sample: None,
-                        index_hints: vec![],
-                    },
-                    joins: vec![Join {
-                        relation: TableFactor::Table {
-                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
-                            alias: table_alias(true, "p"),
-                            args: None,
-                            with_hints: vec![],
-                            version: None,
-                            partitions: vec![],
-                            with_ordinality: false,
-                            json_path: None,
-                            sample: None,
-                            index_hints: vec![],
-                        },
-                        global: false,
-                        join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
-                            left: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("p".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                            op: BinaryOperator::Eq,
-                            right: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("c".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                        })),
-                    }]
-                }),
-                alias: None
-            },
-            global: false,
-            join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
-                left: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("c".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-                op: BinaryOperator::Eq,
-                right: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("o".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-            }))
-        }],
-    );
-
-    let query = "SELECT DISTINCT p.product_id FROM orders AS o LEFT JOIN customers AS c LEFT JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
-    assert_eq!(
-        only(
-            snowflake()
-                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o LEFT JOIN (customers AS c LEFT JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
-                .from
-        )
-        .joins,
-        vec![Join {
-            relation: TableFactor::NestedJoin {
-                table_with_joins: Box::new(TableWithJoins {
-                    relation: TableFactor::Table {
-                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
-                        alias: table_alias(true, "c"),
-                        args: None,
-                        with_hints: vec![],
-                        version: None,
-                        partitions: vec![],
-                        with_ordinality: false,
-                        json_path: None,
-                        sample: None,
-                        index_hints: vec![],
-                    },
-                    joins: vec![Join {
-                        relation: TableFactor::Table {
-                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
-                            alias: table_alias(true, "p"),
-                            args: None,
-                            with_hints: vec![],
-                            version: None,
-                            partitions: vec![],
-                            with_ordinality: false,
-                            json_path: None,
-                            sample: None,
-                            index_hints: vec![],
-                        },
-                        global: false,
-                        join_operator: JoinOperator::Left(JoinConstraint::On(Expr::BinaryOp {
-                            left: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("p".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                            op: BinaryOperator::Eq,
-                            right: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("c".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                        })),
-                    }]
-                }),
-                alias: None
-            },
-            global: false,
-            join_operator: JoinOperator::Left(JoinConstraint::On(Expr::BinaryOp {
-                left: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("c".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-                op: BinaryOperator::Eq,
-                right: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("o".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-            }))
-        }],
-    );
-
-    let query = "SELECT DISTINCT p.product_id FROM orders AS o RIGHT JOIN customers AS c RIGHT JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
-    assert_eq!(
-        only(
-            snowflake()
-                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o RIGHT JOIN (customers AS c RIGHT JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
-                .from
-        )
-        .joins,
-        vec![Join {
-            relation: TableFactor::NestedJoin {
-                table_with_joins: Box::new(TableWithJoins {
-                    relation: TableFactor::Table {
-                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
-                        alias: table_alias(true, "c"),
-                        args: None,
-                        with_hints: vec![],
-                        version: None,
-                        partitions: vec![],
-                        with_ordinality: false,
-                        json_path: None,
-                        sample: None,
-                        index_hints: vec![],
-                    },
-                    joins: vec![Join {
-                        relation: TableFactor::Table {
-                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
-                            alias: table_alias(true, "p"),
-                            args: None,
-                            with_hints: vec![],
-                            version: None,
-                            partitions: vec![],
-                            with_ordinality: false,
-                            json_path: None,
-                            sample: None,
-                            index_hints: vec![],
-                        },
-                        global: false,
-                        join_operator: JoinOperator::Right(JoinConstraint::On(Expr::BinaryOp {
-                            left: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("p".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                            op: BinaryOperator::Eq,
-                            right: Box::new(Expr::CompoundIdentifier(vec![
-                                Ident::new("c".to_string()),
-                                Ident::new("customer_id".to_string())
-                            ])),
-                        })),
-                    }]
-                }),
-                alias: None
-            },
-            global: false,
-            join_operator: JoinOperator::Right(JoinConstraint::On(Expr::BinaryOp {
-                left: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("c".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-                op: BinaryOperator::Eq,
-                right: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("o".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-            }))
-        }],
-    );
-
-    let query = "SELECT DISTINCT p.product_id FROM orders AS o FULL JOIN customers AS c FULL JOIN products AS p ON p.customer_id = c.customer_id ON c.order_id = o.order_id";
-    assert_eq!(
-        only(
-            snowflake()
-                .verified_only_select_with_canonical(query, "SELECT DISTINCT p.product_id FROM orders AS o FULL JOIN (customers AS c FULL JOIN products AS p ON p.customer_id = c.customer_id) ON c.order_id = o.order_id")
-                .from
-        )
-        .joins,
-        vec![Join {
-            relation: TableFactor::NestedJoin {
-                table_with_joins: Box::new(TableWithJoins {
-                    relation: TableFactor::Table {
-                        name: ObjectName::from(vec![Ident::new("customers".to_string())]),
-                        alias: table_alias(true, "c"),
-                        args: None,
-                        with_hints: vec![],
-                        version: None,
-                        partitions: vec![],
-                        with_ordinality: false,
-                        json_path: None,
-                        sample: None,
-                        index_hints: vec![],
-                    },
-                    joins: vec![Join {
-                        relation: TableFactor::Table {
-                            name: ObjectName::from(vec![Ident::new("products".to_string())]),
-                            alias: table_alias(true, "p"),
-                            args: None,
-                            with_hints: vec![],
-                            version: None,
-                            partitions: vec![],
-                            with_ordinality: false,
-                            json_path: None,
-                            sample: None,
-                            index_hints: vec![],
-                        },
-                        global: false,
-                        join_operator: JoinOperator::FullOuter(JoinConstraint::On(
-                            Expr::BinaryOp {
-                                left: Box::new(Expr::CompoundIdentifier(vec![
-                                    Ident::new("p".to_string()),
-                                    Ident::new("customer_id".to_string())
-                                ])),
-                                op: BinaryOperator::Eq,
-                                right: Box::new(Expr::CompoundIdentifier(vec![
-                                    Ident::new("c".to_string()),
-                                    Ident::new("customer_id".to_string())
-                                ])),
-                            }
-                        )),
-                    }]
-                }),
-                alias: None
-            },
-            global: false,
-            join_operator: JoinOperator::FullOuter(JoinConstraint::On(Expr::BinaryOp {
-                left: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("c".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-                op: BinaryOperator::Eq,
-                right: Box::new(Expr::CompoundIdentifier(vec![
-                    Ident::new("o".to_string()),
-                    Ident::new("order_id".to_string())
-                ])),
-            }))
-        }],
-    );
-}
-
-#[test]
 fn parse_connect_by_root_operator() {
     let sql = "SELECT CONNECT_BY_ROOT name AS root_name FROM Tbl1";
 
@@ -6324,6 +6210,28 @@ fn test_snowflake_create_view_copy_grants() {
     snowflake().verified_stmt(
         "CREATE OR REPLACE VIEW bla COPY GRANTS (a, b) AS (SELECT a, b FROM source)",
     );
+}
+
+#[test]
+fn test_snowflake_create_view_copy_grants_after_columns() {
+    let cases = [
+        (
+            "CREATE OR REPLACE VIEW v (a, b) COPY GRANTS AS SELECT a, b FROM t",
+            "CREATE OR REPLACE VIEW v COPY GRANTS (a, b) AS SELECT a, b FROM t",
+        ),
+        (
+            "CREATE OR REPLACE SECURE VIEW v (a, b) COPY GRANTS AS SELECT a, b FROM t",
+            "CREATE OR REPLACE SECURE VIEW v COPY GRANTS (a, b) AS SELECT a, b FROM t",
+        ),
+        (
+            "CREATE MATERIALIZED VIEW v (a) COPY GRANTS AS SELECT a FROM t",
+            "CREATE MATERIALIZED VIEW v COPY GRANTS (a) AS SELECT a FROM t",
+        ),
+    ];
+    for (sql, parsed) in cases {
+        snowflake().one_statement_parses_to(sql, parsed);
+    }
+    snowflake().verified_stmt("CREATE OR REPLACE VIEW v (a) AS SELECT a FROM t");
 }
 
 #[test]
@@ -8797,6 +8705,21 @@ fn test_if_then_body_with_loop_control_no_inner_begin() {
     }
 }
 
+/// The `TYPE = ...` value of a parsed `CREATE FILE FORMAT`, as its (unquoted) text.
+fn file_format_type(options: &KeyValueOptions) -> Option<String> {
+    options
+        .options
+        .iter()
+        .find(|o| o.option_name == "TYPE")
+        .map(|o| match &o.option_value {
+            KeyValueOptionKind::Single(v) => match &v.value {
+                Value::Placeholder(s) | Value::SingleQuotedString(s) => s.clone(),
+                other => other.to_string(),
+            },
+            other => panic!("expected single TYPE value, got {other:?}"),
+        })
+}
+
 /// Bare `NULL;` is a scripting no-op anywhere `parse_scripting_statement_list`
 /// runs: top-level body, after another statement, inside an inner `BEGIN…END`,
 /// and as the only statement in an `EXCEPTION WHEN OTHER THEN` handler body.
@@ -8946,23 +8869,27 @@ fn test_top_level_bare_call_still_errors() {
 
 #[test]
 fn test_create_file_format_type_csv() {
-    match snowflake().verified_stmt("CREATE FILE FORMAT f TYPE = CSV") {
+    match snowflake().one_statement_parses_to(
+        "CREATE FILE FORMAT f TYPE = CSV",
+        "CREATE FILE FORMAT f TYPE=CSV",
+    ) {
         Statement::CreateFileFormat {
             or_replace,
             temporary,
+            volatile,
             if_not_exists,
             name,
-            format_type,
             options,
             like_source,
             comment,
         } => {
             assert!(!or_replace);
             assert!(!temporary);
+            assert!(!volatile);
             assert!(!if_not_exists);
             assert_eq!("f", name.to_string());
-            assert_eq!(Some(Ident::new("CSV")), format_type);
-            assert!(options.options.is_empty());
+            assert_eq!(Some("CSV".to_string()), file_format_type(&options));
+            assert_eq!(1, options.options.len());
             assert!(like_source.is_none());
             assert!(comment.is_none());
         }
@@ -8972,14 +8899,14 @@ fn test_create_file_format_type_csv() {
 
 #[test]
 fn test_create_file_format_or_replace() {
-    match snowflake().verified_stmt("CREATE OR REPLACE FILE FORMAT f TYPE = JSON") {
+    match snowflake().verified_stmt("CREATE OR REPLACE FILE FORMAT f TYPE=JSON") {
         Statement::CreateFileFormat {
             or_replace,
-            format_type,
+            options,
             ..
         } => {
             assert!(or_replace);
-            assert_eq!(Some(Ident::new("JSON")), format_type);
+            assert_eq!(Some("JSON".to_string()), file_format_type(&options));
         }
         _ => unreachable!(),
     }
@@ -8988,20 +8915,18 @@ fn test_create_file_format_or_replace() {
 #[test]
 fn test_create_file_format_if_not_exists_with_options() {
     let sql = "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER = '|' SKIP_HEADER = 1";
-    let canonical =
-        "CREATE FILE FORMAT IF NOT EXISTS f TYPE = CSV FIELD_DELIMITER='|' SKIP_HEADER=1";
+    let canonical = "CREATE FILE FORMAT IF NOT EXISTS f TYPE=CSV FIELD_DELIMITER='|' SKIP_HEADER=1";
     match snowflake().one_statement_parses_to(sql, canonical) {
         Statement::CreateFileFormat {
             if_not_exists,
-            format_type,
             options,
             ..
         } => {
             assert!(if_not_exists);
-            assert_eq!(Some(Ident::new("CSV")), format_type);
-            assert_eq!(2, options.options.len());
-            assert_eq!("FIELD_DELIMITER", options.options[0].option_name);
-            assert_eq!("SKIP_HEADER", options.options[1].option_name);
+            assert_eq!(Some("CSV".to_string()), file_format_type(&options));
+            assert_eq!(3, options.options.len());
+            assert_eq!("FIELD_DELIMITER", options.options[1].option_name);
+            assert_eq!("SKIP_HEADER", options.options[2].option_name);
         }
         _ => unreachable!(),
     }
@@ -9009,18 +8934,20 @@ fn test_create_file_format_if_not_exists_with_options() {
 
 #[test]
 fn test_create_file_format_temporary_with_comment() {
-    match snowflake().verified_stmt("CREATE TEMPORARY FILE FORMAT f TYPE = CSV COMMENT = 'hi'") {
+    match snowflake().one_statement_parses_to(
+        "CREATE TEMPORARY FILE FORMAT f TYPE = CSV COMMENT = 'it''s'",
+        "CREATE TEMPORARY FILE FORMAT f TYPE=CSV COMMENT='it''s'",
+    ) {
         Statement::CreateFileFormat {
             temporary,
-            format_type,
             options,
             comment,
             ..
         } => {
             assert!(temporary);
-            assert_eq!(Some(Ident::new("CSV")), format_type);
-            assert!(options.options.is_empty());
-            assert_eq!(Some("hi".to_string()), comment);
+            assert_eq!(Some("CSV".to_string()), file_format_type(&options));
+            assert_eq!(1, options.options.len());
+            assert_eq!(Some("it's".to_string()), comment);
         }
         _ => unreachable!(),
     }
@@ -9031,17 +8958,14 @@ fn test_create_file_format_comment_between_options() {
     // Snowflake accepts options in any order, including COMMENT before other
     // options. COMMENT is hoisted into its own field; the rest stay in options.
     let sql = "CREATE FILE FORMAT f TYPE = CSV COMMENT = 'c' COMPRESSION = 'GZIP'";
-    let canonical = "CREATE FILE FORMAT f TYPE = CSV COMPRESSION='GZIP' COMMENT = 'c'";
+    let canonical = "CREATE FILE FORMAT f TYPE=CSV COMPRESSION='GZIP' COMMENT='c'";
     match snowflake().one_statement_parses_to(sql, canonical) {
         Statement::CreateFileFormat {
-            format_type,
-            options,
-            comment,
-            ..
+            options, comment, ..
         } => {
-            assert_eq!(Some(Ident::new("CSV")), format_type);
-            assert_eq!(1, options.options.len());
-            assert_eq!("COMPRESSION", options.options[0].option_name);
+            assert_eq!(Some("CSV".to_string()), file_format_type(&options));
+            assert_eq!(2, options.options.len());
+            assert_eq!("COMPRESSION", options.options[1].option_name);
             assert_eq!(Some("c".to_string()), comment);
         }
         _ => unreachable!(),
@@ -9050,28 +8974,30 @@ fn test_create_file_format_comment_between_options() {
 
 #[test]
 fn test_create_file_format_temp_synonym() {
-    // TEMP and VOLATILE are synonyms of TEMPORARY for file formats; both
-    // canonicalize to TEMPORARY.
-    for sql in [
+    // TEMP is a synonym of TEMPORARY and canonicalizes to it. VOLATILE is kept
+    // as its own flag (see test_create_file_format_volatile).
+    match snowflake().one_statement_parses_to(
         "CREATE TEMP FILE FORMAT f TYPE = CSV",
-        "CREATE VOLATILE FILE FORMAT f TYPE = CSV",
-    ] {
-        match snowflake().one_statement_parses_to(sql, "CREATE TEMPORARY FILE FORMAT f TYPE = CSV")
-        {
-            Statement::CreateFileFormat { temporary, .. } => assert!(temporary),
-            _ => unreachable!(),
+        "CREATE TEMPORARY FILE FORMAT f TYPE=CSV",
+    ) {
+        Statement::CreateFileFormat {
+            temporary,
+            volatile,
+            ..
+        } => {
+            assert!(temporary);
+            assert!(!volatile);
         }
+        _ => unreachable!(),
     }
 }
 
 #[test]
 fn test_create_file_format_three_part_name() {
-    match snowflake().verified_stmt("CREATE FILE FORMAT db.sch.f TYPE = AVRO") {
-        Statement::CreateFileFormat {
-            name, format_type, ..
-        } => {
+    match snowflake().verified_stmt("CREATE FILE FORMAT db.sch.f TYPE=AVRO") {
+        Statement::CreateFileFormat { name, options, .. } => {
             assert_eq!("db.sch.f", name.to_string());
-            assert_eq!(Some(Ident::new("AVRO")), format_type);
+            assert_eq!(Some("AVRO".to_string()), file_format_type(&options));
         }
         _ => unreachable!(),
     }
@@ -9082,13 +9008,11 @@ fn test_create_file_format_like_one_part() {
     match snowflake().verified_stmt("CREATE FILE FORMAT f LIKE other") {
         Statement::CreateFileFormat {
             name,
-            format_type,
             options,
             like_source,
             ..
         } => {
             assert_eq!("f", name.to_string());
-            assert!(format_type.is_none());
             assert!(options.options.is_empty());
             assert_eq!(
                 Some("other".to_string()),
@@ -9115,12 +9039,12 @@ fn test_create_file_format_like_three_part() {
 #[test]
 fn test_create_file_format_list_valued_option() {
     let sql = "CREATE FILE FORMAT f TYPE = CSV NULL_IF = ('NULL', 'null')";
-    let canonical = "CREATE FILE FORMAT f TYPE = CSV NULL_IF=('NULL', 'null')";
+    let canonical = "CREATE FILE FORMAT f TYPE=CSV NULL_IF=('NULL', 'null')";
     match snowflake().one_statement_parses_to(sql, canonical) {
         Statement::CreateFileFormat { options, .. } => {
-            assert_eq!(1, options.options.len());
-            assert_eq!("NULL_IF", options.options[0].option_name);
-            match &options.options[0].option_value {
+            assert_eq!(2, options.options.len());
+            assert_eq!("NULL_IF", options.options[1].option_name);
+            match &options.options[1].option_value {
                 KeyValueOptionKind::Multi(values) => assert_eq!(2, values.len()),
                 other => panic!("expected Multi, got {other:?}"),
             }
@@ -9132,10 +9056,10 @@ fn test_create_file_format_list_valued_option() {
 #[test]
 fn test_create_file_format_all_type_values() {
     for ty in ["CSV", "JSON", "AVRO", "ORC", "PARQUET", "XML"] {
-        let sql = format!("CREATE FILE FORMAT f TYPE = {ty}");
+        let sql = format!("CREATE FILE FORMAT f TYPE={ty}");
         match snowflake().verified_stmt(&sql) {
-            Statement::CreateFileFormat { format_type, .. } => {
-                assert_eq!(Some(Ident::new(ty)), format_type);
+            Statement::CreateFileFormat { options, .. } => {
+                assert_eq!(Some(ty.to_string()), file_format_type(&options));
             }
             _ => unreachable!(),
         }
@@ -9659,7 +9583,8 @@ fn test_select_into_placeholder_target() {
         unreachable!()
     };
     let into = select.into.expect("expected SELECT ... INTO clause");
-    assert_eq!(into.name.to_string(), ":res");
+    assert_eq!(1, into.targets.len());
+    assert_eq!(into.targets[0].to_string(), ":res");
     assert!(!into.table);
 
     // Bare-identifier targets are unaffected.
@@ -9670,7 +9595,9 @@ fn test_select_into_placeholder_target() {
     let SetExpr::Select(select) = *query.body else {
         unreachable!()
     };
-    assert_eq!(select.into.unwrap().name.to_string(), "res");
+    let targets = select.into.unwrap().targets;
+    assert_eq!(1, targets.len());
+    assert_eq!(targets[0].to_string(), "res");
 }
 
 #[test]
@@ -9685,20 +9612,11 @@ fn test_select_into_multiple_targets() {
         unreachable!()
     };
     let into = select.into.expect("expected SELECT ... INTO clause");
-    assert_eq!(into.name.to_string(), ":v");
-    let rest: Vec<String> = into
-        .additional_targets
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    assert_eq!(rest, vec!["w".to_string()]);
+    let targets: Vec<String> = into.targets.iter().map(ToString::to_string).collect();
+    assert_eq!(targets, vec![":v".to_string(), "w".to_string()]);
 
     // The parenthesized statement form keeps its target list.
     snowflake().verified_stmt("(SELECT 1, 2 INTO :v, :w)");
-
-    // Other dialects keep a single table target: the comma is a syntax error.
-    let pg = sqlparser::dialect::PostgreSqlDialect {};
-    assert!(Parser::parse_sql(&pg, "SELECT 1 INTO t, u FROM tbl").is_err());
 }
 
 #[test]
@@ -10954,8 +10872,11 @@ fn parse_snowflake_update_set_default() {
             let action = &clauses[0].action;
             match action {
                 MergeAction::Update(update) => {
+                    let MergeUpdateKind::Set(assignments) = &update.kind else {
+                        unreachable!("expected UPDATE SET, got {:?}", update.kind)
+                    };
                     assert!(matches!(
-                        update.assignments.as_slice(),
+                        assignments.as_slice(),
                         [Assignment {
                             value: Expr::Default(_),
                             ..
@@ -11404,6 +11325,100 @@ fn execute_task_using_config() {
     ] {
         assert!(Parser::parse_sql(&SnowflakeDialect {}, sql).is_err(), "{sql}");
     }
+}
+
+#[test]
+fn test_array_keyword_is_not_a_type_suffix() {
+    // `v ARRAY` is a parameter named `v` of type ARRAY, not an array of a
+    // custom type `v` (the SQL-standard `<type> ARRAY` suffix does not exist
+    // in Snowflake).
+    match snowflake().verified_stmt("CREATE FUNCTION f(v ARRAY) RETURNS ARRAY AS 'v'") {
+        Statement::CreateFunction(CreateFunction { args: Some(args), .. }) => {
+            assert_eq!(1, args.len());
+            assert_eq!(Some(Ident::new("v")), args[0].name);
+            assert!(matches!(args[0].data_type, DataType::Array(ArrayElemTypeDef::None)));
+        }
+        other => panic!("expected CreateFunction, got {other:?}"),
+    }
+    snowflake().verified_stmt("CREATE TABLE t (a INT, b ARRAY)");
+}
+
+#[test]
+fn test_postgres_only_grammar_is_rejected() {
+    // Upstream accepts these for every dialect; Snowflake has none of them.
+    for sql in [
+        "MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN DO NOTHING",
+        "MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE SET *",
+        "MERGE INTO t USING s ON t.a = s.a WHEN NOT MATCHED THEN INSERT *",
+        "SELECT a IS JSON FROM t",
+        "SELECT a IS NOT JSON FROM t",
+        "SELECT count(x WHERE x > 1) FROM t",
+        "CREATE TEXT SEARCH CONFIGURATION c (PARSER = p)",
+        "ALTER TEXT SEARCH CONFIGURATION c RENAME TO d",
+        "CREATE UNLOGGED TABLE t (a INT)",
+        "ALTER TABLE t SET UNLOGGED",
+        "ALTER TABLE t SET LOGGED",
+        "ABORT",
+        "ABORT TRANSACTION",
+        "CREATE TABLE t (a INT, CHECK (a > 0) NO INHERIT)",
+        "CREATE TABLE t (a INT CHECK (a > 0) NO INHERIT)",
+        "CREATE TABLE t (a INT, PRIMARY KEY (a) INCLUDE (b))",
+        "CREATE TABLE t (a INT, UNIQUE (a) INCLUDE (b))",
+        "CREATE INDEX ASYNC i ON t (b)",
+        "SELECT a INTO 1 FROM t",
+        "SELECT a INTO $x FROM t",
+        "CREATE FILE FORMAT f TYPE = (CSV)",
+        "CREATE FILE FORMAT f COMMENT = 'c' TYPE = (CSV, JSON)",
+        "CREATE SET TABLE t (a INT)",
+        "CREATE MULTISET TABLE t (a INT)",
+    ] {
+        assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
+    }
+    // Index-level INCLUDE is Snowflake (hybrid tables) and still parses.
+    snowflake().verified_stmt("CREATE INDEX i ON t(b) INCLUDE (a)");
+    snowflake().verified_stmt("SELECT a, b INTO x, db.s.y FROM t");
+    // GLOB is not an operator here, so it stays usable as a bare alias.
+    snowflake().one_statement_parses_to("SELECT a glob, b FROM t", "SELECT a AS glob, b FROM t");
+    snowflake()
+        .verified_stmt("MERGE INTO t USING s ON t.a = s.a WHEN MATCHED THEN UPDATE ALL BY NAME");
+}
+
+#[test]
+fn test_create_warehouse_property_values() {
+    snowflake().verified_stmt("CREATE WAREHOUSE w COMMENT=$$x$$");
+    snowflake().verified_stmt("CREATE WAREHOUSE w RESOURCE_MONITOR=IDENTIFIER('rm')");
+    // Snowflake rejects a property after the TAG clause.
+    assert!(snowflake()
+        .parse_sql_statements("CREATE WAREHOUSE w TAG (t = 'v') COMMENT = 'x'")
+        .is_err());
+}
+
+#[test]
+fn test_like_escape_is_a_single_value() {
+    // The escape binds only its value, so a trailing comparison applies to the
+    // whole predicate rather than folding into the escape.
+    let expr = snowflake().verified_expr("a LIKE 'b' ESCAPE '!' = true");
+    let Expr::BinaryOp {
+        left,
+        op: BinaryOperator::Eq,
+        ..
+    } = expr
+    else {
+        panic!("expected `(a LIKE 'b' ESCAPE '!') = true`, got {expr:?}");
+    };
+    let Expr::Like {
+        escape_char: Some(escape),
+        ..
+    } = *left
+    else {
+        panic!("expected LIKE on the left");
+    };
+    assert_eq!(*escape, Expr::value(Value::SingleQuotedString("!".into())));
+    snowflake().verified_expr("a LIKE 'b' ESCAPE NULL");
+    snowflake().verified_expr("a LIKE 'b' ESCAPE ?");
+    assert!(snowflake()
+        .parse_sql_statements("SELECT a LIKE 'b' ESCAPE ('' || '#')")
+        .is_err());
 }
 
 #[test]

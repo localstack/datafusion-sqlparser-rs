@@ -446,10 +446,11 @@ pub enum DataType {
     Custom(ObjectName, Vec<String>),
     /// Arrays.
     Array(ArrayElemTypeDef),
-    /// Map, see [ClickHouse].
+    /// Map, see [ClickHouse], [Hive].
     ///
     /// [ClickHouse]: https://clickhouse.com/docs/en/sql-reference/data-types/map
-    Map(Box<DataType>, Box<DataType>),
+    /// [Hive]: https://hive.apache.org/docs/latest/language/languagemanual-types/
+    Map(Box<DataType>, Box<DataType>, MapBracketKind),
     /// Tuple, see [ClickHouse].
     ///
     /// [ClickHouse]: https://clickhouse.com/docs/en/sql-reference/data-types/tuple
@@ -755,6 +756,8 @@ impl fmt::Display for DataType {
                 ArrayElemTypeDef::SquareBracket(t, Some(size)) => write!(f, "{t}[{size}]"),
                 ArrayElemTypeDef::AngleBracket(t) => write!(f, "ARRAY<{t}>"),
                 ArrayElemTypeDef::Parenthesis(t) => write!(f, "Array({t})"),
+                ArrayElemTypeDef::Qualified(t, None) => write!(f, "{t} ARRAY"),
+                ArrayElemTypeDef::Qualified(t, Some(size)) => write!(f, "{t} ARRAY[{size}]"),
             },
             DataType::Custom(ty, modifiers) => {
                 if modifiers.is_empty() {
@@ -821,9 +824,14 @@ impl fmt::Display for DataType {
             DataType::LowCardinality(data_type) => {
                 write!(f, "LowCardinality({data_type})")
             }
-            DataType::Map(key_data_type, value_data_type) => {
-                write!(f, "Map({key_data_type}, {value_data_type})")
-            }
+            DataType::Map(key_data_type, value_data_type, bracket) => match bracket {
+                MapBracketKind::Parentheses => {
+                    write!(f, "Map({key_data_type}, {value_data_type})")
+                }
+                MapBracketKind::AngleBrackets => {
+                    write!(f, "MAP<{key_data_type}, {value_data_type}>")
+                }
+            },
             DataType::Tuple(fields) => {
                 write!(f, "Tuple({})", display_comma_separated(fields))
             }
@@ -937,6 +945,17 @@ pub enum StructBracketKind {
     /// Example: `STRUCT(a INT, b STRING)`
     Parentheses,
     /// Example: `STRUCT<a INT, b STRING>`
+    AngleBrackets,
+}
+
+/// Type of brackets used for `MAP` types.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum MapBracketKind {
+    /// Example: `Map(String, UInt16)`
+    Parentheses,
+    /// Example: `MAP<STRING, INT>`
     AngleBrackets,
 }
 
@@ -1189,6 +1208,8 @@ pub enum ArrayElemTypeDef {
     SquareBracket(Box<DataType>, Option<u64>),
     /// Parenthesis style, e.g. `Array(Int64)`.
     Parenthesis(Box<DataType>),
+    /// Qualified by a data type and optional size, e.g. `INT ARRAY` or `INT ARRAY[4]`.
+    Qualified(Box<DataType>, Option<u64>),
 }
 
 /// Represents different types of geometric shapes which are commonly used in

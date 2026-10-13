@@ -30,7 +30,7 @@ use crate::ast::{
     DistStyle, DynamicTableCustomRefresh, DynamicTableStartAt, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat, Ident,
     InitializeKind, ObjectName, OnCommit, OneOrManyWithParens, Query, RefreshModeKind,
     RowAccessPolicy, Statement, StorageLifecyclePolicy, StorageSerializationPolicy,
-    TableConstraint, TableVersion, Tag, WrappedCollection,
+    TableConstraint, TableVersion, Tag, WithData, WrappedCollection,
 };
 
 use crate::parser::ParserError;
@@ -72,6 +72,8 @@ pub struct CreateTableBuilder {
     pub or_alter: bool,
     /// Whether the table is `TEMPORARY`.
     pub temporary: bool,
+    /// Whether the table is `UNLOGGED`.
+    pub unlogged: bool,
     /// Whether the table is `EXTERNAL`.
     pub external: bool,
     /// Optional `GLOBAL` flag for dialects that support it.
@@ -174,6 +176,9 @@ pub struct CreateTableBuilder {
     pub base_location: Option<String>,
     /// Optional external volume identifier.
     pub external_volume: Option<String>,
+    /// `WITH CONNECTION` clause.
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#create_external_table_statement)
+    pub with_connection: Option<ObjectName>,
     /// Optional catalog name.
     pub catalog: Option<String>,
     /// Optional externally-managed catalog table name.
@@ -220,6 +225,12 @@ pub struct CreateTableBuilder {
     pub sortkey: Option<Vec<Expr>>,
     /// Redshift `BACKUP` option.
     pub backup: Option<bool>,
+    /// `MULTISET | SET` table-kind prefix.
+    pub multiset: Option<bool>,
+    /// `FALLBACK` clause.
+    pub fallback: Option<bool>,
+    /// `WITH DATA` clause.
+    pub with_data: Option<WithData>,
     /// Snowflake external table `PATTERN` clause.
     pub pattern: Option<String>,
     /// Snowflake external table `REFRESH_ON_CREATE` clause.
@@ -239,6 +250,7 @@ impl CreateTableBuilder {
             or_replace: false,
             or_alter: false,
             temporary: false,
+            unlogged: false,
             external: false,
             global: None,
             if_not_exists: false,
@@ -290,6 +302,7 @@ impl CreateTableBuilder {
             with_tags: None,
             base_location: None,
             external_volume: None,
+            with_connection: None,
             catalog: None,
             catalog_table_name: None,
             metadata_file_path: None,
@@ -313,6 +326,9 @@ impl CreateTableBuilder {
             distkey: None,
             sortkey: None,
             backup: None,
+            multiset: None,
+            fallback: None,
+            with_data: None,
             pattern: None,
             refresh_on_create: None,
             partition_type: None,
@@ -333,6 +349,11 @@ impl CreateTableBuilder {
     /// Mark the table as `TEMPORARY`.
     pub fn temporary(mut self, temporary: bool) -> Self {
         self.temporary = temporary;
+        self
+    }
+    /// Mark the table as `UNLOGGED`.
+    pub fn unlogged(mut self, unlogged: bool) -> Self {
+        self.unlogged = unlogged;
         self
     }
     /// Mark the table as `EXTERNAL`.
@@ -598,6 +619,11 @@ impl CreateTableBuilder {
         self.external_volume = external_volume;
         self
     }
+    /// Set the `WITH CONNECTION` clause.
+    pub fn with_connection(mut self, with_connection: Option<ObjectName>) -> Self {
+        self.with_connection = with_connection;
+        self
+    }
     /// Set the catalog name for the table.
     pub fn catalog(mut self, catalog: Option<String>) -> Self {
         self.catalog = catalog;
@@ -696,6 +722,22 @@ impl CreateTableBuilder {
         self.backup = backup;
         self
     }
+    /// Set `MULTISET | SET` table-kind prefix.
+    /// Some(true) => `MULTISET`, Some(false) => `SET`.
+    pub fn multiset(mut self, multiset: Option<bool>) -> Self {
+        self.multiset = multiset;
+        self
+    }
+    /// Set `FALLBACK` / `NO FALLBACK` flag.
+    pub fn fallback(mut self, fallback: Option<bool>) -> Self {
+        self.fallback = fallback;
+        self
+    }
+    /// Set `WITH DATA` clause.
+    pub fn with_data(mut self, with_data: Option<WithData>) -> Self {
+        self.with_data = with_data;
+        self
+    }
     /// Set the Snowflake external table `PATTERN` clause.
     pub fn pattern(mut self, pattern: Option<String>) -> Self {
         self.pattern = pattern;
@@ -727,6 +769,7 @@ impl CreateTableBuilder {
             or_replace: self.or_replace,
             or_alter: self.or_alter,
             temporary: self.temporary,
+            unlogged: self.unlogged,
             external: self.external,
             global: self.global,
             if_not_exists: self.if_not_exists,
@@ -778,6 +821,7 @@ impl CreateTableBuilder {
             with_tags: self.with_tags,
             base_location: self.base_location,
             external_volume: self.external_volume,
+            with_connection: self.with_connection,
             catalog: self.catalog,
             catalog_table_name: self.catalog_table_name,
             metadata_file_path: self.metadata_file_path,
@@ -807,6 +851,9 @@ impl CreateTableBuilder {
             distkey: self.distkey,
             sortkey: self.sortkey,
             backup: self.backup,
+            multiset: self.multiset,
+            fallback: self.fallback,
+            with_data: self.with_data,
             pattern: self.pattern,
             refresh_on_create: self.refresh_on_create,
             partition_type: self.partition_type,
@@ -837,6 +884,7 @@ impl From<CreateTable> for CreateTableBuilder {
             or_replace: table.or_replace,
             or_alter: table.or_alter,
             temporary: table.temporary,
+            unlogged: table.unlogged,
             external: table.external,
             global: table.global,
             if_not_exists: table.if_not_exists,
@@ -888,6 +936,7 @@ impl From<CreateTable> for CreateTableBuilder {
             with_tags: table.with_tags,
             base_location: table.base_location,
             external_volume: table.external_volume,
+            with_connection: table.with_connection,
             catalog: table.catalog,
             catalog_table_name: table.catalog_table_name,
             metadata_file_path: table.metadata_file_path,
@@ -911,6 +960,9 @@ impl From<CreateTable> for CreateTableBuilder {
             distkey: table.distkey,
             sortkey: table.sortkey,
             backup: table.backup,
+            multiset: table.multiset,
+            fallback: table.fallback,
+            with_data: table.with_data,
             pattern: table.pattern,
             refresh_on_create: table.refresh_on_create,
             partition_type: table.partition_type,
