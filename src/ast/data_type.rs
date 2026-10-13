@@ -122,6 +122,8 @@ pub enum DataType {
     NcharVarying(Option<CharacterLength>),
     /// Uuid type.
     Uuid,
+    /// Half-open temporal period with an element type.
+    Period(Box<DataType>),
     /// Large character object with optional length,
     /// e.g. CHARACTER LARGE OBJECT, CHARACTER LARGE OBJECT(1000), [SQL Standard].
     ///
@@ -585,6 +587,7 @@ impl fmt::Display for DataType {
             DataType::Nchar(size) => format_character_string_type(f, "NCHAR", size),
             DataType::NcharVarying(size) => format_character_string_type(f, "NCHAR VARYING", size),
             DataType::Uuid => write!(f, "UUID"),
+            DataType::Period(element) => write!(f, "PERIOD({element})"),
             DataType::CharacterLargeObject(size) => {
                 format_type_with_optional_length(f, "CHARACTER LARGE OBJECT", size, false)
             }
