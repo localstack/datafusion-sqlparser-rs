@@ -26,6 +26,7 @@ use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::{
     CatalogSyncNamespaceMode, ContactEntry, ObjectName, Statement, StorageSerializationPolicy, Tag,
+    TableVersion,
 };
 use crate::parser::ParserError;
 
@@ -69,6 +70,10 @@ pub struct CreateDatabaseBuilder {
     pub transient: bool,
     /// Optional `CLONE` source object name.
     pub clone: Option<ObjectName>,
+    #[doc = "Historical anchor for a container clone."]
+    pub clone_version: Option<TableVersion>,
+    #[doc = "Whether the clone skips tables with insufficient data retention."]
+    pub ignore_insufficient_retention: bool,
     /// Optional data retention time in days.
     pub data_retention_time_in_days: Option<u64>,
     /// Optional max data extension time in days.
@@ -124,6 +129,8 @@ impl CreateDatabaseBuilder {
             or_replace: false,
             transient: false,
             clone: None,
+            clone_version: None,
+            ignore_insufficient_retention: false,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             external_volume: None,
@@ -298,6 +305,8 @@ impl CreateDatabaseBuilder {
             or_replace: self.or_replace,
             transient: self.transient,
             clone: self.clone,
+            clone_version: self.clone_version,
+            ignore_insufficient_retention: self.ignore_insufficient_retention,
             data_retention_time_in_days: self.data_retention_time_in_days,
             max_data_extension_time_in_days: self.max_data_extension_time_in_days,
             external_volume: self.external_volume,
@@ -332,6 +341,8 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 or_replace,
                 transient,
                 clone,
+                clone_version,
+                ignore_insufficient_retention,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -357,6 +368,8 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 or_replace,
                 transient,
                 clone,
+                clone_version,
+                ignore_insufficient_retention,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,

@@ -44,6 +44,10 @@ pub struct StageParamsObject {
     pub encryption_specified: bool,
     /// Optional endpoint string.
     pub endpoint: Option<String>,
+    /// Optional PrivateLink endpoint preference for an external stage.
+    pub use_privatelink_endpoint: Option<bool>,
+    /// Optional AWS S3 access-point ARN for an external stage.
+    pub aws_access_point_arn: Option<String>,
     /// Optional storage integration identifier.
     pub storage_integration: Option<String>,
     /// Credentials for accessing the stage.
@@ -96,6 +100,12 @@ impl fmt::Display for StageParamsObject {
         }
         if let Some(ref endpoint) = self.endpoint {
             write!(f, " ENDPOINT='{endpoint}'")?;
+        }
+        if let Some(enabled) = self.use_privatelink_endpoint {
+            write!(f, " USE_PRIVATELINK_ENDPOINT={}", if enabled { "TRUE" } else { "FALSE" })?;
+        }
+        if let Some(arn) = &self.aws_access_point_arn {
+            write!(f, " AWS_ACCESS_POINT_ARN='{}'", arn.replace('\'', "''"))?;
         }
         if !self.credentials.options.is_empty() {
             write!(f, " CREDENTIALS=({})", self.credentials)?;
