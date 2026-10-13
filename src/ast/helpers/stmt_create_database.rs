@@ -74,6 +74,8 @@ pub struct CreateDatabaseBuilder {
     pub clone_version: Option<TableVersion>,
     #[doc = "Whether the clone skips tables with insufficient data retention."]
     pub ignore_insufficient_retention: bool,
+    #[doc = "Whether the clone excludes hybrid tables."]
+    pub ignore_hybrid_tables: bool,
     /// Optional data retention time in days.
     pub data_retention_time_in_days: Option<u64>,
     /// Optional max data extension time in days.
@@ -131,6 +133,7 @@ impl CreateDatabaseBuilder {
             clone: None,
             clone_version: None,
             ignore_insufficient_retention: false,
+            ignore_hybrid_tables: false,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             external_volume: None,
@@ -307,6 +310,7 @@ impl CreateDatabaseBuilder {
             clone: self.clone,
             clone_version: self.clone_version,
             ignore_insufficient_retention: self.ignore_insufficient_retention,
+            ignore_hybrid_tables: self.ignore_hybrid_tables,
             data_retention_time_in_days: self.data_retention_time_in_days,
             max_data_extension_time_in_days: self.max_data_extension_time_in_days,
             external_volume: self.external_volume,
@@ -343,6 +347,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 clone,
                 clone_version,
                 ignore_insufficient_retention,
+                ignore_hybrid_tables,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -370,6 +375,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 clone,
                 clone_version,
                 ignore_insufficient_retention,
+                ignore_hybrid_tables,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
