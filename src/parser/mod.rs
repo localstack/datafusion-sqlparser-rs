@@ -6298,6 +6298,14 @@ impl<'a> Parser<'a> {
     fn parse_create_alert(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
+        if self.parse_keyword(Keyword::CLONE) {
+            return Ok(Statement::CreateAlertClone {
+                or_replace,
+                if_not_exists,
+                name,
+                source: self.parse_object_name(false)?,
+            });
+        }
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
         let mut comment: Option<String> = None;

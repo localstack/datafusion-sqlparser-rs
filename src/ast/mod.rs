@@ -5385,6 +5385,17 @@ pub enum Statement {
         /// The action statement after `THEN`.
         action: Box<Statement>,
     },
+    /// `CREATE [OR REPLACE] ALERT <name> CLONE <source>`.
+    CreateAlertClone {
+        /// Replace an existing destination alert.
+        or_replace: bool,
+        /// Preserve an existing destination alert.
+        if_not_exists: bool,
+        /// Destination alert name.
+        name: ObjectName,
+        /// Source alert name.
+        source: ObjectName,
+    },
     /// ```sql
     /// ALTER ALERT [IF EXISTS] <name>
     ///   { RESUME | SUSPEND | SET ... | UNSET ...
@@ -9086,6 +9097,17 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateAlertClone {
+                or_replace,
+                if_not_exists,
+                name,
+                source,
+            } => write!(
+                f,
+                "CREATE {}ALERT {}{name} CLONE {source}",
+                if *or_replace { "OR REPLACE " } else { "" },
+                if *if_not_exists { "IF NOT EXISTS " } else { "" },
+            ),
             Statement::CreateAlert {
                 or_replace,
                 if_not_exists,
