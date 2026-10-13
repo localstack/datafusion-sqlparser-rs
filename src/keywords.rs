@@ -1051,6 +1051,7 @@ define_keywords!(
     RULE,
     RULES,
     RUN,
+    RUNBOOK,
     SAFE,
     SAFE_CAST,
     SAMPLE,

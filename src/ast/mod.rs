@@ -5542,6 +5542,8 @@ pub enum Statement {
         config: Option<String>,
         /// Optional `SUSPEND_ALERT_AFTER_NUM_FAILURES = <num>` clause.
         suspend_after_num_failures: Option<u64>,
+        /// Optional `RUNBOOK` literal, including explicit `NULL`.
+        runbook: Option<ValueWithSpan>,
         /// The condition statement inside `IF (EXISTS ( … ))`.
         condition: Box<Statement>,
         /// The action statement after `THEN`.
@@ -9305,6 +9307,7 @@ impl fmt::Display for Statement {
                 comment,
                 config,
                 suspend_after_num_failures,
+                runbook,
                 condition,
                 action,
             } => {
@@ -9328,6 +9331,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(config) = config {
                     write!(f, " CONFIG = '{}'", value::escape_single_quote_string(config))?;
+                }
+                if let Some(value) = runbook {
+                    write!(f, " RUNBOOK = {value}")?;
                 }
                 write!(f, " IF (EXISTS ({condition})) THEN {action}")
             }
