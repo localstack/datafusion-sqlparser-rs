@@ -6510,7 +6510,11 @@ impl<'a> Parser<'a> {
         loop {
             if self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
-                warehouse = Some(self.parse_identifier()?);
+                warehouse = Some(if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
+                    Ident::new(self.parse_literal_string()?)
+                } else {
+                    self.parse_identifier()?
+                });
             } else if self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
                 schedule = if self.parse_keyword(Keyword::NULL) {
@@ -13461,7 +13465,15 @@ impl<'a> Parser<'a> {
 
         let operation = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_identifier()?;
-            AlterFunctionOperation::RenameTo { new_name }
+            if self.consume_token(&Token::Period) {
+                let mut parts = vec![ObjectNamePart::Identifier(new_name)];
+                parts.extend(self.parse_object_name(false)?.0);
+                AlterFunctionOperation::RenameToQualified {
+                    new_name: ObjectName(parts),
+                }
+            } else {
+                AlterFunctionOperation::RenameTo { new_name }
+            }
         } else if self.parse_keywords(&[Keyword::OWNER, Keyword::TO]) {
             AlterFunctionOperation::OwnerTo(self.parse_owner()?)
         } else if self.parse_keywords(&[Keyword::SET, Keyword::SCHEMA]) {

@@ -7221,6 +7221,11 @@ pub enum AlterFunctionOperation {
         /// New unqualified function or aggregate name.
         new_name: Ident,
     },
+    /// `RENAME TO database.schema.name` or `RENAME TO schema.name`.
+    RenameToQualified {
+        /// Qualified destination of the selected overload.
+        new_name: ObjectName,
+    },
     /// `OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }`
     OwnerTo(Owner),
     /// `SET SCHEMA schema_name`
@@ -7315,6 +7320,9 @@ impl fmt::Display for AlterFunctionOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             AlterFunctionOperation::RenameTo { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+            AlterFunctionOperation::RenameToQualified { new_name } => {
                 write!(f, "RENAME TO {new_name}")
             }
             AlterFunctionOperation::OwnerTo(owner) => write!(f, "OWNER TO {owner}"),
