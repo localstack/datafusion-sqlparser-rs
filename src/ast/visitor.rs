@@ -153,6 +153,11 @@ impl<V: Visitor> Visitor for Erased<'_, V, V::Break> {
 impl<V: VisitorMut> VisitorMut for Erased<'_, V, V::Break> {
     type Break = ();
 
+    fn post_visit_option_name(&mut self, name: &mut String) -> ControlFlow<()> {
+        let flow = self.inner.post_visit_option_name(name);
+        self.stash(flow)
+    }
+
     forward_hooks!(
         pre_visit_object_name post_visit_object_name: &mut ObjectName;
         pre_visit_query post_visit_query: &mut Query;
@@ -166,6 +171,7 @@ impl<V: VisitorMut> VisitorMut for Erased<'_, V, V::Break> {
         pre_visit_order_by post_visit_order_by: &mut OrderBy;
         pre_visit_order_by_expr post_visit_order_by_expr: &mut OrderByExpr;
         pre_visit_group_by post_visit_group_by: &mut GroupByExpr;
+        pre_visit_string post_visit_string: &mut String;
     );
 }
 
@@ -232,7 +238,20 @@ macro_rules! visit_noop {
     };
 }
 
-visit_noop!(u8, u16, u32, u64, i8, i16, i32, i64, char, bool, String);
+visit_noop!(u8, u16, u32, u64, i8, i16, i32, i64, char, bool);
+
+impl Visit for String {
+    fn visit_dyn(&self, _visitor: &mut dyn Visitor<Break = ()>) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+}
+
+impl VisitMut for String {
+    fn visit_dyn(&mut self, visitor: &mut dyn VisitorMut<Break = ()>) -> ControlFlow<()> {
+        visitor.pre_visit_string(self)?;
+        visitor.post_visit_string(self)
+    }
+}
 
 #[cfg(feature = "bigdecimal")]
 visit_noop!(bigdecimal::BigDecimal);
@@ -614,6 +633,21 @@ pub trait VisitorMut {
 
     /// Invoked for any `GROUP BY` clauses that appear in the AST after visiting children
     fn post_visit_group_by(&mut self, _group_by: &mut GroupByExpr) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked before visiting a plain string field in the AST.
+    fn pre_visit_string(&mut self, _string: &mut String) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked after visiting a plain string field in the AST.
+    fn post_visit_string(&mut self, _string: &mut String) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for the structural name of a key-value option.
+    fn post_visit_option_name(&mut self, _name: &mut String) -> ControlFlow<Self::Break> {
         ControlFlow::Continue(())
     }
 }
