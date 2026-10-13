@@ -6309,6 +6309,7 @@ impl<'a> Parser<'a> {
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
         let mut comment: Option<String> = None;
+        let mut config: Option<String> = None;
         let mut suspend_after_num_failures: Option<u64> = None;
 
         loop {
@@ -6325,6 +6326,9 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::CONFIG) {
+                self.expect_token(&Token::Eq)?;
+                config = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::SUSPEND_ALERT_AFTER_NUM_FAILURES) {
                 self.expect_token(&Token::Eq)?;
                 suspend_after_num_failures = Some(self.parse_literal_uint()?);
@@ -6354,6 +6358,7 @@ impl<'a> Parser<'a> {
             warehouse,
             schedule,
             comment,
+            config,
             suspend_after_num_failures,
             condition,
             action,

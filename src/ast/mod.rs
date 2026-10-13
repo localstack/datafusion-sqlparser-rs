@@ -5378,6 +5378,8 @@ pub enum Statement {
         schedule: Option<String>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
+        /// Optional alert configuration JSON string.
+        config: Option<String>,
         /// Optional `SUSPEND_ALERT_AFTER_NUM_FAILURES = <num>` clause.
         suspend_after_num_failures: Option<u64>,
         /// The condition statement inside `IF (EXISTS ( … ))`.
@@ -9115,6 +9117,7 @@ impl fmt::Display for Statement {
                 warehouse,
                 schedule,
                 comment,
+                config,
                 suspend_after_num_failures,
                 condition,
                 action,
@@ -9136,6 +9139,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(c) = comment {
                     write!(f, " COMMENT = '{c}'")?;
+                }
+                if let Some(config) = config {
+                    write!(f, " CONFIG = '{}'", value::escape_single_quote_string(config))?;
                 }
                 write!(f, " IF (EXISTS ({condition})) THEN {action}")
             }
