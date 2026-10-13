@@ -13028,7 +13028,15 @@ impl<'a> Parser<'a> {
 
         let operation = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_identifier()?;
-            AlterFunctionOperation::RenameTo { new_name }
+            if self.consume_token(&Token::Period) {
+                let mut parts = vec![ObjectNamePart::Identifier(new_name)];
+                parts.extend(self.parse_object_name(false)?.0);
+                AlterFunctionOperation::RenameToQualified {
+                    new_name: ObjectName(parts),
+                }
+            } else {
+                AlterFunctionOperation::RenameTo { new_name }
+            }
         } else if self.parse_keywords(&[Keyword::OWNER, Keyword::TO]) {
             AlterFunctionOperation::OwnerTo(self.parse_owner()?)
         } else if self.parse_keywords(&[Keyword::SET, Keyword::SCHEMA]) {
