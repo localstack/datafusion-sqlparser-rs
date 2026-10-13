@@ -6135,7 +6135,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::TASK) {
             self.parse_create_task(or_replace, or_alter)
         } else if self.parse_keyword(Keyword::ALERT) {
-            self.parse_create_alert(or_replace)
+            self.parse_create_alert(or_replace, or_alter)
         } else if self.parse_keywords(&[Keyword::SECURE, Keyword::PROCEDURE]) {
             self.parse_create_procedure(or_alter, or_replace, temporary, true)
         } else if self.parse_keyword(Keyword::PROCEDURE)
@@ -6737,7 +6737,11 @@ impl<'a> Parser<'a> {
     /// [WAREHOUSE = <wh>] [SCHEDULE = '<sched>'] [COMMENT = '<c>'] [RUNBOOK = '<r>']
     /// [SUSPEND_ALERT_AFTER_NUM_FAILURES = <n>] IF (EXISTS (<condition>)) THEN
     /// <action>` statement.
-    fn parse_create_alert(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+    fn parse_create_alert(
+        &mut self,
+        or_replace: bool,
+        or_alter: bool,
+    ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         if self.parse_keyword(Keyword::CLONE) {
@@ -6803,6 +6807,7 @@ impl<'a> Parser<'a> {
 
         Ok(Statement::CreateAlert {
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             warehouse,
