@@ -6315,7 +6315,11 @@ impl<'a> Parser<'a> {
         loop {
             if self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
-                warehouse = Some(self.parse_identifier()?);
+                warehouse = Some(if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
+                    Ident::new(self.parse_literal_string()?)
+                } else {
+                    self.parse_identifier()?
+                });
             } else if self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
                 schedule = if self.parse_keyword(Keyword::NULL) {
