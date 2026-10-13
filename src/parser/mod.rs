@@ -6317,7 +6317,11 @@ impl<'a> Parser<'a> {
                 warehouse = Some(self.parse_identifier()?);
             } else if self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
-                schedule = Some(self.parse_literal_string()?);
+                schedule = if self.parse_keyword(Keyword::NULL) {
+                    None
+                } else {
+                    Some(self.parse_literal_string()?)
+                };
             } else if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
