@@ -1847,6 +1847,12 @@ pub trait Dialect: Debug + Any {
         true
     }
 
+    /// Returns true if the `SET` / `MULTISET` table-kind prefix is supported,
+    /// as in `CREATE MULTISET TABLE`.
+    fn supports_create_table_multiset(&self) -> bool {
+        true
+    }
+
     /// Returns true if a `SELECT ... INTO` target may be any expression. When
     /// false it must be a name or a `:variable` placeholder.
     fn supports_select_into_expression_targets(&self) -> bool {
