@@ -6951,21 +6951,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if return_not_null
-            && !(scalar_return
-                && body
-                    .language
-                    .as_ref()
-                    .is_some_and(|language| language.value.eq_ignore_ascii_case("JAVASCRIPT")))
-        {
-            if body.called_on_null.is_some() {
-                return Err(ParserError::ParserError(
-                    "CALLED ON NULL INPUT | RETURNS NULL ON NULL INPUT | STRICT specified more than once".into(),
-                ));
-            }
-            body.called_on_null = Some(FunctionCalledOnNull::Strict);
-        }
-
         Ok(CreateFunction {
             data_metric,
             or_alter: false,
