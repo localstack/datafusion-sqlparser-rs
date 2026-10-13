@@ -10612,6 +10612,9 @@ impl<'a> Parser<'a> {
 
     /// Parse `MULTISET` table-kind prefix on `CREATE TABLE`.
     fn maybe_parse_multiset(&mut self) -> Option<bool> {
+        if !self.dialect.supports_create_table_multiset() {
+            return None;
+        }
         match self.parse_one_of_keywords(&[Keyword::SET, Keyword::MULTISET]) {
             Some(Keyword::MULTISET) => Some(true),
             Some(Keyword::SET) => Some(false),
