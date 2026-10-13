@@ -564,6 +564,7 @@ impl Spanned for Statement {
             Statement::UndropAccount { .. } => Span::empty(),
             Statement::ShowAccounts { .. } => Span::empty(),
             Statement::CreateAlert { .. } => Span::empty(),
+            Statement::CreateAlertClone { .. } => Span::empty(),
             Statement::ShowAlerts { .. } => Span::empty(),
             Statement::CreateTask { .. } => Span::empty(),
             Statement::CreateTaskClone { .. } => Span::empty(),

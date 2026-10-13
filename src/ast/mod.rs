@@ -5042,6 +5042,10 @@ pub enum Statement {
         clone: Option<ObjectName>,
         /// Whether cloning skips hybrid tables (`IGNORE HYBRID TABLES`).
         ignore_hybrid_tables: bool,
+        #[doc = "Historical anchor for a container clone."]
+        clone_version: Option<TableVersion>,
+        #[doc = "Whether the clone skips tables with insufficient data retention."]
+        ignore_insufficient_retention: bool,
         /// Optional schema comment (Snowflake `COMMENT = '...'`).
         comment: Option<CommentDef>,
         /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
@@ -5068,6 +5072,10 @@ pub enum Statement {
         transient: bool,
         /// Optional clone source.
         clone: Option<ObjectName>,
+        #[doc = "Historical anchor for a container clone."]
+        clone_version: Option<TableVersion>,
+        #[doc = "Whether the clone skips tables with insufficient data retention."]
+        ignore_insufficient_retention: bool,
         /// Optional data retention time in days.
         data_retention_time_in_days: Option<u64>,
         /// Optional maximum data extension time in days.
@@ -5471,12 +5479,25 @@ pub enum Statement {
         schedule: Option<String>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
+        /// Optional alert configuration JSON string.
+        config: Option<String>,
         /// Optional `SUSPEND_ALERT_AFTER_NUM_FAILURES = <num>` clause.
         suspend_after_num_failures: Option<u64>,
         /// The condition statement inside `IF (EXISTS ( … ))`.
         condition: Box<Statement>,
         /// The action statement after `THEN`.
         action: Box<Statement>,
+    },
+    /// `CREATE [OR REPLACE] ALERT <name> CLONE <source>`.
+    CreateAlertClone {
+        /// Replace an existing destination alert.
+        or_replace: bool,
+        /// Preserve an existing destination alert.
+        if_not_exists: bool,
+        /// Destination alert name.
+        name: ObjectName,
+        /// Source alert name.
+        source: ObjectName,
     },
     /// ```sql
     /// ALTER ALERT [IF EXISTS] <name>
@@ -5544,6 +5565,8 @@ pub enum Statement {
     ShowTasks {
         /// `true` when terse output format was requested.
         terse: bool,
+        /// Whether only non-finalizer tasks without a predecessor are requested.
+        root_only: bool,
         /// Additional options for `SHOW` statements.
         show_options: ShowStatementOptions,
     },
@@ -5757,6 +5780,8 @@ pub enum Statement {
     CreateTag {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Tag name.
@@ -6553,9 +6578,11 @@ pub enum Statement {
         show_options: ShowStatementOptions,
     },
     /// ```sql
-    /// SHOW PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
+    /// SHOW [ USER ] PROCEDURES [ LIKE '<pattern>' ] [ IN <scope> ]
     /// ```
     ShowProcedures {
+        /// Whether only user-defined procedures are requested.
+        user: bool,
         /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
         show_options: ShowStatementOptions,
     },
@@ -7895,6 +7922,8 @@ impl fmt::Display for Statement {
                 or_replace,
                 transient,
                 clone,
+                clone_version,
+                ignore_insufficient_retention,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -7930,6 +7959,12 @@ impl fmt::Display for Statement {
                 }
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+                if let Some(version) = clone_version {
+                    write!(f, " {version}")?;
+                }
+                if *ignore_insufficient_retention {
+                    write!(f, " IGNORE TABLES WITH INSUFFICIENT DATA RETENTION")?;
                 }
                 if let Some(share) = from_share {
                     write!(f, " FROM SHARE {share}")?;
@@ -8719,6 +8754,8 @@ impl fmt::Display for Statement {
                 default_collate_spec,
                 clone,
                 ignore_hybrid_tables,
+                clone_version,
+                ignore_insufficient_retention,
                 comment,
                 with_tags,
             } => {
@@ -8749,6 +8786,12 @@ impl fmt::Display for Statement {
 
                 if let Some(clone) = clone {
                     write!(f, " CLONE {clone}")?;
+                }
+                if let Some(version) = clone_version {
+                    write!(f, " {version}")?;
+                }
+                if *ignore_insufficient_retention {
+                    write!(f, " IGNORE TABLES WITH INSUFFICIENT DATA RETENTION")?;
                 }
 
                 if *ignore_hybrid_tables {
@@ -9168,6 +9211,17 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateAlertClone {
+                or_replace,
+                if_not_exists,
+                name,
+                source,
+            } => write!(
+                f,
+                "CREATE {}ALERT {}{name} CLONE {source}",
+                if *or_replace { "OR REPLACE " } else { "" },
+                if *if_not_exists { "IF NOT EXISTS " } else { "" },
+            ),
             Statement::CreateAlert {
                 or_replace,
                 if_not_exists,
@@ -9175,6 +9229,7 @@ impl fmt::Display for Statement {
                 warehouse,
                 schedule,
                 comment,
+                config,
                 suspend_after_num_failures,
                 condition,
                 action,
@@ -9196,6 +9251,9 @@ impl fmt::Display for Statement {
                 }
                 if let Some(c) = comment {
                     write!(f, " COMMENT = '{c}'")?;
+                }
+                if let Some(config) = config {
+                    write!(f, " CONFIG = '{}'", value::escape_single_quote_string(config))?;
                 }
                 write!(f, " IF (EXISTS ({condition})) THEN {action}")
             }
@@ -9374,13 +9432,15 @@ impl fmt::Display for Statement {
             }
             Statement::ShowTasks {
                 terse,
+                root_only,
                 show_options,
             } => {
                 write!(
                     f,
-                    "SHOW {terse}TASKS{show_options}",
+                    "SHOW {terse}TASKS",
                     terse = if *terse { "TERSE " } else { "" },
                 )?;
+                show_options.fmt_with_root_only(f, *root_only)?;
                 Ok(())
             }
             Statement::ShowStreams {
@@ -9590,6 +9650,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreateTag {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 allowed_values,
@@ -9597,8 +9658,8 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}TAG {if_not_exists}{name}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    "CREATE {modifier}TAG {if_not_exists}{name}",
+                    modifier = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if !allowed_values.is_empty() {
@@ -10302,8 +10363,12 @@ impl fmt::Display for Statement {
                     terse = if *terse { "TERSE " } else { "" },
                 )
             }
-            Statement::ShowProcedures { show_options } => {
-                write!(f, "SHOW PROCEDURES{show_options}")?;
+            Statement::ShowProcedures { user, show_options } => {
+                write!(
+                    f,
+                    "SHOW {}PROCEDURES{show_options}",
+                    if *user { "USER " } else { "" }
+                )?;
                 Ok(())
             }
             Statement::ShowConnections { filter } => {
@@ -12253,6 +12318,8 @@ pub enum GrantObjects {
     },
     /// Grant privileges on specific databases
     Databases(Vec<ObjectName>),
+    /// Grant privileges on application packages
+    ApplicationPackages(Vec<ObjectName>),
     /// Grant privileges on specific schemas
     Schemas(Vec<ObjectName>),
     /// Grant privileges on specific sequences
@@ -12557,6 +12624,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::ComputePools(objects) => {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
+            }
+            GrantObjects::ApplicationPackages(objects) => {
+                write!(f, "APPLICATION PACKAGE {}", display_comma_separated(objects))
             }
             GrantObjects::Connections(objects) => {
                 write!(f, "CONNECTION {}", display_comma_separated(objects))
@@ -12974,6 +13044,16 @@ pub struct Function {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let [ObjectNamePart::Identifier(name)] = self.name.0.as_slice() {
+            if name.value.eq_ignore_ascii_case("SEARCH")
+                && matches!(&self.parameters, FunctionArguments::List(parameters) if parameters.args.is_empty() && parameters.clauses.is_empty() && parameters.duplicate_treatment.is_none()) {
+                if let FunctionArguments::List(arguments) = &self.args {
+                    if let [FunctionArg::Unnamed(wildcard), FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options))] = arguments.args.as_slice() {
+                        return write!(f, "({wildcard}{options})");
+                    }
+                }
+            }
+        }
         if self.uses_odbc_syntax {
             write!(f, "{{fn ")?;
         }
@@ -13402,6 +13482,8 @@ pub enum ObjectType {
     /// A dynamic table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-dynamic-table>
     DynamicTable,
+    #[doc = "An Iceberg table (Snowflake)."]
+    IcebergTable,
     /// An external table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
     ExternalTable,
@@ -13440,6 +13522,8 @@ pub enum ObjectType {
     /// A Streamlit app (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/undrop-streamlit>
     Streamlit,
+    /// A tag (Snowflake).
+    Tag,
     /// A row access policy (Snowflake).
     RowAccessPolicy,
 }
@@ -13452,6 +13536,7 @@ impl fmt::Display for ObjectType {
             ObjectType::View => "VIEW",
             ObjectType::MaterializedView => "MATERIALIZED VIEW",
             ObjectType::DynamicTable => "DYNAMIC TABLE",
+            ObjectType::IcebergTable => "ICEBERG TABLE",
             ObjectType::ExternalTable => "EXTERNAL TABLE",
             ObjectType::Index => "INDEX",
             ObjectType::Schema => "SCHEMA",
@@ -13469,6 +13554,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Pipe => "PIPE",
             ObjectType::Alert => "ALERT",
             ObjectType::Streamlit => "STREAMLIT",
+            ObjectType::Tag => "TAG",
             ObjectType::RowAccessPolicy => "ROW ACCESS POLICY",
         })
     }
@@ -15880,6 +15966,12 @@ pub struct ShowStatementOptions {
 
 impl Display for ShowStatementOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_with_root_only(f, false)
+    }
+}
+
+impl ShowStatementOptions {
+    fn fmt_with_root_only(&self, f: &mut fmt::Formatter<'_>, root_only: bool) -> fmt::Result {
         let (like_in_infix, like_in_suffix) = match &self.filter_position {
             Some(ShowStatementFilterPosition::Infix(filter)) => {
                 (format!(" {filter}"), "".to_string())
@@ -15891,7 +15983,8 @@ impl Display for ShowStatementOptions {
         };
         write!(
             f,
-            "{like_in_infix}{show_in}{starts_with}{limit}{from}{like_in_suffix}",
+            "{like_in_infix}{show_in}{starts_with}{root_only}{limit}{from}{like_in_suffix}",
+            root_only = if root_only { " ROOT ONLY" } else { "" },
             show_in = match &self.show_in {
                 Some(i) => format!(" {i}"),
                 None => String::new(),
@@ -15959,6 +16052,8 @@ pub enum ShowStatementInParentType {
     Application,
     /// APPLICATION PACKAGE parent type for SHOW statements.
     ApplicationPackage,
+    /// CLASS parent type for SHOW statements.
+    Class,
     /// DATABASE parent type for SHOW statements.
     Database,
     /// SCHEMA parent type for SHOW statements.
@@ -15975,6 +16070,7 @@ impl fmt::Display for ShowStatementInParentType {
             ShowStatementInParentType::Account => write!(f, "ACCOUNT"),
             ShowStatementInParentType::Application => write!(f, "APPLICATION"),
             ShowStatementInParentType::ApplicationPackage => write!(f, "APPLICATION PACKAGE"),
+            ShowStatementInParentType::Class => write!(f, "CLASS"),
             ShowStatementInParentType::Database => write!(f, "DATABASE"),
             ShowStatementInParentType::Schema => write!(f, "SCHEMA"),
             ShowStatementInParentType::Table => write!(f, "TABLE"),
