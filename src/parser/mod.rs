@@ -6942,7 +6942,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let ignore_insufficient_retention = clone.is_some() && self.parse_keywords(&[
+        let mut ignore_insufficient_retention = clone.is_some() && self.parse_keywords(&[
             Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
             Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
         ]);
@@ -6950,6 +6950,12 @@ impl<'a> Parser<'a> {
         if ignore_hybrid_tables {
             self.expect_keyword(Keyword::HYBRID)?;
             self.expect_keyword(Keyword::TABLES)?;
+            if !ignore_insufficient_retention {
+                ignore_insufficient_retention = self.parse_keywords(&[
+                    Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
+                    Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+                ]);
+            }
         }
 
         // Snowflake also allows `WITH MANAGED ACCESS` after `CLONE <src>`.
@@ -7060,6 +7066,7 @@ impl<'a> Parser<'a> {
             clone,
             clone_version: None,
             ignore_insufficient_retention: false,
+            ignore_hybrid_tables: false,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             external_volume: None,

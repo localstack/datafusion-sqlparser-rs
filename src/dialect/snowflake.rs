@@ -3429,6 +3429,15 @@ pub fn parse_create_database(
                         Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
                         Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
                     ]);
+                    builder.ignore_hybrid_tables = parser.parse_keywords(&[
+                        Keyword::IGNORE, Keyword::HYBRID, Keyword::TABLES,
+                    ]);
+                    if builder.ignore_hybrid_tables && !builder.ignore_insufficient_retention {
+                        builder.ignore_insufficient_retention = parser.parse_keywords(&[
+                            Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
+                            Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+                        ]);
+                    }
                 }
                 Keyword::FROM => {
                     if parser.parse_keyword(Keyword::LISTING) {
