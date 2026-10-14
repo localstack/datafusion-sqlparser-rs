@@ -15690,6 +15690,11 @@ impl<'a> Parser<'a> {
                         }
                     } else if self.parse_keyword(Keyword::WITHOUT) {
                         self.expect_keywords(&[Keyword::TIME, Keyword::ZONE])?;
+                        if precision.is_none()
+                            && self.dialect.supports_timestamp_without_timezone_trailing_precision()
+                        {
+                            precision = self.parse_optional_precision()?;
+                        }
                         TimezoneInfo::WithoutTimeZone
                     } else {
                         TimezoneInfo::None

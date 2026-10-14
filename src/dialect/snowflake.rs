@@ -1187,6 +1187,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_timestamp_without_timezone_trailing_precision(&self) -> bool {
+        true
+    }
+
     fn supports_from_trailing_commas(&self) -> bool {
         true
     }
