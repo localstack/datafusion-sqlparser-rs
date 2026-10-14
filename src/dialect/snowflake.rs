@@ -2585,6 +2585,15 @@ fn parse_create_external_function(
             None
         };
 
+    let compression = if compression.is_none()
+        && consume_external_function_property(parser, "COMPRESSION")
+    {
+        parser.expect_token(&Token::Eq)?;
+        Some(parse_external_function_compression(parser)?)
+    } else {
+        compression
+    };
+
     parser.expect_keyword(Keyword::AS)?;
     let url = parse_single_quoted_string(parser)?;
 
