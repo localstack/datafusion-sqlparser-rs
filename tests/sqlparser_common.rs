@@ -19434,7 +19434,8 @@ fn test_parse_alter_user() {
                 alter.set_policy,
                 Some(AlterUserSetPolicy {
                     policy_kind: UserPolicyKind::Authentication,
-                    policy: Ident::new("p1")
+                    policy: Ident::new("p1"),
+                    force: false,
                 })
             );
         }

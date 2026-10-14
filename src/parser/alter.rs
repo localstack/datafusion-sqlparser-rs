@@ -227,25 +227,31 @@ impl Parser<'_> {
             } else {
                 None
             };
-        let set_policy =
+        let mut set_policy =
             if self.parse_keywords(&[Keyword::SET, Keyword::AUTHENTICATION, Keyword::POLICY]) {
                 Some(AlterUserSetPolicy {
                     policy_kind: UserPolicyKind::Authentication,
                     policy: self.parse_identifier()?,
+                    force: false,
                 })
             } else if self.parse_keywords(&[Keyword::SET, Keyword::PASSWORD, Keyword::POLICY]) {
                 Some(AlterUserSetPolicy {
                     policy_kind: UserPolicyKind::Password,
                     policy: self.parse_identifier()?,
+                    force: false,
                 })
             } else if self.parse_keywords(&[Keyword::SET, Keyword::SESSION, Keyword::POLICY]) {
                 Some(AlterUserSetPolicy {
                     policy_kind: UserPolicyKind::Session,
                     policy: self.parse_identifier()?,
+                    force: false,
                 })
             } else {
                 None
             };
+        if let Some(policy) = &mut set_policy {
+            policy.force = self.parse_keyword(Keyword::FORCE);
+        }
 
         let unset_policy =
             if self.parse_keywords(&[Keyword::UNSET, Keyword::AUTHENTICATION, Keyword::POLICY]) {
