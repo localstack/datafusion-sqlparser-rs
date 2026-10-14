@@ -6497,14 +6497,11 @@ impl<'a> Parser<'a> {
     ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        if self.parse_keyword(Keyword::CLONE) {
-            return Ok(Statement::CreateAlertClone {
-                or_replace,
-                if_not_exists,
-                name,
-                source: self.parse_object_name(false)?,
-            });
-        }
+        let source = if self.parse_keyword(Keyword::CLONE) {
+            Some(self.parse_object_name(false)?)
+        } else {
+            None
+        };
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
         let mut comment: Option<String> = None;
@@ -6513,21 +6510,21 @@ impl<'a> Parser<'a> {
         let mut runbook = None;
 
         loop {
-            if self.parse_keyword(Keyword::WAREHOUSE) {
+            if source.is_none() && self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
                 warehouse = Some(if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
                     Ident::new(self.parse_literal_string()?)
                 } else {
                     self.parse_identifier()?
                 });
-            } else if self.parse_keyword(Keyword::SCHEDULE) {
+            } else if source.is_none() && self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
                 schedule = if self.parse_keyword(Keyword::NULL) {
                     None
                 } else {
                     Some(self.parse_literal_string()?)
                 };
-            } else if self.parse_keyword(Keyword::COMMENT) {
+            } else if source.is_none() && self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::CONFIG) {
@@ -6556,6 +6553,18 @@ impl<'a> Parser<'a> {
             } else {
                 break;
             }
+        }
+
+        if let Some(source) = source {
+            return Ok(Statement::CreateAlertClone {
+                or_replace,
+                if_not_exists,
+                name,
+                source,
+                config,
+                suspend_after_num_failures,
+                runbook,
+            });
         }
 
         // `IF (EXISTS (<condition>)) THEN <action>`. Both the condition and the

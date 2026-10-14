@@ -5457,6 +5457,12 @@ pub enum Statement {
         name: ObjectName,
         /// Source alert name.
         source: ObjectName,
+        /// Configuration override.
+        config: Option<String>,
+        /// Consecutive failure threshold override.
+        suspend_after_num_failures: Option<u64>,
+        /// Runbook override.
+        runbook: Option<ValueWithSpan>,
     },
     /// ```sql
     /// ALTER ALERT [IF EXISTS] <name>
@@ -9178,12 +9184,27 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 source,
-            } => write!(
+                config,
+                suspend_after_num_failures,
+                runbook,
+            } => {
+                write!(
                 f,
                 "CREATE {}ALERT {}{name} CLONE {source}",
                 if *or_replace { "OR REPLACE " } else { "" },
                 if *if_not_exists { "IF NOT EXISTS " } else { "" },
-            ),
+                )?;
+                if let Some(config) = config {
+                    write!(f, " CONFIG = '{}'", value::escape_single_quote_string(config))?;
+                }
+                if let Some(threshold) = suspend_after_num_failures {
+                    write!(f, " SUSPEND_ALERT_AFTER_NUM_FAILURES = {threshold}")?;
+                }
+                if let Some(runbook) = runbook {
+                    write!(f, " RUNBOOK = {runbook}")?;
+                }
+                Ok(())
+            }
             Statement::CreateAlert {
                 or_replace,
                 or_alter,
