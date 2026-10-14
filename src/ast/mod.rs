@@ -17925,7 +17925,7 @@ impl fmt::Display for MfaMethodKind {
 }
 
 /// ```sql
-/// ALTER USER [ IF EXISTS ] [ <name> ] SET { AUTHENTICATION | PASSWORD | SESSION } POLICY <policy_name>
+/// ALTER USER [ IF EXISTS ] [ <name> ] SET { AUTHENTICATION | PASSWORD | SESSION } POLICY <policy_name> [ FORCE ]
 /// ```
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -17935,6 +17935,8 @@ pub struct AlterUserSetPolicy {
     pub policy_kind: UserPolicyKind,
     /// The identifier of the policy to apply.
     pub policy: Ident,
+    /// Whether to replace an existing policy attachment.
+    pub force: bool,
 }
 
 /// Types of user-based policies
@@ -18022,6 +18024,9 @@ impl fmt::Display for AlterUser {
             let policy_kind = &policy.policy_kind;
             let name = &policy.policy;
             write!(f, " SET {policy_kind} POLICY {name}")?;
+            if policy.force {
+                write!(f, " FORCE")?;
+            }
         }
         if let Some(policy_kind) = &self.unset_policy {
             write!(f, " UNSET {policy_kind} POLICY")?;
