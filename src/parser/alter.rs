@@ -206,6 +206,7 @@ impl Parser<'_> {
             {
                 Some(self.parse_identifier()?)
             } else if self.parse_keyword(Keyword::AUTHORIZATIONS) {
+                let _ = self.parse_keywords(&[Keyword::OF, Keyword::ANY, Keyword::ROLE]);
                 None
             } else {
                 return self.expected_ref(
@@ -222,6 +223,7 @@ impl Parser<'_> {
         let enroll_mfa = self.parse_keywords(&[Keyword::ENROLL, Keyword::MFA]);
         let set_default_mfa_method =
             if self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT_MFA_METHOD]) {
+                let _ = self.consume_token(&Token::Eq);
                 Some(self.parse_mfa_method()?)
             } else {
                 None
@@ -236,6 +238,7 @@ impl Parser<'_> {
             if self.parse_keywords(&[Keyword::MODIFY, Keyword::MFA, Keyword::METHOD]) {
                 let method = self.parse_mfa_method()?;
                 self.expect_keywords(&[Keyword::SET, Keyword::COMMENT])?;
+                let _ = self.consume_token(&Token::Eq);
                 let comment = self.parse_literal_string()?;
                 Some(AlterUserModifyMfaMethod { method, comment })
             } else {

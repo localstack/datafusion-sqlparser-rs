@@ -3857,7 +3857,11 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
     let mut ident = String::new();
     while let Some(next_token) = parser.next_token_no_skip() {
         match &next_token.token {
-            Token::Whitespace(_) | Token::SemiColon => break,
+            Token::Whitespace(_) => break,
+            Token::SemiColon => {
+                parser.prev_token();
+                break;
+            }
             Token::Period => {
                 parser.prev_token();
                 break;

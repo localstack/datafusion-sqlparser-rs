@@ -18979,8 +18979,24 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_create()?)
         } else if self.parse_keyword(Keyword::COLLATION) {
             Ok(self.parse_show_collation()?)
+        } else if matches!(&self.peek_token_ref().token, Token::Word(word)
+            if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("PARAMETERS"))
+            && dialect_of!(self is SnowflakeDialect)
+        {
+            let mut variable = vec![];
+            loop {
+                let token = self.peek_token_ref();
+                match &token.token {
+                    Token::Word(word) => variable.push(word.to_ident(token.span)),
+                    Token::EOF | Token::SemiColon => break,
+                    token => variable.push(Ident::new(token.to_string())),
+                }
+                self.advance_token();
+            }
+            Ok(Statement::ShowVariable { variable })
         } else if self.parse_keyword(Keyword::VARIABLES)
-            && dialect_of!(self is MySqlDialect | GenericDialect)
+            && (dialect_of!(self is MySqlDialect | GenericDialect)
+                || (dialect_of!(self is SnowflakeDialect) && !global && !session))
         {
             Ok(Statement::ShowVariables {
                 filter: self.parse_show_statement_filter()?,
