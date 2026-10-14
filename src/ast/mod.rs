@@ -13526,6 +13526,8 @@ pub enum ObjectType {
     /// An external table (Snowflake).
     /// <https://docs.snowflake.com/en/sql-reference/sql/drop-external-table>
     ExternalTable,
+    #[doc = "An external volume (Snowflake)."]
+    ExternalVolume,
     /// An index.
     Index,
     /// A schema.
@@ -13577,6 +13579,7 @@ impl fmt::Display for ObjectType {
             ObjectType::DynamicTable => "DYNAMIC TABLE",
             ObjectType::IcebergTable => "ICEBERG TABLE",
             ObjectType::ExternalTable => "EXTERNAL TABLE",
+            ObjectType::ExternalVolume => "EXTERNAL VOLUME",
             ObjectType::Index => "INDEX",
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
