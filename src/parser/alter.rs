@@ -150,7 +150,33 @@ impl Parser<'_> {
     /// ```
     pub fn parse_alter_user(&mut self) -> Result<AlterUser, ParserError> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
-        let name = self.parse_identifier()?;
+        let action_keywords = [
+            Keyword::RENAME,
+            Keyword::RESET,
+            Keyword::ABORT,
+            Keyword::ADD,
+            Keyword::REMOVE,
+            Keyword::ENROLL,
+            Keyword::MODIFY,
+            Keyword::SET,
+            Keyword::UNSET,
+        ];
+        let next_is_action = matches!(
+            &self.peek_nth_token_ref(1).token,
+            Token::Word(word)
+                if action_keywords.contains(&word.keyword) || word.keyword == Keyword::WITH
+        );
+        let at_end = matches!(self.peek_nth_token_ref(1).token, Token::EOF | Token::SemiColon);
+        let name = if action_keywords
+            .iter()
+            .any(|keyword| self.peek_keyword(*keyword))
+            && !next_is_action
+            && !at_end
+        {
+            None
+        } else {
+            Some(self.parse_identifier()?)
+        };
         let _ = self.parse_keyword(Keyword::WITH);
         let rename_to = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             Some(self.parse_identifier()?)

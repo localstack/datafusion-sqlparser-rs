@@ -17830,8 +17830,8 @@ impl fmt::Display for CreateWarehouse {
 pub struct AlterUser {
     /// Whether to only alter the user if it exists.
     pub if_exists: bool,
-    /// The name of the user to alter.
-    pub name: Ident,
+    /// The name of the user to alter, or the current user when omitted.
+    pub name: Option<Ident>,
     /// Optional new name for the user (Snowflake-specific).
     /// See: <https://docs.snowflake.com/en/sql-reference/sql/alter-user#syntax>
     pub rename_to: Option<Ident>,
@@ -17987,7 +17987,9 @@ impl fmt::Display for AlterUser {
         if self.if_exists {
             write!(f, " IF EXISTS")?;
         }
-        write!(f, " {}", self.name)?;
+        if let Some(name) = &self.name {
+            write!(f, " {name}")?;
+        }
         if let Some(new_name) = &self.rename_to {
             write!(f, " RENAME TO {new_name}")?;
         }

@@ -19432,13 +19432,35 @@ fn parse_create_index_different_using_positions() {
 #[test]
 fn test_parse_alter_user() {
     let dialects = all_dialects_except(|d| d.supports_alter_user_as_alter_role());
+    for action in ["SET QUERY_TAG='self-target-tag'", "UNSET QUERY_TAG"] {
+        for modifier in ["", "IF EXISTS "] {
+            let statement = dialects.verified_stmt(&format!("ALTER USER {modifier}{action}"));
+            let Statement::AlterUser(alter_user) = statement else {
+                unreachable!()
+            };
+            assert_eq!(alter_user.name, None);
+            assert_eq!(alter_user.if_exists, !modifier.is_empty());
+        }
+        for name in [
+            "SET", "UNSET", "RENAME", "RESET", "ABORT", "ADD", "REMOVE", "ENROLL", "MODIFY",
+            "WITH", "PASSWORD", "ENCRYPTED",
+        ] {
+            dialects.verified_stmt(&format!("ALTER USER {name}"));
+            let statement = dialects.verified_stmt(&format!("ALTER USER {name} {action}"));
+            let Statement::AlterUser(alter_user) = statement else {
+                unreachable!()
+            };
+            assert_eq!(alter_user.name, Some(Ident::new(name)));
+            dialects.verified_stmt(&format!("ALTER USER \"{name}\" {action}"));
+        }
+    }
     dialects.verified_stmt("ALTER USER u1");
     dialects.verified_stmt("ALTER USER IF EXISTS u1");
     let stmt = dialects.verified_stmt("ALTER USER IF EXISTS u1 RENAME TO u2");
     match stmt {
         Statement::AlterUser(alter) => {
             assert!(alter.if_exists);
-            assert_eq!(alter.name, Ident::new("u1"));
+            assert_eq!(alter.name, Some(Ident::new("u1")));
             assert_eq!(alter.rename_to, Some(Ident::new("u2")));
         }
         _ => unreachable!(),
