@@ -7391,7 +7391,11 @@ impl<'a> Parser<'a> {
         self.expect_token(&Token::Eq)?;
         let value = if self.peek_token_ref().token == Token::LParen {
             self.expect_token(&Token::LParen)?;
-            let values = self.parse_comma_separated(Parser::parse_expr)?;
+            let values = if self.peek_token_ref().token == Token::RParen {
+                Vec::new()
+            } else {
+                self.parse_comma_separated(Parser::parse_expr)?
+            };
             self.expect_token(&Token::RParen)?;
             Expr::Tuple(values)
         } else {
