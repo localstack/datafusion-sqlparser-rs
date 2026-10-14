@@ -3545,7 +3545,11 @@ pub fn parse_create_database(
                 }
                 _ => return parser.expected("end of statement", next_token),
             },
-            Token::SemiColon | Token::EOF => break,
+            Token::SemiColon => {
+                parser.prev_token();
+                break;
+            }
+            Token::EOF => break,
             _ => return parser.expected("end of statement", next_token),
         }
     }
