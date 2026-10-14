@@ -9630,6 +9630,8 @@ impl<'a> Parser<'a> {
             ObjectType::DynamicTable
         } else if self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE]) {
             ObjectType::IcebergTable
+        } else if self.parse_keywords(&[Keyword::EXTERNAL, Keyword::VOLUME]) {
+            ObjectType::ExternalVolume
         } else if self.parse_keyword(Keyword::TABLE) {
             ObjectType::Table
         } else if self.parse_keyword(Keyword::VIEW) {
@@ -9650,7 +9652,7 @@ impl<'a> Parser<'a> {
             ObjectType::RowAccessPolicy
         } else {
             return self.expected_ref(
-                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, ICEBERG TABLE, ROW ACCESS POLICY, SCHEMA, STAGE, STREAMLIT, TABLE, TAG or VIEW after UNDROP",
+                "ACCOUNT, ALERT, DATABASE, DYNAMIC TABLE, EXTERNAL VOLUME, ICEBERG TABLE, ROW ACCESS POLICY, SCHEMA, STAGE, STREAMLIT, TABLE, TAG or VIEW after UNDROP",
                 self.peek_token_ref(),
             );
         };
