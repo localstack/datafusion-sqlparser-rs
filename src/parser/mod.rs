@@ -6532,10 +6532,24 @@ impl<'a> Parser<'a> {
                 comment = Some(self.parse_literal_string()?);
             } else if self.parse_keyword(Keyword::CONFIG) {
                 self.expect_token(&Token::Eq)?;
-                config = Some(self.parse_literal_string()?);
+                config = if self.parse_keyword(Keyword::NULL) {
+                    None
+                } else {
+                    Some(self.parse_literal_string()?)
+                };
             } else if self.parse_keyword(Keyword::SUSPEND_ALERT_AFTER_NUM_FAILURES) {
                 self.expect_token(&Token::Eq)?;
-                suspend_after_num_failures = Some(self.parse_literal_uint()?);
+                suspend_after_num_failures = if self.parse_keyword(Keyword::NULL) {
+                    None
+                } else {
+                    if or_alter
+                        && self.peek_token().token == Token::Minus
+                        && matches!(self.peek_nth_token(1).token, Token::Number(number, _) if number.parse::<u64>() == Ok(0))
+                    {
+                        self.next_token();
+                    }
+                    Some(self.parse_literal_uint()?)
+                };
             } else if self.parse_keyword(Keyword::RUNBOOK) {
                 self.expect_token(&Token::Eq)?;
                 runbook = Some(self.parse_value()?);
