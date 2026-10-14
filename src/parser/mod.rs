@@ -6632,6 +6632,9 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        let mut clone_warehouse = None;
+        let mut clone_schedule = None;
+        let mut clone_comment = None;
         let mut warehouse: Option<Ident> = None;
         let mut schedule: Option<String> = None;
         let mut comment: Option<String> = None;
@@ -6640,7 +6643,16 @@ impl<'a> Parser<'a> {
         let mut runbook = None;
 
         loop {
-            if source.is_none() && self.parse_keyword(Keyword::WAREHOUSE) {
+            if source.is_some() && self.parse_keyword(Keyword::WAREHOUSE) {
+                self.expect_token(&Token::Eq)?;
+                clone_warehouse = Some(self.parse_signed_option_value()?);
+            } else if source.is_some() && self.parse_keyword(Keyword::SCHEDULE) {
+                self.expect_token(&Token::Eq)?;
+                clone_schedule = Some(self.parse_signed_option_value()?);
+            } else if source.is_some() && self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                clone_comment = Some(self.parse_signed_option_value()?);
+            } else if source.is_none() && self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
                 warehouse = Some(if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
                     Ident::new(self.parse_literal_string()?)
@@ -6691,6 +6703,9 @@ impl<'a> Parser<'a> {
                 if_not_exists,
                 name,
                 source,
+                warehouse: clone_warehouse,
+                schedule: clone_schedule,
+                comment: clone_comment,
                 config,
                 suspend_after_num_failures,
                 runbook,

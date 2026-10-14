@@ -5504,6 +5504,12 @@ pub enum Statement {
         name: ObjectName,
         /// Source alert name.
         source: ObjectName,
+        /// Explicit warehouse override.
+        warehouse: Option<ValueWithSpan>,
+        /// Explicit schedule override, including NULL.
+        schedule: Option<ValueWithSpan>,
+        /// Explicit comment override, including NULL.
+        comment: Option<ValueWithSpan>,
         /// Configuration override.
         config: Option<String>,
         /// Consecutive failure threshold override.
@@ -9232,16 +9238,28 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 source,
+                warehouse,
+                schedule,
+                comment,
                 config,
                 suspend_after_num_failures,
                 runbook,
             } => {
                 write!(
-                f,
-                "CREATE {}ALERT {}{name} CLONE {source}",
-                if *or_replace { "OR REPLACE " } else { "" },
-                if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                    f,
+                    "CREATE {}ALERT {}{name} CLONE {source}",
+                    if *or_replace { "OR REPLACE " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
+                if let Some(value) = warehouse {
+                    write!(f, " WAREHOUSE = {value}")?;
+                }
+                if let Some(value) = schedule {
+                    write!(f, " SCHEDULE = {value}")?;
+                }
+                if let Some(value) = comment {
+                    write!(f, " COMMENT = {value}")?;
+                }
                 if let Some(config) = config {
                     write!(f, " CONFIG = '{}'", value::escape_single_quote_string(config))?;
                 }
