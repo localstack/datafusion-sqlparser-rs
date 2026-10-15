@@ -5089,6 +5089,12 @@ fn parse_create_tag(
         }
     }
 
+    let mut multi_value = if !or_alter && parser.parse_keyword(Keyword::MULTI_VALUE) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_boolean_string()?)
+    } else {
+        None
+    };
     let comment = if parser.parse_keyword(Keyword::COMMENT) {
         parser.expect_token(&Token::Eq)?;
         Some(parser.parse_comment_value()?)
@@ -5096,12 +5102,17 @@ fn parse_create_tag(
         None
     };
 
+    if !or_alter && multi_value.is_none() && parser.parse_keyword(Keyword::MULTI_VALUE) {
+        parser.expect_token(&Token::Eq)?;
+        multi_value = Some(parser.parse_boolean_string()?);
+    }
     Ok(Statement::CreateTag {
         or_replace,
         or_alter,
         if_not_exists,
         name,
         allowed_values,
+        multi_value,
         comment,
     })
 }
@@ -5132,12 +5143,36 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             let policy = parser.parse_object_name(false)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetDataMovementPolicy { policy, force }
+        } else if parser.parse_keyword(Keyword::MULTI_VALUE) {
+            parser.expect_token(&Token::Eq)?;
+            let enabled = parser.parse_boolean_string()?;
+            let comment = if parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                Some(parser.parse_comment_value()?)
+            } else {
+                None
+            };
+            AlterTagOperation::SetMultiValue { enabled, comment }
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            let comment = Some(parser.parse_comment_value()?);
+            parser.expect_keyword(Keyword::MULTI_VALUE)?;
+            parser.expect_token(&Token::Eq)?;
+            let enabled = parser.parse_boolean_string()?;
+            AlterTagOperation::SetMultiValue { enabled, comment }
         } else {
             let policies = parse_masking_policy_list(parser)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetMaskingPolicy { policies, force }
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
+        if parser.parse_keyword(Keyword::MULTI_VALUE) {
+            return Ok(Statement::AlterTag {
+                if_exists,
+                name,
+                operation: AlterTagOperation::UnsetMultiValue,
+            });
+        }
         if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
             return parser.expected("data movement policy name", parser.peek_token());
         }

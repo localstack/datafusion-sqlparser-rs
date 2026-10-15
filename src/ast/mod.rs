@@ -5759,6 +5759,8 @@ pub enum Statement {
         name: ObjectName,
         /// Optional `ALLOWED_VALUES` list (stored for SHOW fidelity only).
         allowed_values: Vec<String>,
+        /// Optional `MULTI_VALUE` property.
+        multi_value: Option<bool>,
         /// Optional comment.
         comment: Option<String>,
     },
@@ -9661,6 +9663,7 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 allowed_values,
+                multi_value,
                 comment,
             } => {
                 write!(
@@ -9677,6 +9680,9 @@ impl fmt::Display for Statement {
                         }
                         write!(f, "'{}'", value::escape_single_quote_string(v))?;
                     }
+                }
+                if let Some(enabled) = multi_value {
+                    write!(f, " MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
                 }
                 if let Some(ref c) = comment {
                     write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
