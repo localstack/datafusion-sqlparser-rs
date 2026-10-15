@@ -745,6 +745,7 @@ define_keywords!(
     MSCK,
     MULTIRANGE_TYPE_NAME,
     MULTISET,
+    MULTI_VALUE,
     MUST_CHANGE_PASSWORD,
     MUTATION,
     NAME,
