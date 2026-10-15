@@ -17788,6 +17788,8 @@ pub struct AlterUser {
     pub if_exists: bool,
     /// The name of the user to alter, or the current user when omitted.
     pub name: Option<Ident>,
+    /// Qualifying components preceding the user name.
+    pub name_qualifier: Vec<Ident>,
     /// Optional new name for the user (Snowflake-specific).
     /// See: <https://docs.snowflake.com/en/sql-reference/sql/alter-user#syntax>
     pub rename_to: Option<Ident>,
@@ -17833,9 +17835,9 @@ pub struct AlterUser {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterUserAddRoleDelegation {
     /// Role name to delegate.
-    pub role: Ident,
+    pub role: ObjectName,
     /// Security integration receiving the delegation.
-    pub integration: Ident,
+    pub integration: ObjectName,
 }
 
 /// ```sql
@@ -17846,9 +17848,9 @@ pub struct AlterUserAddRoleDelegation {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterUserRemoveRoleDelegation {
     /// Optional role name to remove delegation for.
-    pub role: Option<Ident>,
+    pub role: Option<ObjectName>,
     /// Security integration from which to remove delegation.
-    pub integration: Ident,
+    pub integration: ObjectName,
 }
 
 /// ```sql
@@ -17944,7 +17946,11 @@ impl fmt::Display for AlterUser {
             write!(f, " IF EXISTS")?;
         }
         if let Some(name) = &self.name {
-            write!(f, " {name}")?;
+            write!(f, " ")?;
+            for qualifier in &self.name_qualifier {
+                write!(f, "{qualifier}.")?;
+            }
+            write!(f, "{name}")?;
         }
         if let Some(new_name) = &self.rename_to {
             write!(f, " RENAME TO {new_name}")?;

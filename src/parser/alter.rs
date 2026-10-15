@@ -167,7 +167,7 @@ impl Parser<'_> {
                 if action_keywords.contains(&word.keyword) || word.keyword == Keyword::WITH
         );
         let at_end = matches!(self.peek_nth_token_ref(1).token, Token::EOF | Token::SemiColon);
-        let name = if action_keywords
+        let mut name = if action_keywords
             .iter()
             .any(|keyword| self.peek_keyword(*keyword))
             && !next_is_action
@@ -177,6 +177,12 @@ impl Parser<'_> {
         } else {
             Some(self.parse_identifier()?)
         };
+        let mut name_qualifier = Vec::new();
+        while name.is_some() && self.consume_token(&Token::Period) {
+            if let Some(qualifier) = name.replace(self.parse_identifier()?) {
+                name_qualifier.push(qualifier);
+            }
+        }
         let _ = self.parse_keyword(Keyword::WITH);
         let rename_to = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             Some(self.parse_identifier()?)
@@ -193,9 +199,9 @@ impl Parser<'_> {
             Keyword::OF,
             Keyword::ROLE,
         ]) {
-            let role = self.parse_identifier()?;
+            let role = self.parse_object_name(false)?;
             self.expect_keywords(&[Keyword::TO, Keyword::SECURITY, Keyword::INTEGRATION])?;
-            let integration = self.parse_identifier()?;
+            let integration = self.parse_object_name(false)?;
             Some(AlterUserAddRoleDelegation { role, integration })
         } else {
             None
@@ -204,7 +210,7 @@ impl Parser<'_> {
         {
             let role = if self.parse_keywords(&[Keyword::AUTHORIZATION, Keyword::OF, Keyword::ROLE])
             {
-                Some(self.parse_identifier()?)
+                Some(self.parse_object_name(false)?)
             } else if self.parse_keyword(Keyword::AUTHORIZATIONS) {
                 let _ = self.parse_keywords(&[Keyword::OF, Keyword::ANY, Keyword::ROLE]);
                 None
@@ -215,7 +221,7 @@ impl Parser<'_> {
                 );
             };
             self.expect_keywords(&[Keyword::FROM, Keyword::SECURITY, Keyword::INTEGRATION])?;
-            let integration = self.parse_identifier()?;
+            let integration = self.parse_object_name(false)?;
             Some(AlterUserRemoveRoleDelegation { role, integration })
         } else {
             None
@@ -347,6 +353,7 @@ impl Parser<'_> {
         Ok(AlterUser {
             if_exists,
             name,
+            name_qualifier,
             rename_to,
             reset_password,
             abort_all_queries,
