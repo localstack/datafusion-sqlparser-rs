@@ -6563,6 +6563,19 @@ fn test_insert_by_name_rejected() {
 }
 
 #[test]
+fn test_create_foreign_table_rejected() {
+    // Snowflake has no `CREATE FOREIGN TABLE` (upstream parses the Postgres form).
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("CREATE FOREIGN TABLE ft (a INT) SERVER s")
+            .unwrap_err(),
+        ParserError::ParserError(
+            "Expected: an object type after CREATE, found: FOREIGN".to_string()
+        )
+    );
+}
+
+#[test]
 fn test_snowflake_stage_name_with_escaped_quotes() {
     snowflake().verified_stmt("REMOVE @````");
     snowflake().one_statement_parses_to("RM @````", "REMOVE @````");

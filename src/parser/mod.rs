@@ -6188,7 +6188,9 @@ impl<'a> Parser<'a> {
             }
         } else if self.parse_keyword(Keyword::SERVER) {
             self.parse_pg_create_server()
-        } else if self.parse_keywords(&[Keyword::FOREIGN, Keyword::TABLE]) {
+        } else if self.dialect.supports_create_foreign_table()
+            && self.parse_keywords(&[Keyword::FOREIGN, Keyword::TABLE])
+        {
             if has_modifier {
                 return parser_err!(
                     "CREATE FOREIGN TABLE does not accept this modifier",
