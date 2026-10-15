@@ -2679,6 +2679,15 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// Set the irreversible multi-value property and an optional comment.
+    SetMultiValue {
+        /// Whether to enable multi-value assignments.
+        enabled: bool,
+        /// Optional comment in the same property list.
+        comment: Option<String>,
+    },
+    /// Attempt to unset the irreversible multi-value property.
+    UnsetMultiValue,
     /// `SET DATA MOVEMENT POLICY <policy> [FORCE]`
     SetDataMovementPolicy {
         /// The data movement policy name.
@@ -2710,6 +2719,14 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTagOperation::SetMultiValue { enabled, comment } => {
+                write!(f, "SET MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", super::value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
+            AlterTagOperation::UnsetMultiValue => write!(f, "UNSET MULTI_VALUE"),
             AlterTagOperation::SetDataMovementPolicy { policy, force } => {
                 write!(f, "SET DATA MOVEMENT POLICY {policy}")?;
                 if *force {
@@ -8014,6 +8031,8 @@ impl fmt::Display for AggregateSignature {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterFunction {
+    /// Whether an absent function is ignored.
+    pub if_exists: bool,
     /// Function or aggregate signature.
     pub signature: AlterFunctionSignature,
     /// Operation applied to the object.
@@ -8113,7 +8132,16 @@ pub enum AlterFunctionAction {
 
 impl fmt::Display for AlterFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ALTER {} {}", self.signature, self.operation)
+        let if_exists = if self.if_exists { "IF EXISTS " } else { "" };
+        match &self.signature {
+            AlterFunctionSignature::Function(function) => {
+                write!(f, "ALTER FUNCTION {if_exists}{function} ")?;
+            }
+            AlterFunctionSignature::Aggregate(signature) => {
+                write!(f, "ALTER AGGREGATE {if_exists}{signature} ")?;
+            }
+        }
+        write!(f, "{}", self.operation)
     }
 }
 
