@@ -22,7 +22,7 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use core::ops::ControlFlow;
 
 use crate::ast::{
-    Expr, GroupByExpr, Ident, ObjectName, OrderBy, OrderByExpr, Query, Select, Statement,
+    DataType, Expr, GroupByExpr, Ident, ObjectName, OrderBy, OrderByExpr, Query, Select, Statement,
     TableFactor, ValueWithSpan,
 };
 
@@ -144,6 +144,7 @@ impl<V: Visitor> Visitor for Erased<'_, V, V::Break> {
         pre_visit_statement post_visit_statement: &Statement;
         pre_visit_value post_visit_value: &ValueWithSpan;
         pre_visit_ident post_visit_ident: &Ident;
+        pre_visit_data_type post_visit_data_type: &DataType;
         pre_visit_order_by post_visit_order_by: &OrderBy;
         pre_visit_order_by_expr post_visit_order_by_expr: &OrderByExpr;
         pre_visit_group_by post_visit_group_by: &GroupByExpr;
@@ -168,6 +169,7 @@ impl<V: VisitorMut> VisitorMut for Erased<'_, V, V::Break> {
         pre_visit_statement post_visit_statement: &mut Statement;
         pre_visit_value post_visit_value: &mut ValueWithSpan;
         pre_visit_ident post_visit_ident: &mut Ident;
+        pre_visit_data_type post_visit_data_type: &mut DataType;
         pre_visit_order_by post_visit_order_by: &mut OrderBy;
         pre_visit_order_by_expr post_visit_order_by_expr: &mut OrderByExpr;
         pre_visit_group_by post_visit_group_by: &mut GroupByExpr;
@@ -325,6 +327,16 @@ pub trait Visitor {
     /// stack overflow during recursion. If you need to return an error, consider
     /// boxing it with `Box` to minimize stack usage.
     type Break;
+
+    /// Invoked for any data type before visiting its children.
+    fn pre_visit_data_type(&mut self, _data_type: &DataType) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any data type after visiting its children.
+    fn post_visit_data_type(&mut self, _data_type: &DataType) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
 
     /// Invoked for any object name before visiting its parts.
     fn pre_visit_object_name(&mut self, _name: &ObjectName) -> ControlFlow<Self::Break> {
@@ -503,6 +515,16 @@ pub trait VisitorMut {
     /// stack overflow during recursion. If you need to return an error, consider
     /// boxing it with `Box` to minimize stack usage.
     type Break;
+
+    /// Invoked for any data type before visiting its children.
+    fn pre_visit_data_type(&mut self, _data_type: &mut DataType) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
+
+    /// Invoked for any data type after visiting its children.
+    fn post_visit_data_type(&mut self, _data_type: &mut DataType) -> ControlFlow<Self::Break> {
+        ControlFlow::Continue(())
+    }
 
     /// Invoked for any object name before visiting its parts.
     fn pre_visit_object_name(&mut self, _name: &mut ObjectName) -> ControlFlow<Self::Break> {

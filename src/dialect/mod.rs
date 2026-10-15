@@ -1221,12 +1221,6 @@ pub trait Dialect: Debug + Any {
         false
     }
 
-    /// Returns true if this dialect parses `OBJECT(field type, ...)` into
-    /// [`DataType::Object`](crate::ast::DataType::Object).
-    fn supports_object_typedef_with_parentheses(&self) -> bool {
-        true
-    }
-
     /// Returns true if this dialect supports extra parentheses around
     /// lone table names or derived tables in the `FROM` clause.
     ///
