@@ -1459,6 +1459,7 @@ impl Spanned for CreateTableOptions {
 impl Spanned for AlterTableOperation {
     fn span(&self) -> Span {
         match self {
+            AlterTableOperation::TagValue { column, tag, .. } => union_spans(column.iter().map(|identifier| identifier.span).chain([tag.span()])),
             AlterTableOperation::AlterConstraint { .. }
             | AlterTableOperation::DropConstraintColumns { .. } => Span::empty(),
             AlterTableOperation::AddConstraint {
@@ -2873,6 +2874,7 @@ impl Spanned for OpenStatement {
 impl Spanned for AlterSchemaOperation {
     fn span(&self) -> Span {
         match self {
+            AlterSchemaOperation::TagValue { tag, .. } => tag.span(),
             AlterSchemaOperation::SetDefaultCollate { collate } => collate.span(),
             AlterSchemaOperation::AddReplica { replica, options } => union_spans(
                 core::iter::once(replica.span)
