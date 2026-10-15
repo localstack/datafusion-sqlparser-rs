@@ -1671,6 +1671,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if this dialect supports `INSERT INTO t ... BY NAME <query>`.
+    fn supports_insert_by_name(&self) -> bool {
+        true
+    }
+
     /// Returns true if this dialect supports `INSERT INTO t [[AS] alias] ...`.
     fn supports_insert_table_alias(&self) -> bool {
         false

@@ -6552,6 +6552,17 @@ fn test_structured_types_parse_as_custom() {
 }
 
 #[test]
+fn test_insert_by_name_rejected() {
+    // Snowflake's INSERT has no `BY NAME` clause (only MERGE's `INSERT ALL BY NAME`).
+    for sql in [
+        "INSERT INTO t BY NAME SELECT 1 AS a",
+        "INSERT INTO t (a) BY NAME SELECT 1 AS a",
+    ] {
+        assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
+    }
+}
+
+#[test]
 fn test_snowflake_stage_name_with_escaped_quotes() {
     snowflake().verified_stmt("REMOVE @````");
     snowflake().one_statement_parses_to("RM @````", "REMOVE @````");
