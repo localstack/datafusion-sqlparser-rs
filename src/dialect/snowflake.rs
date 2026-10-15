@@ -7367,19 +7367,32 @@ fn parse_create_storage_integration(
     })
 }
 
-/// Parse `ALTER STORAGE INTEGRATION [IF EXISTS] <name> SET <params>`.
+/// Parse `ALTER STORAGE INTEGRATION [IF EXISTS] <name> { SET <params> | UNSET <props> }`.
 ///
-/// Only the `SET` form is modeled; the emulator consumes it in a follow-up
-/// task. The `SET` options are captured generically as key-value options.
+/// `SET` options are captured generically as key-value options; `UNSET` takes a
+/// comma-separated list of property names.
 fn parse_alter_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    if parser.parse_keyword(Keyword::UNSET) {
+        let unset_options = parser.parse_comma_separated(Parser::parse_identifier)?;
+        return Ok(Statement::AlterStorageIntegration {
+            name,
+            if_exists,
+            set_options: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+            unset_options,
+        });
+    }
     parser.expect_keyword(Keyword::SET)?;
     let set_options = parser.parse_key_value_options(false, &[], false)?;
     Ok(Statement::AlterStorageIntegration {
         name,
         if_exists,
         set_options,
+        unset_options: vec![],
     })
 }
 
