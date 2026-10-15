@@ -1389,12 +1389,6 @@ impl Dialect for SnowflakeDialect {
         false
     }
 
-    /// Snowflake's `INSERT` has no `BY NAME` clause; only `MERGE ... INSERT
-    /// ALL BY NAME` does (see [`Self::supports_merge_all_by_name`]).
-    fn supports_insert_by_name(&self) -> bool {
-        false
-    }
-
     /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
     fn supports_parens_around_table_factor(&self) -> bool {
         true
