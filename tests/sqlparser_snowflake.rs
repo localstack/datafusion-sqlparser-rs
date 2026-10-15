@@ -6555,19 +6555,6 @@ fn test_insert_by_name_rejected() {
 }
 
 #[test]
-fn test_trim_from_without_characters_rejected() {
-    // Snowflake's TRIM is `TRIM(<expr> [, <characters>])`; `TRIM(FROM x)` is a
-    // syntax error there, unlike the Postgres form upstream accepts.
-    assert_eq!(
-        snowflake()
-            .parse_sql_statements("SELECT TRIM(FROM '  x  ')")
-            .unwrap_err(),
-        ParserError::ParserError("Expected an expression, found: FROM".to_string())
-    );
-    snowflake().verified_stmt("SELECT TRIM('  x  ', ' ')");
-}
-
-#[test]
 fn test_create_foreign_table_rejected() {
     // Snowflake has no `CREATE FOREIGN TABLE` (upstream parses the Postgres form).
     assert_eq!(

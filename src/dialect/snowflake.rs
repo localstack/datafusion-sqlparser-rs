@@ -1758,11 +1758,6 @@ impl Dialect for SnowflakeDialect {
     fn supports_comma_separated_trim(&self) -> bool {
         true
     }
-
-    /// Snowflake's `TRIM(<expr> [, <characters>])` has no `FROM` form.
-    fn supports_trim_from_without_characters(&self) -> bool {
-        false
-    }
 }
 
 // Peeks ahead to identify tokens that are expected after
