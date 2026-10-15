@@ -13663,6 +13663,7 @@ impl<'a> Parser<'a> {
         &mut self,
         kind: AlterFunctionKind,
     ) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let (function, aggregate_star, aggregate_order_by) = match kind {
             AlterFunctionKind::Function => (self.parse_function_desc()?, false, None),
             AlterFunctionKind::Aggregate => self.parse_alter_aggregate_signature()?,
@@ -13713,6 +13714,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Statement::AlterFunction(AlterFunction {
+            if_exists,
             kind,
             function,
             aggregate_order_by,
@@ -15834,6 +15836,11 @@ impl<'a> Parser<'a> {
                         }
                     } else if self.parse_keyword(Keyword::WITHOUT) {
                         self.expect_keywords(&[Keyword::TIME, Keyword::ZONE])?;
+                        if precision.is_none()
+                            && self.dialect.supports_timestamp_without_timezone_trailing_precision()
+                        {
+                            precision = self.parse_optional_precision()?;
+                        }
                         TimezoneInfo::WithoutTimeZone
                     } else {
                         TimezoneInfo::None
@@ -15910,6 +15917,21 @@ impl<'a> Parser<'a> {
                 Keyword::NUMERIC => Ok(DataType::Numeric(
                     self.parse_exact_number_optional_precision_scale()?,
                 )),
+                Keyword::NUMBER => {
+                    self.prev_token();
+                    let type_name = self.parse_object_name(false)?;
+                    let modifiers = match self
+                        .maybe_parse(|parser| parser.parse_exact_number_optional_precision_scale())?
+                    {
+                        Some(ExactNumberInfo::None) => vec![],
+                        Some(ExactNumberInfo::Precision(precision)) => vec![precision.to_string()],
+                        Some(ExactNumberInfo::PrecisionAndScale(precision, scale)) => {
+                            vec![precision.to_string(), scale.to_string()]
+                        }
+                        None => self.parse_optional_type_modifiers()?.unwrap_or_default(),
+                    };
+                    Ok(DataType::Custom(type_name, modifiers))
+                }
                 Keyword::DECIMAL => {
                     let precision = self.parse_exact_number_optional_precision_scale()?;
 
@@ -19184,8 +19206,24 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_create()?)
         } else if self.parse_keyword(Keyword::COLLATION) {
             Ok(self.parse_show_collation()?)
+        } else if matches!(&self.peek_token_ref().token, Token::Word(word)
+            if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("PARAMETERS"))
+            && dialect_of!(self is SnowflakeDialect)
+        {
+            let mut variable = vec![];
+            loop {
+                let token = self.peek_token_ref();
+                match &token.token {
+                    Token::Word(word) => variable.push(word.to_ident(token.span)),
+                    Token::EOF | Token::SemiColon => break,
+                    token => variable.push(Ident::new(token.to_string())),
+                }
+                self.advance_token();
+            }
+            Ok(Statement::ShowVariable { variable })
         } else if self.parse_keyword(Keyword::VARIABLES)
-            && dialect_of!(self is MySqlDialect | GenericDialect)
+            && (dialect_of!(self is MySqlDialect | GenericDialect)
+                || (dialect_of!(self is SnowflakeDialect) && !global && !session))
         {
             Ok(Statement::ShowVariables {
                 filter: self.parse_show_statement_filter()?,

@@ -1831,6 +1831,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Whether TIMESTAMP WITHOUT TIME ZONE precision follows the full type name.
+    fn supports_timestamp_without_timezone_trailing_precision(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the `INTERVAL` data type with [Postgres]-style options.
     ///
     /// Examples:

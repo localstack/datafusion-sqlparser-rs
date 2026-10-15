@@ -1187,6 +1187,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_timestamp_without_timezone_trailing_precision(&self) -> bool {
+        true
+    }
+
     fn supports_from_trailing_commas(&self) -> bool {
         true
     }
@@ -2558,12 +2562,12 @@ fn parse_create_external_function(
     let headers = if consume_external_function_property(parser, "HEADERS") {
         parser.expect_token(&Token::Eq)?;
         parser.expect_token(&Token::LParen)?;
-        let headers = parser.parse_comma_separated(|parser| {
+        let headers = parser.parse_comma_separated0(|parser| {
             let name = parse_single_quoted_string(parser)?;
             parser.expect_token(&Token::Eq)?;
             let value = parse_single_quoted_string(parser)?;
             Ok(ExternalFunctionHeader { name, value })
-        })?;
+        }, Token::RParen)?;
         parser.expect_token(&Token::RParen)?;
         Some(headers)
     } else {
@@ -2574,7 +2578,7 @@ fn parse_create_external_function(
         if consume_external_function_property(parser, "CONTEXT_HEADERS") {
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
-            let headers = parser.parse_comma_separated(Parser::parse_identifier)?;
+            let headers = parser.parse_comma_separated0(Parser::parse_identifier, Token::RParen)?;
             parser.expect_token(&Token::RParen)?;
             Some(headers)
         } else {
@@ -2609,6 +2613,15 @@ fn parse_create_external_function(
         } else {
             None
         };
+
+    let compression = if compression.is_none()
+        && consume_external_function_property(parser, "COMPRESSION")
+    {
+        parser.expect_token(&Token::Eq)?;
+        Some(parse_external_function_compression(parser)?)
+    } else {
+        compression
+    };
 
     parser.expect_keyword(Keyword::AS)?;
     let url = parse_single_quoted_string(parser)?;
@@ -5097,6 +5110,12 @@ fn parse_create_tag(
         }
     }
 
+    let mut multi_value = if !or_alter && parser.parse_keyword(Keyword::MULTI_VALUE) {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_boolean_string()?)
+    } else {
+        None
+    };
     let comment = if parser.parse_keyword(Keyword::COMMENT) {
         parser.expect_token(&Token::Eq)?;
         Some(parser.parse_comment_value()?)
@@ -5104,12 +5123,17 @@ fn parse_create_tag(
         None
     };
 
+    if !or_alter && multi_value.is_none() && parser.parse_keyword(Keyword::MULTI_VALUE) {
+        parser.expect_token(&Token::Eq)?;
+        multi_value = Some(parser.parse_boolean_string()?);
+    }
     Ok(Statement::CreateTag {
         or_replace,
         or_alter,
         if_not_exists,
         name,
         allowed_values,
+        multi_value,
         comment,
     })
 }
@@ -5140,12 +5164,36 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             let policy = parser.parse_object_name(false)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetDataMovementPolicy { policy, force }
+        } else if parser.parse_keyword(Keyword::MULTI_VALUE) {
+            parser.expect_token(&Token::Eq)?;
+            let enabled = parser.parse_boolean_string()?;
+            let comment = if parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                Some(parser.parse_comment_value()?)
+            } else {
+                None
+            };
+            AlterTagOperation::SetMultiValue { enabled, comment }
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            let comment = Some(parser.parse_comment_value()?);
+            parser.expect_keyword(Keyword::MULTI_VALUE)?;
+            parser.expect_token(&Token::Eq)?;
+            let enabled = parser.parse_boolean_string()?;
+            AlterTagOperation::SetMultiValue { enabled, comment }
         } else {
             let policies = parse_masking_policy_list(parser)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetMaskingPolicy { policies, force }
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
+        if parser.parse_keyword(Keyword::MULTI_VALUE) {
+            return Ok(Statement::AlterTag {
+                if_exists,
+                name,
+                operation: AlterTagOperation::UnsetMultiValue,
+            });
+        }
         if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
             return parser.expected("data movement policy name", parser.peek_token());
         }
@@ -7340,19 +7388,32 @@ fn parse_create_storage_integration(
     })
 }
 
-/// Parse `ALTER STORAGE INTEGRATION [IF EXISTS] <name> SET <params>`.
+/// Parse `ALTER STORAGE INTEGRATION [IF EXISTS] <name> { SET <params> | UNSET <props> }`.
 ///
-/// Only the `SET` form is modeled; the emulator consumes it in a follow-up
-/// task. The `SET` options are captured generically as key-value options.
+/// `SET` options are captured generically as key-value options; `UNSET` takes a
+/// comma-separated list of property names.
 fn parse_alter_storage_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    if parser.parse_keyword(Keyword::UNSET) {
+        let unset_options = parser.parse_comma_separated(Parser::parse_identifier)?;
+        return Ok(Statement::AlterStorageIntegration {
+            name,
+            if_exists,
+            set_options: KeyValueOptions {
+                options: vec![],
+                delimiter: KeyValueOptionsDelimiter::Space,
+            },
+            unset_options,
+        });
+    }
     parser.expect_keyword(Keyword::SET)?;
     let set_options = parser.parse_key_value_options(false, &[], false)?;
     Ok(Statement::AlterStorageIntegration {
         name,
         if_exists,
         set_options,
+        unset_options: vec![],
     })
 }
 

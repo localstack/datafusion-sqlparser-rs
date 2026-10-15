@@ -2534,6 +2534,15 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// Set the irreversible multi-value property and an optional comment.
+    SetMultiValue {
+        /// Whether to enable multi-value assignments.
+        enabled: bool,
+        /// Optional comment in the same property list.
+        comment: Option<String>,
+    },
+    /// Attempt to unset the irreversible multi-value property.
+    UnsetMultiValue,
     /// `SET DATA MOVEMENT POLICY <policy> [FORCE]`
     SetDataMovementPolicy {
         /// The data movement policy name.
@@ -2565,6 +2574,14 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTagOperation::SetMultiValue { enabled, comment } => {
+                write!(f, "SET MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", super::value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
+            AlterTagOperation::UnsetMultiValue => write!(f, "UNSET MULTI_VALUE"),
             AlterTagOperation::SetDataMovementPolicy { policy, force } => {
                 write!(f, "SET DATA MOVEMENT POLICY {policy}")?;
                 if *force {
@@ -7187,6 +7204,8 @@ impl Spanned for AlterOperatorClass {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterFunction {
+    /// Whether an absent function is ignored.
+    pub if_exists: bool,
     /// Object type being altered.
     pub kind: AlterFunctionKind,
     /// Function or aggregate signature.
@@ -7297,6 +7316,9 @@ pub enum AlterFunctionAction {
 impl fmt::Display for AlterFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ALTER {} ", self.kind)?;
+        if self.if_exists {
+            write!(f, "IF EXISTS ")?;
+        }
         match self.kind {
             AlterFunctionKind::Function => {
                 write!(f, "{} ", self.function)?;
