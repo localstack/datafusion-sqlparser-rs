@@ -8584,7 +8584,7 @@ fn parse_trim() {
         expr_from_projection(only(&select.projection))
     );
 
-    dialects.one_statement_parses_to(
+    all_dialects_where(|d| d.supports_trim_from_without_characters()).one_statement_parses_to(
         "SELECT TRIM(BOTH FROM 'yxTomxx', 'xyz')",
         "SELECT TRIM(BOTH 'yxTomxx', 'xyz')",
     );
