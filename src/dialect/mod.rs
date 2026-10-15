@@ -1970,6 +1970,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Whether ADD/DROP VALUE FOR TAG assignments are supported.
+    fn supports_tag_value_assignments(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect considers the specified ident as a function
     /// that returns an identifier. Typically used to generate identifiers
     /// programmatically.
