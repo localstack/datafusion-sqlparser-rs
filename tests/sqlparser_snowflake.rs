@@ -6526,40 +6526,71 @@ fn test_select_dollar_column_from_stage() {
 }
 
 #[test]
-fn test_structured_types_parse_as_custom() {
-    // Snowflake keeps structured MAP / OBJECT types on the generic type-name
-    // path (`DataType::Custom` with the inner specs as modifiers), the shape
-    // the emulator's structured-type lowering consumes; upstream's dedicated
-    // `DataType::Map` / `DataType::Object` forms stay off for this dialect.
-    let custom = |name: &str, modifiers: &[&str]| {
-        DataType::Custom(
-            ObjectName::from(vec![Ident::new(name)]),
-            modifiers.iter().map(|m| m.to_string()).collect(),
-        )
-    };
-    let select = snowflake().verified_only_select("SELECT CAST(a AS MAP(VARCHAR, INT)) FROM t");
+fn test_structured_array_type() {
+    snowflake().one_statement_parses_to(
+        "CREATE TABLE t (a ARRAY(VARCHAR))",
+        "CREATE TABLE t (a Array(VARCHAR))",
+    );
+    snowflake().one_statement_parses_to(
+        "SELECT CAST(a AS ARRAY(NUMBER(10, 2))) FROM t",
+        "SELECT CAST(a AS Array(NUMBER(10, 2))) FROM t",
+    );
+    snowflake().verified_stmt("CREATE TABLE t (a ARRAY(VARCHAR NOT NULL))");
+    let select =
+        snowflake().verified_only_select("SELECT CAST(a AS ARRAY(VARCHAR NOT NULL)) FROM t");
     let Expr::Cast { data_type, .. } = expr_from_projection(only(&select.projection)) else {
         unreachable!();
     };
-    assert_eq!(data_type, &custom("MAP", &["VARCHAR", "INT"]));
+    assert_eq!(
+        data_type,
+        &DataType::Array(ArrayElemTypeDef::ParenthesisNotNull(Box::new(
+            DataType::Varchar(None)
+        )))
+    );
+}
 
-    let Statement::Query(query) = snowflake().one_statement_parses_to(
-        "SELECT a::OBJECT(x INT, y VARCHAR) FROM t",
-        "SELECT a::OBJECT(x, INT, y, VARCHAR) FROM t",
-    ) else {
-        unreachable!();
-    };
-    let SetExpr::Select(select) = *query.body else {
-        unreachable!();
-    };
+#[test]
+fn test_structured_object_type() {
+    snowflake_and_generic().verified_stmt(
+        "SELECT payload::OBJECT(address OBJECT(city VARCHAR NOT NULL), zip NUMBER) FROM t",
+    );
+    snowflake().one_statement_parses_to(
+        "SELECT payload::OBJECT(tags ARRAY, labels MAP(VARCHAR, VARCHAR)) FROM t",
+        "SELECT payload::OBJECT(tags ARRAY, labels Map(VARCHAR, VARCHAR)) FROM t",
+    );
+    let select = snowflake().verified_only_select(
+        "SELECT payload::OBJECT(items ARRAY(NUMBER NOT NULL), meta MAP(VARCHAR, OBJECT(k NUMBER) NOT NULL)) FROM t",
+    );
     let Expr::Cast { data_type, .. } = expr_from_projection(only(&select.projection)) else {
         unreachable!();
     };
-    assert_eq!(data_type, &custom("OBJECT", &["x", "INT", "y", "VARCHAR"]));
+    let DataType::Object(fields) = data_type else {
+        unreachable!();
+    };
+    assert!(matches!(
+        &fields[0].data_type,
+        DataType::Array(ArrayElemTypeDef::ParenthesisNotNull(_))
+    ));
+    let DataType::Map(_, value, MapBracketKind::ParenthesesNotNull) = &fields[1].data_type else {
+        unreachable!();
+    };
+    assert!(matches!(**value, DataType::Object(_)));
 
-    // Other dialects still get upstream's structured OBJECT type.
-    let select = TestedDialects::new(vec![Box::new(GenericDialect {})])
-        .verified_only_select("SELECT CAST(a AS OBJECT(x INT, y VARCHAR NOT NULL)) FROM t");
+    snowflake().one_statement_parses_to(
+        "SELECT payload::ARRAY(NUMBER) FROM t",
+        "SELECT payload::Array(NUMBER) FROM t",
+    );
+    snowflake().one_statement_parses_to(
+        "SELECT payload::MAP(VARCHAR, OBJECT(k NUMBER)) FROM t",
+        "SELECT payload::Map(VARCHAR, OBJECT(k NUMBER)) FROM t",
+    );
+    snowflake().verified_stmt("SELECT payload::ARRAY(NUMBER NOT NULL) FROM t");
+    snowflake().verified_stmt("SELECT payload::MAP(VARCHAR, NUMBER NOT NULL) FROM t");
+    snowflake_and_generic().verified_stmt("CREATE TABLE t (o OBJECT())");
+
+    let select = snowflake().verified_only_select(
+        "SELECT CAST(payload AS OBJECT(city VARCHAR, zip NUMBER NOT NULL)) FROM t",
+    );
     let Expr::Cast { data_type, .. } = expr_from_projection(only(&select.projection)) else {
         unreachable!();
     };
@@ -6567,6 +6598,10 @@ fn test_structured_types_parse_as_custom() {
         unreachable!();
     };
     assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].name, Ident::new("city"));
+    assert!(fields[0].options.is_empty());
+    assert_eq!(fields[1].name, Ident::new("zip"));
+    assert_eq!(fields[1].options.len(), 1);
     assert_eq!(fields[1].options[0].option, ColumnOption::NotNull);
 
     assert_eq!(
