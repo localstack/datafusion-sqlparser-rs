@@ -15773,6 +15773,21 @@ impl<'a> Parser<'a> {
                 Keyword::NUMERIC => Ok(DataType::Numeric(
                     self.parse_exact_number_optional_precision_scale()?,
                 )),
+                Keyword::NUMBER => {
+                    self.prev_token();
+                    let type_name = self.parse_object_name(false)?;
+                    let modifiers = match self
+                        .maybe_parse(|parser| parser.parse_exact_number_optional_precision_scale())?
+                    {
+                        Some(ExactNumberInfo::None) => vec![],
+                        Some(ExactNumberInfo::Precision(precision)) => vec![precision.to_string()],
+                        Some(ExactNumberInfo::PrecisionAndScale(precision, scale)) => {
+                            vec![precision.to_string(), scale.to_string()]
+                        }
+                        None => self.parse_optional_type_modifiers()?.unwrap_or_default(),
+                    };
+                    Ok(DataType::Custom(type_name, modifiers))
+                }
                 Keyword::DECIMAL => {
                     let precision = self.parse_exact_number_optional_precision_scale()?;
 
