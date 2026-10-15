@@ -11588,3 +11588,29 @@ fn test_storage_integration_unset_options() {
         assert!(snowflake().parse_sql_statements(statement).is_err());
     }
 }
+
+#[test]
+fn test_quoted_stage_name_in_expression() {
+    // A quoted stage name in expression position (a `DIRECTORY(...)` or a
+    // stage-function argument) is a placeholder that keeps its quotes, so
+    // the stage resolves case-sensitively.
+    let select = snowflake().verified_only_select(r#"SELECT GET_STAGE_LOCATION(@"My Stage")"#);
+    let Expr::Function(function) = expr_from_projection(only(&select.projection)) else {
+        unreachable!();
+    };
+    let FunctionArguments::List(list) = &function.args else {
+        unreachable!();
+    };
+    let FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(value))) = &list.args[0] else {
+        unreachable!();
+    };
+    assert_eq!(
+        value.value,
+        Value::Placeholder(r#"@"My Stage""#.to_string())
+    );
+
+    snowflake().verified_stmt(r#"SELECT * FROM DIRECTORY(@"db"."sch"."My Stage")"#);
+
+    // A bind variable is still never a quoted identifier.
+    assert!(snowflake().parse_sql_statements(r#"SELECT :"a""#).is_err());
+}

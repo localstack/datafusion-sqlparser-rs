@@ -15310,6 +15310,15 @@ impl<'a> Parser<'a> {
                                 _ => self.expected("placeholder", name_token),
                             };
                         }
+                        // A quoted stage name (`@"My Stage"`) keeps its quotes
+                        // so the stage reference resolves case-sensitively.
+                        Token::Word(w)
+                            if w.quote_style == Some('"') && self.dialect.supports_stages() =>
+                        {
+                            let ident = w.into_ident(next_token.span);
+                            return Ok(Value::Placeholder(format!("@{ident}"))
+                                .with_span(Span::new(span.start, ident.span.end)));
+                        }
                         _ => {}
                     }
                 }
