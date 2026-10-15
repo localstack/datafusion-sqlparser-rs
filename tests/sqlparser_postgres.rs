@@ -519,6 +519,19 @@ fn parse_cast_in_default_expr() {
     pg().verified_stmt("CREATE TABLE t (c TEXT DEFAULT (foo())::TEXT NOT NULL)");
 }
 
+/// `::` binds tighter than `COLLATE`, so `expr::type COLLATE collation` collates the cast result.
+/// See <https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-PRECEDENCE>
+#[test]
+fn parse_collate_after_cast() {
+    match pg().verified_expr(r#"contact_name::TEXT COLLATE "POSIX""#) {
+        Expr::Collate { expr, collation } => {
+            assert!(matches!(*expr, Expr::Cast { .. }));
+            assert_eq!(collation.to_string(), "\"POSIX\"");
+        }
+        other => panic!("Expected Expr::Collate, got: {other:?}"),
+    }
+}
+
 #[test]
 fn parse_create_table_from_pg_dump() {
     let sql = "CREATE TABLE public.customer (
@@ -549,18 +562,6 @@ fn parse_create_table_from_pg_dump() {
             release_year public.year, \
             active INT\
         )");
-}
-
-#[test]
-fn parse_create_table_with_inherit() {
-    let sql = "\
-               CREATE TABLE bazaar.settings (\
-               settings_id UUID PRIMARY KEY DEFAULT uuid_generate_v4() NOT NULL, \
-               user_id UUID UNIQUE, \
-               value TEXT[], \
-               use_metric BOOLEAN DEFAULT true\
-               )";
-    pg().verified_stmt(sql);
 }
 
 #[test]
@@ -2610,13 +2611,11 @@ fn parse_ampersand_arobase() {
 #[test]
 fn parse_pg_unary_ops() {
     let pg_unary_ops = &[
-        ("|/", UnaryOperator::PGSquareRoot),
-        ("||/", UnaryOperator::PGCubeRoot),
-        ("!!", UnaryOperator::PGPrefixFactorial),
-        ("@", UnaryOperator::PGAbs),
+        ("SELECT !!a", UnaryOperator::PGPrefixFactorial),
+        ("SELECT @ a", UnaryOperator::PGAbs),
     ];
-    for (str_op, op) in pg_unary_ops {
-        let select = pg().verified_only_select(&format!("SELECT {}a", str_op));
+    for (sql, op) in pg_unary_ops {
+        let select = pg().verified_only_select(sql);
         assert_eq!(
             SelectItem::UnnamedExpr(Expr::UnaryOp {
                 op: *op,
@@ -2624,6 +2623,21 @@ fn parse_pg_unary_ops() {
             }),
             select.projection[0]
         );
+    }
+
+    for (str_op, op) in [
+        ("|/", UnaryOperator::PGSquareRoot),
+        ("||/", UnaryOperator::PGCubeRoot),
+    ] {
+        let select = pg().verified_only_select(&format!("SELECT {str_op} a"));
+        assert_eq!(
+            SelectItem::UnnamedExpr(Expr::UnaryOp {
+                op,
+                expr: Box::new(Expr::Identifier(Ident::new("a"))),
+            }),
+            select.projection[0]
+        );
+        pg().one_statement_parses_to(&format!("SELECT {str_op}a"), &format!("SELECT {str_op} a"));
     }
 }
 
@@ -6134,6 +6148,7 @@ fn test_simple_postgres_insert_with_alias() {
                     span: Span::empty(),
                 })
             ],
+            by_name: false,
             overwrite: false,
             source: Some(Box::new(Query {
                 with: None,
@@ -6214,6 +6229,7 @@ fn test_simple_postgres_insert_with_alias() {
                     span: Span::empty(),
                 })
             ],
+            by_name: false,
             overwrite: false,
             source: Some(Box::new(Query {
                 with: None,
@@ -6296,6 +6312,7 @@ fn test_simple_insert_with_quoted_alias() {
                     span: Span::empty(),
                 })
             ],
+            by_name: false,
             overwrite: false,
             source: Some(Box::new(Query {
                 with: None,
@@ -9682,6 +9699,102 @@ fn parse_lock_table() {
 }
 
 #[test]
+fn parse_create_foreign_table() {
+    // Each of these round-trips through Display, so verified_stmt already pins
+    // the name, columns, server and IF NOT EXISTS. Only the parsed shape that
+    // Display cannot show is asserted below.
+    for sql in [
+        "CREATE FOREIGN TABLE ft1 (id INTEGER, name TEXT) SERVER myserver",
+        "CREATE FOREIGN TABLE IF NOT EXISTS ft2 (col INTEGER) SERVER remoteserver",
+    ] {
+        assert!(matches!(
+            pg_and_generic().verified_stmt(sql),
+            Statement::CreateForeignTable(_)
+        ));
+    }
+
+    let sql =
+        "CREATE FOREIGN TABLE ft3 (col INTEGER) SERVER remoteserver OPTIONS (schema_name 'public')";
+    let Statement::CreateForeignTable(stmt) = pg_and_generic().verified_stmt(sql) else {
+        unreachable!()
+    };
+    assert_eq!(
+        stmt.options,
+        Some(vec![CreateServerOption {
+            key: "schema_name".into(),
+            value: Ident {
+                value: "public".to_string(),
+                quote_style: Some('\''),
+                span: Span::empty(),
+            },
+        }])
+    );
+}
+
+#[test]
+fn parse_create_foreign_table_requires_column_list() {
+    // Without the parens Display would invent a `()` the input never had.
+    assert!(matches!(
+        pg_and_generic().parse_sql_statements("CREATE FOREIGN TABLE ft SERVER s"),
+        Err(ParserError::ParserError(_))
+    ));
+
+    // An empty list is still legal PostgreSQL.
+    pg_and_generic().verified_stmt("CREATE FOREIGN TABLE ft () SERVER s");
+}
+
+#[test]
+fn parse_create_foreign_table_rejects_modifiers() {
+    // None of these has a field on CreateForeignTable, so accepting one would
+    // drop it silently on the way back out through Display.
+    for sql in [
+        "CREATE TEMPORARY FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE GLOBAL FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE LOCAL FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE TRANSIENT FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE VOLATILE FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE OR ALTER FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE MULTISET FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE SET FOREIGN TABLE ft (a INT) SERVER s",
+        "CREATE ALGORITHM = UNDEFINED FOREIGN TABLE ft (a INT) SERVER s",
+    ] {
+        let err = pg_and_generic().parse_sql_statements(sql).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("CREATE FOREIGN TABLE does not accept this modifier"),
+            "unexpected error for {sql}: {err}"
+        );
+    }
+
+    // OR REPLACE is caught by an earlier arm, so it never reaches the guard.
+    assert!(matches!(
+        pg_and_generic()
+            .parse_sql_statements("CREATE OR REPLACE FOREIGN TABLE ft (a INT) SERVER s"),
+        Err(ParserError::ParserError(_))
+    ));
+}
+
+#[test]
+fn parse_create_foreign_table_with_check_constraint() {
+    // PostgreSQL accepts table-level CHECK constraints in CREATE FOREIGN TABLE.
+    let sql =
+        "CREATE FOREIGN TABLE ft (id INTEGER, CONSTRAINT id_positive CHECK (id > 0)) SERVER s";
+    let Statement::CreateForeignTable(stmt) = pg_and_generic().verified_stmt(sql) else {
+        unreachable!()
+    };
+    assert_eq!(stmt.columns.len(), 1);
+    assert_eq!(stmt.constraints.len(), 1);
+
+    // Zero columns with only a table-level constraint must not emit `(, CONSTRAINT ...)`.
+    let sql = "CREATE FOREIGN TABLE ft (CONSTRAINT c CHECK (id > 0)) SERVER s";
+    let Statement::CreateForeignTable(stmt) = pg_and_generic().verified_stmt(sql) else {
+        unreachable!()
+    };
+    assert_eq!(stmt.columns.len(), 0);
+    assert_eq!(stmt.constraints.len(), 1);
+}
+
+#[test]
 fn exclude_as_column_name() {
     // `EXCLUDE` is a non-reserved keyword, so it stays usable as a column name
     // even on dialects that parse `EXCLUDE` constraints: a bare `exclude` not
@@ -9976,4 +10089,99 @@ fn parse_non_reserved_keywords_as_table_alias() {
             "SELECT * FROM tbl_name {kw} JOIN tbl_name_2 ON {kw}.id = tbl_name_2.id"
         ));
     }
+}
+
+#[test]
+fn parse_trim_from_without_characters() {
+    pg().one_statement_parses_to("SELECT TRIM(FROM ' x ')", "SELECT TRIM(' x ')");
+}
+
+#[test]
+fn parse_insert_by_name_keywords_as_table_and_alias() {
+    // Without a table name, `BY NAME` is not an INSERT BY NAME clause. PostgreSQL
+    // treats `BY` as the table name and `NAME` as its implicit table alias.
+    match pg().verified_stmt("INSERT INTO BY NAME SELECT 1 AS a") {
+        Statement::Insert(Insert {
+            table: TableObject::TableName(table),
+            table_alias: Some(table_alias),
+            by_name,
+            ..
+        }) => {
+            assert_eq!(table.to_string(), "BY");
+            assert_eq!(table_alias.alias.value, "NAME");
+            assert!(!by_name);
+        }
+        statement => panic!("Expected INSERT statement, got: {statement:?}"),
+    }
+}
+
+#[test]
+fn parse_pg_abs_space_before_negative_operand() {
+    // `@-` tokenizes as a geometric operator prefix, so displaying PGAbs
+    // without a space breaks re-parsing of a negative operand.
+    pg().verified_stmt("SELECT @ -2");
+    pg().one_statement_parses_to("SELECT @a", "SELECT @ a");
+    let err = pg().parse_sql_statements("SELECT @-2").unwrap_err();
+    assert_eq!(
+        ParserError::TokenizerError(
+            "Expected a valid binary operator after '@-' at Line: 1, Column: 10".to_string(),
+        ),
+        err
+    );
+}
+
+#[test]
+fn parse_bitwise_not_before_pg_prefix_operators() {
+    pg().one_statement_parses_to("SELECT ~ @2", "SELECT ~ @ 2");
+    pg().verified_stmt("SELECT ~ @ 2");
+    pg().one_statement_parses_to("SELECT ~ #x", "SELECT ~ # x");
+}
+
+#[test]
+fn parse_unary_minus_before_pg_prefix_operators() {
+    pg().one_statement_parses_to("SELECT - ~1", "SELECT - ~ 1");
+    pg().verified_stmt("SELECT - ~ 1");
+    pg().one_statement_parses_to("SELECT - @2", "SELECT - @ 2");
+    pg().verified_stmt("SELECT - @ 2");
+    pg().one_statement_parses_to("SELECT - #x", "SELECT - # x");
+}
+
+#[test]
+fn parse_postfix_factorial_spacing() {
+    pg().verified_stmt("SELECT a!");
+    pg().verified_stmt("SELECT 5!");
+    pg().verified_stmt("SELECT (a!)!");
+    pg().verified_stmt("SELECT a! !");
+    pg().verified_stmt("SELECT a! ! !");
+    pg().verified_stmt("SELECT a! ! % 2");
+    pg().one_statement_parses_to("SELECT a! !%2", "SELECT a! ! % 2");
+    pg().one_statement_parses_to("SELECT -a, +b, a! !%2, a", "SELECT -a, +b, a! ! % 2, a");
+
+    let err = pg().parse_sql_statements("SELECT a!!").unwrap_err();
+    assert_eq!(
+        ParserError::ParserError("Expected: end of statement, found: !!".to_string()),
+        err
+    );
+}
+
+#[test]
+fn parse_pg_roots_render_apart_from_operand() {
+    pg().verified_stmt("SELECT |/ -2");
+    pg().verified_stmt("SELECT ||/ -2");
+    pg().verified_stmt("SELECT |/ ||/ 2");
+}
+
+#[test]
+fn parse_stage_table_factor_rejected() {
+    let sql = "SELECT * FROM @stage";
+    assert_eq!(
+        pg().parse_sql_statements(sql).unwrap_err(),
+        ParserError::ParserError("Expected: identifier, found: @".to_string()),
+    );
+}
+
+#[test]
+fn parse_bitstring_literal_escaping() {
+    pg_and_generic().verified_stmt("SELECT B''''");
+    pg_and_generic().verified_stmt("SELECT B'it''s'");
 }

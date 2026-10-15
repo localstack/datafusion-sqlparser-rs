@@ -3655,6 +3655,23 @@ fn test_copy_into_with_cast_transformation() {
             "COPY INTO my_company.emp_basic (a, b) FROM ",
             r#"(SELECT t.$1:plain AS plain, $1:"B"::TEXT FROM @stg AS t)"#,
         ),
+        // https://docs.snowflake.com/en/user-guide/tutorials/script-data-load-transform-parquet
+        concat!(
+            "COPY INTO my_company.emp_basic (a, b) FROM ",
+            "(SELECT $1:continent::VARCHAR, $1:country:name::VARCHAR FROM @stg)",
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a) FROM ",
+            "(SELECT $1:country.name::VARCHAR FROM @stg)",
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a) FROM ",
+            "(SELECT $1['country']['name']::VARCHAR FROM @stg)",
+        ),
+        concat!(
+            "COPY INTO my_company.emp_basic (a) FROM ",
+            "(SELECT t.$1:country.name::VARCHAR AS country FROM @stg AS t)",
+        ),
     ];
     for sql in variants {
         snowflake().verified_stmt(sql);
@@ -6479,6 +6496,98 @@ fn test_select_dollar_column_from_stage() {
     snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1");
     // With table function args, without alias
     snowflake().verified_stmt("SELECT $1, $2 FROM @mystage1(file_format => 'myformat')");
+}
+
+#[test]
+fn test_structured_types_parse_as_custom() {
+    // Snowflake keeps structured MAP / OBJECT types on the generic type-name
+    // path (`DataType::Custom` with the inner specs as modifiers), the shape
+    // the emulator's structured-type lowering consumes; upstream's dedicated
+    // `DataType::Map` / `DataType::Object` forms stay off for this dialect.
+    let custom = |name: &str, modifiers: &[&str]| {
+        DataType::Custom(
+            ObjectName::from(vec![Ident::new(name)]),
+            modifiers.iter().map(|m| m.to_string()).collect(),
+        )
+    };
+    let select = snowflake().verified_only_select("SELECT CAST(a AS MAP(VARCHAR, INT)) FROM t");
+    let Expr::Cast { data_type, .. } = expr_from_projection(only(&select.projection)) else {
+        unreachable!();
+    };
+    assert_eq!(data_type, &custom("MAP", &["VARCHAR", "INT"]));
+
+    let Statement::Query(query) = snowflake().one_statement_parses_to(
+        "SELECT a::OBJECT(x INT, y VARCHAR) FROM t",
+        "SELECT a::OBJECT(x, INT, y, VARCHAR) FROM t",
+    ) else {
+        unreachable!();
+    };
+    let SetExpr::Select(select) = *query.body else {
+        unreachable!();
+    };
+    let Expr::Cast { data_type, .. } = expr_from_projection(only(&select.projection)) else {
+        unreachable!();
+    };
+    assert_eq!(data_type, &custom("OBJECT", &["x", "INT", "y", "VARCHAR"]));
+
+    // Other dialects still get upstream's structured OBJECT type.
+    let select = TestedDialects::new(vec![Box::new(GenericDialect {})])
+        .verified_only_select("SELECT CAST(a AS OBJECT(x INT, y VARCHAR NOT NULL)) FROM t");
+    let Expr::Cast { data_type, .. } = expr_from_projection(only(&select.projection)) else {
+        unreachable!();
+    };
+    let DataType::Object(fields) = data_type else {
+        unreachable!();
+    };
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[1].options[0].option, ColumnOption::NotNull);
+}
+
+#[test]
+fn test_snowflake_stage_name_with_escaped_quotes() {
+    snowflake().verified_stmt("REMOVE @````");
+    snowflake().one_statement_parses_to("RM @````", "REMOVE @````");
+    snowflake().verified_stmt(r#"REMOVE @"stage""name""#);
+}
+
+#[test]
+fn test_stage_name_delimiters() {
+    snowflake().verified_stmt("SELECT * FROM @stage1, @stage2");
+    snowflake().verified_stmt("SELECT * FROM @stage, my_table");
+    snowflake().verified_stmt("SELECT * FROM my_table, @stage");
+    snowflake().verified_stmt("SELECT * FROM @namespace.stage_name, item");
+    snowflake().verified_stmt("SELECT * FROM @stage(file_format => 'myformat'), my_table");
+    snowflake().verified_stmt("SELECT * FROM @stage AS s, my_table");
+    snowflake().verified_stmt("SELECT * FROM @stage s, my_table");
+    let stmts = snowflake()
+        .parse_sql_statements("SELECT * FROM @stage; SELECT 1")
+        .unwrap();
+    assert_eq!(stmts.len(), 2);
+
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT * FROM @")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: stage name identifier, found: EOF".to_string()),
+    );
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT * FROM @;")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: stage name identifier, found: ;".to_string()),
+    );
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT * FROM @, item")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: stage name identifier, found: ,".to_string()),
+    );
+    assert_eq!(
+        snowflake()
+            .parse_sql_statements("SELECT * FROM @.stage")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: stage name identifier, found: .".to_string()),
+    );
 }
 
 #[test]
@@ -11467,4 +11576,30 @@ fn test_storage_integration_unset_options() {
     ] {
         assert!(snowflake().parse_sql_statements(statement).is_err());
     }
+}
+
+#[test]
+fn test_quoted_stage_name_in_expression() {
+    // A quoted stage name in expression position (a `DIRECTORY(...)` or a
+    // stage-function argument) is a placeholder that keeps its quotes, so
+    // the stage resolves case-sensitively.
+    let select = snowflake().verified_only_select(r#"SELECT GET_STAGE_LOCATION(@"My Stage")"#);
+    let Expr::Function(function) = expr_from_projection(only(&select.projection)) else {
+        unreachable!();
+    };
+    let FunctionArguments::List(list) = &function.args else {
+        unreachable!();
+    };
+    let FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(value))) = &list.args[0] else {
+        unreachable!();
+    };
+    assert_eq!(
+        value.value,
+        Value::Placeholder(r#"@"My Stage""#.to_string())
+    );
+
+    snowflake().verified_stmt(r#"SELECT * FROM DIRECTORY(@"db"."sch"."My Stage")"#);
+
+    // A bind variable is still never a quoted identifier.
+    assert!(snowflake().parse_sql_statements(r#"SELECT :"a""#).is_err());
 }

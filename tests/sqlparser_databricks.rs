@@ -739,6 +739,14 @@ fn parse_cte_without_as() {
 }
 
 #[test]
+fn test_databricks_insert_by_name() {
+    databricks_and_generic().verified_stmt("INSERT INTO target BY NAME SELECT 1 AS a");
+    databricks_and_generic().verified_stmt(
+        "INSERT INTO TABLE lakehouse.dwd.dwd_event_quality_sla_metric_di BY NAME WITH day AS (SELECT 1 AS event_data_id) SELECT event_data_id FROM day",
+    );
+}
+
+#[test]
 fn parse_databricks_query_entry_points() {
     databricks().verified_stmt("CREATE TABLE t (attrs MAP<STRING, ARRAY<INT>>)");
     databricks().one_statement_parses_to(r#"SELECT 'it\'s'"#, "SELECT 'it''s'");
@@ -748,4 +756,16 @@ fn parse_databricks_query_entry_points() {
     );
     databricks()
         .verified_stmt("CREATE VIEW filtered AS FROM main.raw.source |> WHERE id > 0 |> SELECT id");
+}
+
+#[test]
+fn parse_databricks_collated_data_types() {
+    databricks().verified_stmt(
+        "CREATE TABLE t (name STRING COLLATE UTF8_BINARY, values ARRAY<STRING COLLATE UTF8_LCASE>, attrs MAP<STRING COLLATE UTF8_BINARY, STRING COLLATE UTF8_LCASE>)",
+    );
+    databricks().verified_stmt("CREATE TABLE t (s STRUCT<a STRING COLLATE UTF8_LCASE>)");
+    databricks().verified_stmt("CREATE TABLE t (c ARRAY<ARRAY<STRING>> COLLATE UTF8_LCASE)");
+    assert!(TestedDialects::new(vec![Box::new(GenericDialect {})])
+        .parse_sql_statements("CREATE TABLE t (c ARRAY<STRING COLLATE UTF8_LCASE>)")
+        .is_err());
 }

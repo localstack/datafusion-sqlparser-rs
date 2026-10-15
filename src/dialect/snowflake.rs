@@ -1195,6 +1195,11 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/order-by#syntax>
+    fn supports_order_by_all(&self) -> bool {
+        true
+    }
+
     fn supports_create_table_optional_column_type(&self) -> bool {
         true
     }
@@ -1368,6 +1373,16 @@ impl Dialect for SnowflakeDialect {
     /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-semistructured#array)
     fn supports_array_typedef_without_element_type(&self) -> bool {
         true
+    }
+
+    // Structured `ARRAY(T)` / `MAP(K, V)` / `OBJECT(f T, ...)` types are left
+    // to the generic type-name path, which yields `DataType::Custom` with the
+    // inner specs as modifiers: the emulator's structured-type lowering and
+    // validation key on that shape. Upstream's dedicated `DataType::Array` /
+    // `Map` / `Object` forms (#2488, #2489) stay off for Snowflake until the
+    // consumers are ported to them.
+    fn supports_object_typedef_with_parentheses(&self) -> bool {
+        false
     }
 
     /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
@@ -1694,6 +1709,10 @@ impl Dialect for SnowflakeDialect {
     }
 
     fn supports_semantic_view_table_factor(&self) -> bool {
+        true
+    }
+
+    fn supports_stages(&self) -> bool {
         true
     }
 
@@ -3858,19 +3877,7 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
     while let Some(next_token) = parser.next_token_no_skip() {
         match &next_token.token {
             Token::Whitespace(_) => break,
-            Token::SemiColon => {
-                parser.prev_token();
-                break;
-            }
-            Token::Period => {
-                parser.prev_token();
-                break;
-            }
-            Token::LParen | Token::RParen => {
-                parser.prev_token();
-                break;
-            }
-            Token::Comma => {
+            Token::Period | Token::Comma | Token::SemiColon | Token::LParen | Token::RParen => {
                 parser.prev_token();
                 break;
             }
@@ -3886,6 +3893,9 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
             Token::Word(w) => ident.push_str(&w.to_string()),
             _ => return parser.expected_ref("stage name identifier", parser.peek_token_ref()),
         }
+    }
+    if ident.is_empty() || ident == "@" {
+        return parser.expected_ref("stage name identifier", parser.peek_token_ref());
     }
     Ok(Ident::new(ident))
 }
@@ -4352,10 +4362,14 @@ fn parse_select_item_for_data_load(
         }
     }
 
-    // A trailing `::` means this is a cast expression (e.g.
-    // `$1:"col"::NUMBER(38,0)`), not a stage-load-select-item.
-    if matches!(parser.peek_token_ref().token, Token::DoubleColon) {
-        return parser.expected("stage load select item", parser.peek_token());
+    // More complex paths and casts must fall back to the standard expression
+    // parser so it can preserve the complete JsonAccess / Cast expression.
+    if matches!(
+        parser.peek_token_ref().token,
+        Token::Colon | Token::Period | Token::LBracket | Token::DoubleColon
+    ) {
+        let token = parser.next_token();
+        return parser.expected("end of simple staged field", token);
     }
 
     // as
@@ -4642,6 +4656,7 @@ fn parse_multi_table_insert(
         table: TableObject::TableName(ObjectName(vec![])), // Not used for multi-table insert
         table_alias: None,
         columns: vec![],
+        by_name: false,
         overwrite,
         source: Some(source),
         assignments: vec![],
