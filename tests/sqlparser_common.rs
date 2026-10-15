@@ -20244,10 +20244,9 @@ fn parse_function_arg_call_chain_no_exponential_blowup() {
 
 #[test]
 fn parse_insert_by_name() {
-    let by_name_dialects = all_dialects_where(|d| d.supports_insert_by_name());
-    by_name_dialects.verified_stmt("INSERT INTO target BY NAME SELECT 1 AS a");
+    verified_stmt("INSERT INTO target BY NAME SELECT 1 AS a");
 
-    match by_name_dialects.verified_stmt("INSERT INTO target (a) BY NAME SELECT 1 AS a") {
+    match verified_stmt("INSERT INTO target (a) BY NAME SELECT 1 AS a") {
         Statement::Insert(Insert {
             by_name, columns, ..
         }) => {
@@ -20257,8 +20256,7 @@ fn parse_insert_by_name() {
         _ => unreachable!(),
     }
 
-    let dialects =
-        all_dialects_where(|d| d.supports_insert_by_name() && !d.supports_insert_table_alias());
+    let dialects = all_dialects_where(|d| !d.supports_insert_table_alias());
     match dialects.verified_stmt("INSERT INTO TABLE target PARTITION (p = 1) BY NAME SELECT 1 AS a")
     {
         Statement::Insert(Insert {
@@ -20275,8 +20273,7 @@ fn parse_insert_by_name() {
     }
 
     // `BY NAME` does not shadow a table alias in dialects supporting one.
-    let dialects =
-        all_dialects_where(|d| d.supports_insert_by_name() && d.supports_insert_table_alias());
+    let dialects = all_dialects_where(|d| d.supports_insert_table_alias());
     match dialects.verified_stmt("INSERT INTO target AS t BY NAME SELECT 1 AS a") {
         Statement::Insert(Insert {
             by_name,
