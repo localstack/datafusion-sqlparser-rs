@@ -12706,6 +12706,11 @@ impl<'a> Parser<'a> {
 
     /// Parse a single `ALTER TABLE` operation and return an `AlterTableOperation`.
     pub fn parse_alter_table_operation(&mut self) -> Result<AlterTableOperation, ParserError> {
+        if self.dialect.supports_tag_value_assignments() {
+            if let Some(operation) = self.maybe_parse(|parser| parser.parse_tag_value_assignment())? {
+                return Ok(operation);
+            }
+        }
         let operation = if self.parse_keyword(Keyword::ADD) {
             if dialect_of!(self is SnowflakeDialect)
                 && self.parse_keywords(&[
@@ -14216,7 +14221,25 @@ impl<'a> Parser<'a> {
             self.expect_token(&Token::LParen)?;
         }
         let operations = self.with_state(ParserState::AlterTable, |parser| {
-            parser.parse_comma_separated(Parser::parse_alter_table_operation)
+            let mut tag_operation = None;
+            parser.parse_comma_separated(|parser| {
+                let action_token = (0..4).find_map(|index| {
+                    let token = parser.peek_nth_token(index);
+                    ((token.token == Token::make_keyword("ADD") || token.token == Token::make_keyword("DROP"))
+                        && parser.peek_nth_token(index + 1).token == Token::make_keyword("VALUE"))
+                        .then_some(token)
+                });
+                let operation = parser.parse_alter_table_operation()?;
+                if let AlterTableOperation::TagValue { add, .. } = &operation {
+                    if tag_operation.is_some_and(|previous| previous != *add) {
+                        if let Some(token) = action_token {
+                            return parser.expected("matching tag value operation", token);
+                        }
+                    }
+                    tag_operation = Some(*add);
+                }
+                Ok(operation)
+            })
         })?;
         if wrapped_column_actions {
             self.expect_token(&Token::RParen)?;
@@ -14260,8 +14283,48 @@ impl<'a> Parser<'a> {
         .into())
     }
 
+    pub(crate) fn parse_tag_value_assignment(&mut self) -> Result<AlterTableOperation, ParserError> {
+        let column = if self.parse_one_of_keywords(&[Keyword::ALTER, Keyword::MODIFY]).is_some() {
+            let _ = self.parse_keyword(Keyword::COLUMN);
+            Some(self.parse_identifier()?)
+        } else if self.parse_keyword(Keyword::COLUMN) {
+            Some(self.parse_identifier()?)
+        } else if self.peek_one_of_keywords(&[Keyword::ADD, Keyword::DROP]).is_none() {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        let (add, value, tag) = self.parse_tag_value()?;
+        Ok(AlterTableOperation::TagValue { column, add, value, tag })
+    }
+
+    fn parse_tag_value(&mut self) -> Result<(bool, String, ObjectName), ParserError> {
+        let add = if self.parse_keywords(&[Keyword::ADD, Keyword::VALUE]) {
+            true
+        } else {
+            self.expect_keywords(&[Keyword::DROP, Keyword::VALUE])?;
+            false
+        };
+        let value = self.parse_literal_string()?;
+        self.expect_keywords(&[Keyword::FOR, Keyword::TAG])?;
+        let tag = self.parse_object_name(false)?;
+        Ok((add, value, tag))
+    }
+
     /// Parse an `ALTER VIEW` statement.
     pub fn parse_alter_view(&mut self) -> Result<Statement, ParserError> {
+        if self.dialect.supports_tag_value_assignments() {
+            if let Some(statement) = self.maybe_parse(|parser| {
+                let statement = parser.parse_alter_table(false)?;
+                if matches!(&statement, Statement::AlterTable(table) if table.operations.iter().all(|operation| matches!(operation, AlterTableOperation::TagValue { .. }))) {
+                    Ok(statement)
+                } else {
+                    parser.expected_ref("tag value assignment", parser.peek_token_ref())
+                }
+            })? {
+                return Ok(statement);
+            }
+        }
         let name = self.parse_object_name(false)?;
 
         // Snowflake: `ALTER VIEW v { MODIFY | ALTER } COLUMN c
@@ -14689,7 +14752,13 @@ impl<'a> Parser<'a> {
         self.expect_keywords(&[Keyword::ALTER, Keyword::SCHEMA])?;
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
-        let operation = if self.parse_keywords(&[Keyword::SET, Keyword::OPTIONS]) {
+        let operation = if self.dialect.supports_tag_value_assignments()
+            && self.peek_one_of_keywords(&[Keyword::ADD, Keyword::DROP]).is_some()
+            && self.peek_nth_token(1).token == Token::make_keyword("VALUE")
+        {
+            let (add, value, tag) = self.parse_tag_value()?;
+            AlterSchemaOperation::TagValue { add, value, tag }
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::OPTIONS]) {
             self.prev_token();
             let options = self.parse_options(Keyword::OPTIONS)?;
             AlterSchemaOperation::SetOptionsParens { options }

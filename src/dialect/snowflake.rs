@@ -1698,6 +1698,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_tag_value_assignments(&self) -> bool {
+        true
+    }
+
     fn is_identifier_generating_function_name(
         &self,
         ident: &Ident,
@@ -1829,7 +1833,11 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
     {
         parse_alter_dynamic_table_column_comments(parser)?
     } else {
-        let operation = if parser.parse_keyword(Keyword::REFRESH) {
+        let operation = if parser.peek_one_of_keywords(&[Keyword::ADD, Keyword::DROP]).is_some()
+            && parser.peek_nth_token(1).token == Token::make_keyword("VALUE")
+        {
+            parser.parse_tag_value_assignment()?
+        } else if parser.parse_keyword(Keyword::REFRESH) {
             AlterTableOperation::Refresh { subpath: None }
         } else if parser.parse_keyword(Keyword::SUSPEND) {
             AlterTableOperation::Suspend
