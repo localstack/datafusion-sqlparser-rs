@@ -2537,12 +2537,12 @@ fn parse_create_external_function(
     let headers = if consume_external_function_property(parser, "HEADERS") {
         parser.expect_token(&Token::Eq)?;
         parser.expect_token(&Token::LParen)?;
-        let headers = parser.parse_comma_separated(|parser| {
+        let headers = parser.parse_comma_separated0(|parser| {
             let name = parse_single_quoted_string(parser)?;
             parser.expect_token(&Token::Eq)?;
             let value = parse_single_quoted_string(parser)?;
             Ok(ExternalFunctionHeader { name, value })
-        })?;
+        }, Token::RParen)?;
         parser.expect_token(&Token::RParen)?;
         Some(headers)
     } else {
@@ -2553,7 +2553,7 @@ fn parse_create_external_function(
         if consume_external_function_property(parser, "CONTEXT_HEADERS") {
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
-            let headers = parser.parse_comma_separated(Parser::parse_identifier)?;
+            let headers = parser.parse_comma_separated0(Parser::parse_identifier, Token::RParen)?;
             parser.expect_token(&Token::RParen)?;
             Some(headers)
         } else {
