@@ -1391,11 +1391,6 @@ impl Dialect for SnowflakeDialect {
         false
     }
 
-    /// Snowflake has no `CREATE FOREIGN TABLE`; it is a syntax error.
-    fn supports_create_foreign_table(&self) -> bool {
-        false
-    }
-
     /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
     fn supports_parens_around_table_factor(&self) -> bool {
         true
