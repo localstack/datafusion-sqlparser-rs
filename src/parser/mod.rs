@@ -7283,7 +7283,7 @@ impl<'a> Parser<'a> {
             self.parse_hive_create_function(or_replace, temporary)
                 .map(Into::into)
         } else if dialect_of!(self is PostgreSqlDialect | GenericDialect | SnowflakeDialect) {
-            self.parse_postgres_create_function(or_replace, temporary, secure, data_metric)
+            self.parse_postgres_create_function(or_alter, or_replace, temporary, secure, data_metric)
                 .map(Into::into)
         } else if dialect_of!(self is DuckDbDialect) {
             self.parse_create_macro(or_replace, temporary)
@@ -7304,6 +7304,7 @@ impl<'a> Parser<'a> {
     /// [PostgreSQL]: https://www.postgresql.org/docs/15/sql-createfunction.html
     fn parse_postgres_create_function(
         &mut self,
+        or_alter: bool,
         or_replace: bool,
         temporary: bool,
         secure: bool,
@@ -7445,7 +7446,7 @@ impl<'a> Parser<'a> {
 
         Ok(CreateFunction {
             data_metric,
-            or_alter: false,
+            or_alter,
             or_replace,
             temporary,
             secure,
