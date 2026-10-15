@@ -19433,7 +19433,10 @@ fn test_parse_alter_user() {
     }
     dialects.verified_stmt("ALTER USER u1 REMOVE MFA METHOD TOTP");
     dialects.verified_stmt("ALTER USER u1 REMOVE MFA METHOD DUO");
-    let stmt = dialects.verified_stmt("ALTER USER u1 MODIFY MFA METHOD PASSKEY SET COMMENT 'abc'");
+    let stmt = dialects.one_statement_parses_to(
+        "ALTER USER u1 MODIFY MFA METHOD PASSKEY SET COMMENT 'abc'",
+        "ALTER USER u1 MODIFY MFA METHOD PASSKEY SET COMMENT = 'abc'",
+    );
     match stmt {
         Statement::AlterUser(alter) => {
             assert_eq!(

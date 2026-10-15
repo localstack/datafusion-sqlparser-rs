@@ -17888,6 +17888,8 @@ pub enum MfaMethodKind {
     Totp,
     /// Duo Security MFA method.
     Duo,
+    /// An enrolled method name, distinct from a default method kind.
+    Named(Ident),
 }
 
 impl fmt::Display for MfaMethodKind {
@@ -17896,6 +17898,7 @@ impl fmt::Display for MfaMethodKind {
             MfaMethodKind::PassKey => write!(f, "PASSKEY"),
             MfaMethodKind::Totp => write!(f, "TOTP"),
             MfaMethodKind::Duo => write!(f, "DUO"),
+            MfaMethodKind::Named(name) => write!(f, "{name}"),
         }
     }
 }
@@ -17992,7 +17995,7 @@ impl fmt::Display for AlterUser {
             let comment = &modify.comment;
             write!(
                 f,
-                " MODIFY MFA METHOD {method} SET COMMENT '{}'",
+                " MODIFY MFA METHOD {method} SET COMMENT = '{}'",
                 value::escape_single_quote_string(comment)
             )?;
         }

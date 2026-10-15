@@ -228,24 +228,29 @@ impl Parser<'_> {
         };
         let enroll_mfa = self.parse_keywords(&[Keyword::ENROLL, Keyword::MFA]);
         let set_default_mfa_method =
-            if self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT_MFA_METHOD]) {
-                let _ = self.consume_token(&Token::Eq);
+            if self.peek_nth_token_ref(2).token != Token::Eq
+                && self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT_MFA_METHOD])
+            {
                 Some(self.parse_mfa_method()?)
             } else {
                 None
             };
         let remove_mfa_method =
             if self.parse_keywords(&[Keyword::REMOVE, Keyword::MFA, Keyword::METHOD]) {
-                Some(self.parse_mfa_method()?)
+                Some(self.parse_mfa_method_name()?)
             } else {
                 None
             };
         let modify_mfa_method =
             if self.parse_keywords(&[Keyword::MODIFY, Keyword::MFA, Keyword::METHOD]) {
-                let method = self.parse_mfa_method()?;
+                let method = self.parse_mfa_method_name()?;
                 self.expect_keywords(&[Keyword::SET, Keyword::COMMENT])?;
                 let _ = self.consume_token(&Token::Eq);
-                let comment = self.parse_literal_string()?;
+                let comment = if self.parse_keyword(Keyword::NULL) {
+                    String::new()
+                } else {
+                    self.parse_literal_string()?
+                };
                 Some(AlterUserModifyMfaMethod { method, comment })
             } else {
                 None
@@ -383,6 +388,19 @@ impl Parser<'_> {
             Ok(MfaMethodKind::Duo)
         } else {
             self.expected_ref("PASSKEY, TOTP or DUO", self.peek_token_ref())
+        }
+    }
+
+    fn parse_mfa_method_name(&mut self) -> Result<MfaMethodKind, ParserError> {
+        if self.peek_keyword(Keyword::PASSKEY)
+            || self.peek_keyword(Keyword::TOTP)
+            || self.peek_keyword(Keyword::DUO)
+        {
+            self.parse_mfa_method()
+        } else if matches!(&self.peek_token_ref().token, Token::Word(_)) {
+            self.parse_identifier().map(MfaMethodKind::Named)
+        } else {
+            self.expected_ref("MFA method identifier", self.peek_token_ref())
         }
     }
 
