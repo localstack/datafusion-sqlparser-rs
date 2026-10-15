@@ -16424,10 +16424,7 @@ impl<'a> Parser<'a> {
                         ))))
                     }
                 }
-                Keyword::OBJECT
-                    if self.dialect.supports_object_typedef_with_parentheses()
-                        && self.peek_token_ref().token == Token::LParen =>
-                {
+                Keyword::OBJECT if self.peek_token_ref().token == Token::LParen => {
                     if let Some(fields) =
                         self.maybe_parse(|parser| parser.parse_structured_object_type_def())?
                     {
