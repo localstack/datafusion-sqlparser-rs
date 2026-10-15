@@ -13519,6 +13519,7 @@ impl<'a> Parser<'a> {
         &mut self,
         kind: AlterFunctionKind,
     ) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let (function, aggregate_star, aggregate_order_by) = match kind {
             AlterFunctionKind::Function => (self.parse_function_desc()?, false, None),
             AlterFunctionKind::Aggregate => self.parse_alter_aggregate_signature()?,
@@ -13569,6 +13570,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Statement::AlterFunction(AlterFunction {
+            if_exists,
             kind,
             function,
             aggregate_order_by,

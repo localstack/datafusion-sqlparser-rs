@@ -7175,6 +7175,8 @@ impl Spanned for AlterOperatorClass {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterFunction {
+    /// Whether an absent function is ignored.
+    pub if_exists: bool,
     /// Object type being altered.
     pub kind: AlterFunctionKind,
     /// Function or aggregate signature.
@@ -7285,6 +7287,9 @@ pub enum AlterFunctionAction {
 impl fmt::Display for AlterFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ALTER {} ", self.kind)?;
+        if self.if_exists {
+            write!(f, "IF EXISTS ")?;
+        }
         match self.kind {
             AlterFunctionKind::Function => {
                 write!(f, "{} ", self.function)?;
