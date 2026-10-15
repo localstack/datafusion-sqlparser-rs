@@ -174,6 +174,17 @@ impl fmt::Display for ConstraintTarget {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTableOperation {
+    /// Snowflake multi-value tag assignment.
+    TagValue {
+        /// Column target, or the table when absent.
+        column: Option<Ident>,
+        /// ADD rather than DROP.
+        add: bool,
+        /// Assignment member.
+        value: String,
+        /// Tag name.
+        tag: ObjectName,
+    },
     /// Snowflake constraint target mutation.
     AlterConstraint {
         /// Whether `MODIFY` (rather than `ALTER`) was used.
@@ -859,6 +870,12 @@ pub enum AlterIndexOperation {
 impl fmt::Display for AlterTableOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTableOperation::TagValue { column, add, value, tag } => {
+                if let Some(column) = column {
+                    write!(f, "MODIFY COLUMN {column} ")?;
+                }
+                write!(f, "{} VALUE '{}' FOR TAG {tag}", if *add { "ADD" } else { "DROP" }, value.replace('\'', "''"))
+            }
             AlterTableOperation::AlterConstraint {
                 modify,
                 target,
@@ -5605,6 +5622,15 @@ impl fmt::Display for CreateConnector {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterSchemaOperation {
+    /// Multi-value tag assignment.
+    TagValue {
+        /// ADD rather than DROP.
+        add: bool,
+        /// Assignment member.
+        value: String,
+        /// Tag name.
+        tag: ObjectName,
+    },
     /// Set the default collation for the schema.
     SetDefaultCollate {
         /// The collation to set as default.
@@ -5647,6 +5673,9 @@ pub enum AlterSchemaOperation {
 impl fmt::Display for AlterSchemaOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterSchemaOperation::TagValue { add, value, tag } => {
+                write!(f, "{} VALUE '{}' FOR TAG {tag}", if *add { "ADD" } else { "DROP" }, value.replace('\'', "''"))
+            }
             AlterSchemaOperation::SetDefaultCollate { collate } => {
                 write!(f, "SET DEFAULT COLLATE {collate}")
             }
