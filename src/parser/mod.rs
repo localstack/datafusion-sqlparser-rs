@@ -25776,6 +25776,21 @@ impl<'a> Parser<'a> {
             }),
             Token::Word(word) => {
                 self.next_token();
+                if word.quote_style == Some('"')
+                    && matches!(
+                        key.value.to_ascii_uppercase().as_str(),
+                        "ENABLE_GET_DDL_USE_DATA_TYPE_ALIAS"
+                            | "OPT_OUT_ERROR_LOGGING"
+                            | "STRICT_JSON_OUTPUT"
+                    )
+                {
+                    return Ok(KeyValueOption {
+                        option_name: key.value.clone(),
+                        option_value: KeyValueOptionKind::Single(
+                            Value::DoubleQuotedString(word.value).with_span(peeked_token.span),
+                        ),
+                    });
+                }
                 // `IDENTIFIER('<name>')` is kept verbatim, like a bare word.
                 if word.value.eq_ignore_ascii_case("IDENTIFIER")
                     && self.consume_token(&Token::LParen)
