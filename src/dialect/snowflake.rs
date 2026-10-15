@@ -1371,21 +1371,14 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
-    /// See [doc](https://docs.snowflake.com/en/sql-reference/data-types-structured#label-structured-types-array)
-    fn supports_array_typedef_with_parentheses(&self) -> bool {
-        true
-    }
-
-    fn supports_array_element_not_null(&self) -> bool {
-        true
-    }
-
-    fn supports_map_typedef_with_parentheses(&self) -> bool {
-        true
-    }
-
-    fn supports_map_value_not_null(&self) -> bool {
-        true
+    // Structured `ARRAY(T)` / `MAP(K, V)` / `OBJECT(f T, ...)` types are left
+    // to the generic type-name path, which yields `DataType::Custom` with the
+    // inner specs as modifiers: the emulator's structured-type lowering and
+    // validation key on that shape. Upstream's dedicated `DataType::Array` /
+    // `Map` / `Object` forms (#2488, #2489) stay off for Snowflake until the
+    // consumers are ported to them.
+    fn supports_object_typedef_with_parentheses(&self) -> bool {
+        false
     }
 
     /// See [doc](https://docs.snowflake.com/en/sql-reference/constructs/from)
