@@ -11450,3 +11450,21 @@ fn test_grant_create_backup_schema_privileges() {
         assert!(snowflake().parse_sql_statements(sql).is_err(), "{sql}");
     }
 }
+
+#[test]
+fn test_storage_integration_unset_options() {
+    for statement in [
+        "ALTER STORAGE INTEGRATION storage UNSET USE_PRIVATELINK_ENDPOINT",
+        "ALTER STORAGE INTEGRATION IF EXISTS \"UNSET\" UNSET COMMENT, USE_PRIVATELINK_ENDPOINT",
+        "ALTER STORAGE INTEGRATION storage SET USE_PRIVATELINK_ENDPOINT=true",
+    ] {
+        snowflake().verified_stmt(statement);
+    }
+    for statement in [
+        "ALTER STORAGE INTEGRATION storage UNSET",
+        "ALTER STORAGE INTEGRATION storage UNSET USE_PRIVATELINK_ENDPOINT = true",
+        "ALTER STORAGE INTEGRATION storage UNSET USE_PRIVATELINK_ENDPOINT,",
+    ] {
+        assert!(snowflake().parse_sql_statements(statement).is_err());
+    }
+}
