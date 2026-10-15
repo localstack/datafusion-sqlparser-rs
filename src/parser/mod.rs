@@ -3719,7 +3719,7 @@ impl<'a> Parser<'a> {
                 trim_where = Some(self.parse_trim_where()?);
             }
         }
-        if self.dialect.supports_comma_separated_trim() && self.parse_keyword(Keyword::FROM) {
+        if self.dialect.supports_trim_from_without_characters() && self.parse_keyword(Keyword::FROM) {
             let expr = self.parse_expr()?;
             let trim_characters = if self.consume_token(&Token::Comma) {
                 Some(self.parse_comma_separated(Parser::parse_expr)?)
