@@ -765,6 +765,7 @@ define_keywords!(
     MSTYPE,
     MULTIRANGE_TYPE_NAME,
     MULTISET,
+    MULTI_VALUE,
     MUST_CHANGE_PASSWORD,
     MUTATION,
     NAME,

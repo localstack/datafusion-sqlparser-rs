@@ -5854,6 +5854,8 @@ pub enum Statement {
         name: ObjectName,
         /// Optional `ALLOWED_VALUES` list (stored for SHOW fidelity only).
         allowed_values: Vec<String>,
+        /// Optional `MULTI_VALUE` property.
+        multi_value: Option<bool>,
         /// Optional comment.
         comment: Option<String>,
     },
@@ -6725,7 +6727,7 @@ pub enum Statement {
         params: KeyValueOptions,
     },
     /// ```sql
-    /// ALTER STORAGE INTEGRATION [IF EXISTS] <name> SET ...
+    /// ALTER STORAGE INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
     /// ```
     AlterStorageIntegration {
         /// Storage integration name.
@@ -6734,6 +6736,8 @@ pub enum Statement {
         if_exists: bool,
         /// The `SET` options.
         set_options: KeyValueOptions,
+        /// The property names given in an `UNSET` clause.
+        unset_options: Vec<Ident>,
     },
     /// ```sql
     /// DROP STORAGE INTEGRATION [IF EXISTS] <name>
@@ -9749,6 +9753,7 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 allowed_values,
+                multi_value,
                 comment,
             } => {
                 write!(
@@ -9765,6 +9770,9 @@ impl fmt::Display for Statement {
                         }
                         write!(f, "'{}'", value::escape_single_quote_string(v))?;
                     }
+                }
+                if let Some(enabled) = multi_value {
+                    write!(f, " MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
                 }
                 if let Some(ref c) = comment {
                     write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
@@ -10557,14 +10565,20 @@ impl fmt::Display for Statement {
                 name,
                 if_exists,
                 set_options,
+                unset_options,
             } => {
                 write!(
                     f,
-                    "ALTER STORAGE INTEGRATION {if_exists}{name} SET",
+                    "ALTER STORAGE INTEGRATION {if_exists}{name}",
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )?;
-                if !set_options.options.is_empty() {
-                    write!(f, " {set_options}")?;
+                if unset_options.is_empty() {
+                    write!(f, " SET")?;
+                    if !set_options.options.is_empty() {
+                        write!(f, " {set_options}")?;
+                    }
+                } else {
+                    write!(f, " UNSET {}", display_comma_separated(unset_options))?;
                 }
                 Ok(())
             }
@@ -17944,6 +17958,8 @@ pub struct AlterUser {
     pub if_exists: bool,
     /// The name of the user to alter, or the current user when omitted.
     pub name: Option<Ident>,
+    /// Qualifying components preceding the user name.
+    pub name_qualifier: Vec<Ident>,
     /// Optional new name for the user (Snowflake-specific).
     /// See: <https://docs.snowflake.com/en/sql-reference/sql/alter-user#syntax>
     pub rename_to: Option<Ident>,
@@ -17989,9 +18005,9 @@ pub struct AlterUser {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterUserAddRoleDelegation {
     /// Role name to delegate.
-    pub role: Ident,
+    pub role: ObjectName,
     /// Security integration receiving the delegation.
-    pub integration: Ident,
+    pub integration: ObjectName,
 }
 
 /// ```sql
@@ -18002,9 +18018,9 @@ pub struct AlterUserAddRoleDelegation {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterUserRemoveRoleDelegation {
     /// Optional role name to remove delegation for.
-    pub role: Option<Ident>,
+    pub role: Option<ObjectName>,
     /// Security integration from which to remove delegation.
-    pub integration: Ident,
+    pub integration: ObjectName,
 }
 
 /// ```sql
@@ -18042,6 +18058,8 @@ pub enum MfaMethodKind {
     Totp,
     /// Duo Security MFA method.
     Duo,
+    /// An enrolled method name, distinct from a default method kind.
+    Named(Ident),
 }
 
 impl fmt::Display for MfaMethodKind {
@@ -18050,6 +18068,7 @@ impl fmt::Display for MfaMethodKind {
             MfaMethodKind::PassKey => write!(f, "PASSKEY"),
             MfaMethodKind::Totp => write!(f, "TOTP"),
             MfaMethodKind::Duo => write!(f, "DUO"),
+            MfaMethodKind::Named(name) => write!(f, "{name}"),
         }
     }
 }
@@ -18100,7 +18119,11 @@ impl fmt::Display for AlterUser {
             write!(f, " IF EXISTS")?;
         }
         if let Some(name) = &self.name {
-            write!(f, " {name}")?;
+            write!(f, " ")?;
+            for qualifier in &self.name_qualifier {
+                write!(f, "{qualifier}.")?;
+            }
+            write!(f, "{name}")?;
         }
         if let Some(new_name) = &self.rename_to {
             write!(f, " RENAME TO {new_name}")?;
@@ -18142,7 +18165,7 @@ impl fmt::Display for AlterUser {
             let comment = &modify.comment;
             write!(
                 f,
-                " MODIFY MFA METHOD {method} SET COMMENT '{}'",
+                " MODIFY MFA METHOD {method} SET COMMENT = '{}'",
                 value::escape_single_quote_string(comment)
             )?;
         }
