@@ -2128,6 +2128,13 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports `TRIM` with nothing to trim
+    /// before `FROM`: `TRIM([BOTH | LEADING | TRAILING] FROM expr [, characters])`.
+    /// Defaults to [`Self::supports_comma_separated_trim`].
+    fn supports_trim_from_without_characters(&self) -> bool {
+        self.supports_comma_separated_trim()
+    }
+
     /// Returns true if the dialect supports the `AS` keyword being
     /// optional in a CTE definition. For example:
     /// ```sql
