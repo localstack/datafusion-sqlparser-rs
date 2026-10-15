@@ -1538,12 +1538,6 @@ pub trait Dialect: Debug + Any {
         false
     }
 
-    /// Returns true if this dialect supports the PostgreSQL
-    /// `CREATE FOREIGN TABLE` statement.
-    fn supports_create_foreign_table(&self) -> bool {
-        true
-    }
-
     /// Returns true if this dialect supports `PROC` as an abbreviation for
     /// `PROCEDURE` in a `CREATE` statement.
     fn supports_create_proc_syntax(&self) -> bool {
