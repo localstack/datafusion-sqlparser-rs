@@ -68,7 +68,11 @@ impl fmt::Display for TypeModifier {
 /// SQL data types
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+#[cfg_attr(
+    feature = "visitor",
+    derive(Visit, VisitMut),
+    visit(with = "visit_data_type")
+)]
 pub enum DataType {
     /// Table type in [PostgreSQL], e.g. CREATE FUNCTION RETURNS TABLE(...).
     ///
