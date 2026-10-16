@@ -5459,6 +5459,28 @@ pub enum Statement {
         sql_body: Box<Statement>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE | OR ALTER] ALERT [IF NOT EXISTS] <name>
+    ///   FROM TEMPLATE <template_id> [WITH TAG (...)] [<attributes>]
+    ///   [TEMPLATE_PARAMS = '<json_string>']
+    /// ```
+    /// See <https://docs.snowflake.com/en/sql-reference/sql/create-alert>
+    CreateAlertFromTemplate {
+        /// Replace an existing alert.
+        or_replace: bool,
+        /// Create or alter the alert.
+        or_alter: bool,
+        /// Preserve an existing alert.
+        if_not_exists: bool,
+        /// Target alert name.
+        name: ObjectName,
+        /// Managed template identifier.
+        template: Ident,
+        /// Optional tag assignments.
+        tags: Vec<Tag>,
+        /// Template attributes, including opaque TEMPLATE_PARAMS.
+        options: KeyValueOptions,
+    },
+    /// ```sql
     /// CREATE [OR REPLACE] ALERT [IF NOT EXISTS] <name>
     ///   [WAREHOUSE = <warehouse>]
     ///   [SCHEDULE = '<schedule>']
@@ -9276,6 +9298,30 @@ impl fmt::Display for Statement {
                 }
                 if let Some(runbook) = runbook {
                     write!(f, " RUNBOOK = {runbook}")?;
+                }
+                Ok(())
+            }
+            Statement::CreateAlertFromTemplate {
+                or_replace,
+                or_alter,
+                if_not_exists,
+                name,
+                template,
+                tags,
+                options,
+            } => {
+                write!(
+                    f,
+                    "CREATE {}{}ALERT {}{name} FROM TEMPLATE {template}",
+                    if *or_replace { "OR REPLACE " } else { "" },
+                    if *or_alter { "OR ALTER " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" },
+                )?;
+                if !tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
+                }
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
                 }
                 Ok(())
             }
@@ -16878,6 +16924,13 @@ impl fmt::Display for AlterTaskAction {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterAlertOperation {
+    /// `FROM TEMPLATE <id> SET ...`
+    FromTemplate {
+        /// Managed template identifier.
+        template: Ident,
+        /// Template attributes, including opaque TEMPLATE_PARAMS.
+        options: KeyValueOptions,
+    },
     /// `RESUME`
     Resume,
     /// `SUSPEND`
@@ -16895,6 +16948,9 @@ pub enum AlterAlertOperation {
 impl fmt::Display for AlterAlertOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterAlertOperation::FromTemplate { template, options } => {
+                write!(f, "FROM TEMPLATE {template} SET {options}")
+            }
             AlterAlertOperation::Resume => write!(f, "RESUME"),
             AlterAlertOperation::Suspend => write!(f, "SUSPEND"),
             AlterAlertOperation::Set(options) => write!(f, "SET {options}"),
