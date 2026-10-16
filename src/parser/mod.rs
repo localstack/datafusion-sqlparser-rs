@@ -20208,6 +20208,7 @@ impl<'a> Parser<'a> {
 
         // Parse potential version qualifier
         if self.peek_keyword(Keyword::CHANGES)
+            && self.peek_nth_token_ref(1).token == Token::LParen
             && name.0.iter().any(|part| {
                 part.as_ident().is_some_and(|ident| {
                     ident.quote_style == Some('"') && ident.value.contains('"')
@@ -20218,7 +20219,15 @@ impl<'a> Parser<'a> {
                 "CHANGES does not accept doubled-quote identifiers".to_string(),
             ));
         }
-        let version = self.maybe_parse_table_version()?;
+        let version = if self.peek_nth_token_ref(1).token != Token::LParen
+            && (self.peek_keyword(Keyword::AT)
+                || self.peek_keyword(Keyword::BEFORE)
+                || self.peek_keyword(Keyword::CHANGES))
+        {
+            None
+        } else {
+            self.maybe_parse_table_version()?
+        };
 
         // Postgres, MSSQL, ClickHouse: table-valued functions:
         let args = if self.consume_token(&Token::LParen) {
