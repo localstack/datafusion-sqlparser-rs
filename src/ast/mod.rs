@@ -16618,6 +16618,8 @@ pub enum AlterWarehouseOperation {
         /// Property names to unset.
         params: Vec<Ident>,
     },
+    /// `UNSET DCM PROJECT`
+    UnsetDcmProject,
     /// `SUSPEND`
     Suspend,
     /// `RESUME [IF SUSPENDED]`
@@ -16661,6 +16663,7 @@ impl fmt::Display for AlterWarehouseOperation {
                 }
                 Ok(())
             }
+            AlterWarehouseOperation::UnsetDcmProject => write!(f, "UNSET DCM PROJECT"),
             AlterWarehouseOperation::Suspend => write!(f, "SUSPEND"),
             AlterWarehouseOperation::Resume { if_suspended } => {
                 write!(f, "RESUME")?;
