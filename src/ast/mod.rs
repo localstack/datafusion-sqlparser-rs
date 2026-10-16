@@ -17796,6 +17796,8 @@ impl fmt::Display for CreateUser {
 pub struct CreateWarehouse {
     /// `OR REPLACE` flag.
     pub or_replace: bool,
+    /// `OR ALTER` flag.
+    pub or_alter: bool,
     /// `IF NOT EXISTS` flag.
     pub if_not_exists: bool,
     /// Warehouse name.
@@ -17811,6 +17813,8 @@ impl fmt::Display for CreateWarehouse {
         write!(f, "CREATE")?;
         if self.or_replace {
             write!(f, " OR REPLACE")?;
+        } else if self.or_alter {
+            write!(f, " OR ALTER")?;
         }
         write!(f, " WAREHOUSE")?;
         if self.if_not_exists {

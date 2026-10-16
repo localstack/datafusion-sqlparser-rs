@@ -6009,7 +6009,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::SCHEMA) {
             self.parse_create_schema(or_replace, transient)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
-            self.parse_create_warehouse(or_replace).map(Into::into)
+            self.parse_create_warehouse(or_replace, or_alter).map(Into::into)
         } else if self.parse_keyword(Keyword::ACCOUNT) {
             self.parse_create_account()
         } else if self.parse_keyword(Keyword::TASK) {
@@ -6369,7 +6369,11 @@ impl<'a> Parser<'a> {
     /// Parse a `CREATE WAREHOUSE` statement.
     ///
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-warehouse>
-    fn parse_create_warehouse(&mut self, or_replace: bool) -> Result<CreateWarehouse, ParserError> {
+    fn parse_create_warehouse(
+        &mut self,
+        or_replace: bool,
+        or_alter: bool,
+    ) -> Result<CreateWarehouse, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         let _ = self.parse_keyword(Keyword::WITH);
@@ -6385,6 +6389,7 @@ impl<'a> Parser<'a> {
         }
         Ok(CreateWarehouse {
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             options,
