@@ -6631,6 +6631,31 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub(crate) fn parse_alert_template_options(&mut self) -> Result<KeyValueOptions, ParserError> {
+        let mut options = Vec::new();
+        while let Token::Word(key) = self.peek_token().token {
+            if key.quote_style.is_some()
+                || !matches!(
+                    key.value.to_ascii_uppercase().as_str(),
+                    "WAREHOUSE"
+                        | "SCHEDULE"
+                        | "COMMENT"
+                        | "RUNBOOK"
+                        | "SUSPEND_ALERT_AFTER_NUM_FAILURES"
+                        | "TEMPLATE_PARAMS"
+                )
+            {
+                break;
+            }
+            self.next_token();
+            options.push(self.parse_key_value_option(&key, false)?);
+        }
+        Ok(KeyValueOptions {
+            options,
+            delimiter: KeyValueOptionsDelimiter::Space,
+        })
+    }
+
     /// Parse a Snowflake `CREATE [OR REPLACE] ALERT [IF NOT EXISTS] <name>
     /// [WAREHOUSE = <wh>] [SCHEDULE = '<sched>'] [COMMENT = '<c>'] [RUNBOOK = '<r>']
     /// [SUSPEND_ALERT_AFTER_NUM_FAILURES = <n>] IF (EXISTS (<condition>)) THEN
@@ -6642,6 +6667,28 @@ impl<'a> Parser<'a> {
     ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
+        if self.parse_keywords(&[Keyword::FROM, Keyword::TEMPLATE]) {
+            let template = self.parse_identifier()?;
+            let with_tags = self.parse_keyword(Keyword::WITH);
+            let tags = if with_tags || self.peek_token().token == Token::make_keyword("TAG") {
+                self.expect_keyword_is(Keyword::TAG)?;
+                self.expect_token(&Token::LParen)?;
+                let tags = self.parse_comma_separated(Parser::parse_tag)?;
+                self.expect_token(&Token::RParen)?;
+                tags
+            } else {
+                Vec::new()
+            };
+            return Ok(Statement::CreateAlertFromTemplate {
+                or_replace,
+                or_alter,
+                if_not_exists,
+                name,
+                template,
+                tags,
+                options: self.parse_alert_template_options()?,
+            });
+        }
         let source = if self.parse_keyword(Keyword::CLONE) {
             Some(self.parse_object_name(false)?)
         } else {
