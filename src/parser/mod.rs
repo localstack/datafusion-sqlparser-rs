@@ -14272,6 +14272,16 @@ impl<'a> Parser<'a> {
             AlterWarehouseOperation::Resume { if_suspended }
         } else if self.parse_keywords(&[Keyword::ABORT, Keyword::ALL, Keyword::QUERIES]) {
             AlterWarehouseOperation::AbortAllQueries
+        } else if let Some(action) = self.parse_one_of_keywords(&[Keyword::ADD, Keyword::DROP]) {
+            self.expect_keyword(Keyword::TABLES)?;
+            self.expect_token(&Token::LParen)?;
+            let tables = self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+            self.expect_token(&Token::RParen)?;
+            if action == Keyword::ADD {
+                AlterWarehouseOperation::AddTables { tables }
+            } else {
+                AlterWarehouseOperation::DropTables { tables }
+            }
         } else if self.parse_keyword(Keyword::ENABLE) {
             AlterWarehouseOperation::Enable
         } else if self.parse_keyword(Keyword::DISABLE) {
