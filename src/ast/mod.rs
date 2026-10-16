@@ -16790,6 +16790,16 @@ pub enum AlterWarehouseOperation {
     },
     /// `ABORT ALL QUERIES`
     AbortAllQueries,
+    /// `ADD TABLES (<table_name> [, ...])`
+    AddTables {
+        /// Tables to associate with the warehouse.
+        tables: Vec<ObjectName>,
+    },
+    /// `DROP TABLES (<table_name> [, ...])`
+    DropTables {
+        /// Tables to disassociate from the warehouse.
+        tables: Vec<ObjectName>,
+    },
     /// `ENABLE`
     Enable,
     /// `DISABLE`
@@ -16832,6 +16842,12 @@ impl fmt::Display for AlterWarehouseOperation {
                 write!(f, "RENAME TO {new_name}")
             }
             AlterWarehouseOperation::AbortAllQueries => write!(f, "ABORT ALL QUERIES"),
+            AlterWarehouseOperation::AddTables { tables } => {
+                write!(f, "ADD TABLES ({})", display_comma_separated(tables))
+            }
+            AlterWarehouseOperation::DropTables { tables } => {
+                write!(f, "DROP TABLES ({})", display_comma_separated(tables))
+            }
             AlterWarehouseOperation::Enable => write!(f, "ENABLE"),
             AlterWarehouseOperation::Disable => write!(f, "DISABLE"),
         }
