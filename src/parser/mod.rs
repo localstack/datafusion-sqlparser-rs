@@ -20064,6 +20064,11 @@ impl<'a> Parser<'a> {
                     )),
                 }
             }
+            if self.dialect.supports_match_recognize()
+                && self.parse_keyword(Keyword::MATCH_RECOGNIZE)
+            {
+                table = self.parse_match_recognize(table)?;
+            }
             if self.dialect.supports_resample_table_factor()
                 && self.parse_keyword(Keyword::RESAMPLE)
             {
