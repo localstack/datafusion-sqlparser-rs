@@ -5239,7 +5239,14 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
 fn parse_alter_alert(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    let operation = if parser.parse_keyword(Keyword::RESUME) {
+    let operation = if parser.parse_keywords(&[Keyword::FROM, Keyword::TEMPLATE]) {
+        let template = parser.parse_identifier()?;
+        parser.expect_keyword_is(Keyword::SET)?;
+        AlterAlertOperation::FromTemplate {
+            template,
+            options: parser.parse_alert_template_options()?,
+        }
+    } else if parser.parse_keyword(Keyword::RESUME) {
         AlterAlertOperation::Resume
     } else if parser.parse_keyword(Keyword::SUSPEND) {
         AlterAlertOperation::Suspend
