@@ -10351,6 +10351,7 @@ fn test_create_pipe_auto_ingest() {
     match snowflake().verified_stmt(sql) {
         Statement::CreatePipe {
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             auto_ingest,
@@ -10358,10 +10359,13 @@ fn test_create_pipe_auto_ingest() {
             aws_sns_topic,
             integration,
             comment,
+            execution_paused,
             with_tags,
             copy_statement,
         } => {
             assert!(!or_replace);
+            assert!(!or_alter);
+            assert!(execution_paused.is_none());
             assert!(!if_not_exists);
             assert_eq!("p", name.to_string());
             assert_eq!(Some(true), auto_ingest);

@@ -6029,7 +6029,7 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::STREAM) {
             self.parse_create_stream(or_replace, or_alter)
         } else if self.parse_keyword(Keyword::PIPE) {
-            self.parse_create_pipe(or_replace)
+            self.parse_create_pipe(or_replace, or_alter)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or SCHEMA or WAREHOUSE or TASK or PROCEDURE or ROLE or SEQUENCE after CREATE OR REPLACE",
@@ -6312,7 +6312,11 @@ impl<'a> Parser<'a> {
     ///   [AUTO_INGEST = { TRUE | FALSE }] [ERROR_INTEGRATION = <name>]
     ///   [AWS_SNS_TOPIC = '<s>'] [INTEGRATION = '<s>'] [COMMENT = '<s>']
     ///   AS <copy_statement>`
-    fn parse_create_pipe(&mut self, or_replace: bool) -> Result<Statement, ParserError> {
+    fn parse_create_pipe(
+        &mut self,
+        or_replace: bool,
+        or_alter: bool,
+    ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
         let mut auto_ingest: Option<bool> = None;
@@ -6320,6 +6324,7 @@ impl<'a> Parser<'a> {
         let mut aws_sns_topic: Option<String> = None;
         let mut integration: Option<String> = None;
         let mut comment: Option<String> = None;
+        let mut execution_paused = None;
         let mut with_tags = Vec::new();
 
         loop {
@@ -6327,6 +6332,7 @@ impl<'a> Parser<'a> {
                 let copy_statement = Box::new(self.parse_statement()?);
                 return Ok(Statement::CreatePipe {
                     or_replace,
+                    or_alter,
                     if_not_exists,
                     name,
                     auto_ingest,
@@ -6334,6 +6340,7 @@ impl<'a> Parser<'a> {
                     aws_sns_topic,
                     integration,
                     comment,
+                    execution_paused,
                     with_tags,
                     copy_statement,
                 });
@@ -6353,6 +6360,9 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
+            } else if self.parse_keyword(Keyword::PIPE_EXECUTION_PAUSED) {
+                self.expect_token(&Token::Eq)?;
+                execution_paused = Some(self.parse_boolean_string()?);
             } else if self.parse_keywords(&[Keyword::WITH, Keyword::TAG]) {
                 self.expect_token(&Token::LParen)?;
                 with_tags = self.parse_comma_separated(Parser::parse_tag)?;
