@@ -16744,6 +16744,10 @@ pub enum AlterWarehouseOperation {
     },
     /// `ABORT ALL QUERIES`
     AbortAllQueries,
+    /// `ENABLE`
+    Enable,
+    /// `DISABLE`
+    Disable,
 }
 
 impl fmt::Display for AlterWarehouseOperation {
@@ -16781,6 +16785,8 @@ impl fmt::Display for AlterWarehouseOperation {
                 write!(f, "RENAME TO {new_name}")
             }
             AlterWarehouseOperation::AbortAllQueries => write!(f, "ABORT ALL QUERIES"),
+            AlterWarehouseOperation::Enable => write!(f, "ENABLE"),
+            AlterWarehouseOperation::Disable => write!(f, "DISABLE"),
         }
     }
 }
