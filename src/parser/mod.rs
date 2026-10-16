@@ -20293,10 +20293,12 @@ impl<'a> Parser<'a> {
                 "CHANGES does not accept doubled-quote identifiers".to_string(),
             ));
         }
-        let version = if self.peek_nth_token_ref(1).token != Token::LParen
-            && (self.peek_keyword(Keyword::AT)
-                || self.peek_keyword(Keyword::BEFORE)
-                || self.peek_keyword(Keyword::CHANGES))
+        let version = if !matches!(
+            self.peek_nth_token_ref(1).token,
+            Token::LParen | Token::Period
+        ) && (self.peek_keyword(Keyword::AT)
+            || self.peek_keyword(Keyword::BEFORE)
+            || self.peek_keyword(Keyword::CHANGES))
         {
             None
         } else {
