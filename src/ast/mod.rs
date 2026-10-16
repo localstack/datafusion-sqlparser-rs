@@ -5653,6 +5653,8 @@ pub enum Statement {
     CreatePipe {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Pipe name.
@@ -5667,6 +5669,8 @@ pub enum Statement {
         integration: Option<String>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
+        /// Optional `PIPE_EXECUTION_PAUSED = { TRUE | FALSE }` clause.
+        execution_paused: Option<bool>,
         /// Optional `WITH TAG (...)` clause.
         with_tags: Vec<Tag>,
         /// The `COPY INTO` statement the pipe wraps (after `AS`).
@@ -9556,6 +9560,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreatePipe {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 auto_ingest,
@@ -9563,13 +9568,14 @@ impl fmt::Display for Statement {
                 aws_sns_topic,
                 integration,
                 comment,
+                execution_paused,
                 with_tags,
                 copy_statement,
             } => {
                 write!(
                     f,
                     "CREATE {or_replace}PIPE {if_not_exists}{name}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_replace = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if let Some(auto_ingest) = auto_ingest {
@@ -9589,7 +9595,10 @@ impl fmt::Display for Statement {
                     write!(f, " INTEGRATION = '{integration}'")?;
                 }
                 if let Some(comment) = comment {
-                    write!(f, " COMMENT = '{comment}'")?;
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                if let Some(execution_paused) = execution_paused {
+                    write!(f, " PIPE_EXECUTION_PAUSED = {}", if *execution_paused { "TRUE" } else { "FALSE" })?;
                 }
                 if !with_tags.is_empty() {
                     write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?;

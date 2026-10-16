@@ -901,6 +901,7 @@ define_keywords!(
     PERSISTENT,
     PIPE,
     PIPES,
+    PIPE_EXECUTION_PAUSED,
     PIVOT,
     PLACING,
     PLAIN,
