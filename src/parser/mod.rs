@@ -7349,7 +7349,7 @@ impl<'a> Parser<'a> {
             && scalar_return
             && self.peek_keyword(Keyword::NULL)
             && matches!(self.peek_nth_token(1).token, Token::Word(ref word) if word.keyword == Keyword::LANGUAGE)
-            && matches!(self.peek_nth_token(2).token, Token::Word(ref word) if word.value.eq_ignore_ascii_case("JAVASCRIPT"))
+            && matches!(self.peek_nth_token(2).token, Token::Word(ref word) if word.value.eq_ignore_ascii_case("JAVASCRIPT") || word.value.eq_ignore_ascii_case("JAVA"))
         {
             self.next_token();
         }
