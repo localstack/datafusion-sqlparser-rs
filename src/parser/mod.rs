@@ -13860,6 +13860,10 @@ impl<'a> Parser<'a> {
             AlterWarehouseOperation::Resume { if_suspended }
         } else if self.parse_keywords(&[Keyword::ABORT, Keyword::ALL, Keyword::QUERIES]) {
             AlterWarehouseOperation::AbortAllQueries
+        } else if self.parse_keyword(Keyword::ENABLE) {
+            AlterWarehouseOperation::Enable
+        } else if self.parse_keyword(Keyword::DISABLE) {
+            AlterWarehouseOperation::Disable
         } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_object_name(false)?;
             AlterWarehouseOperation::RenameTo { new_name }
@@ -13884,7 +13888,7 @@ impl<'a> Parser<'a> {
             AlterWarehouseOperation::Set { params }
         } else {
             return self.expected(
-                "SET, UNSET, SUSPEND, RESUME, RENAME TO, or ABORT ALL QUERIES after ALTER WAREHOUSE",
+                "SET, UNSET, SUSPEND, RESUME, ENABLE, DISABLE, RENAME TO, or ABORT ALL QUERIES after ALTER WAREHOUSE",
                 self.peek_token(),
             );
         };
