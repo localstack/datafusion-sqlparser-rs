@@ -20587,11 +20587,12 @@ impl<'a> Parser<'a> {
                     sample = Some(TableSampleKind::AfterTableAlias(parsed_sample));
                 }
             }
-            Ok(TableFactor::TableFunction {
+            let table = TableFactor::TableFunction {
                 expr,
                 alias,
                 sample,
-            })
+            };
+            self.parse_pivot_unpivot(table)
         } else if self.consume_token(&Token::LParen) {
             self.parse_parenthesized_table_factor()
         } else if self.dialect.supports_values_as_table_factor()
@@ -20754,15 +20755,7 @@ impl<'a> Parser<'a> {
             }
         };
         if let Some(mut table) = derived {
-            while let Some(kw) = self.parse_one_of_keywords(&[Keyword::PIVOT, Keyword::UNPIVOT]) {
-                table = match kw {
-                    Keyword::PIVOT => self.parse_pivot_table_factor(table)?,
-                    Keyword::UNPIVOT => self.parse_unpivot_table_factor(table)?,
-                    unexpected_keyword => return Err(ParserError::ParserError(
-                        format!("Internal parser error: unexpected keyword `{unexpected_keyword}` in pivot/unpivot"),
-                    )),
-                }
-            }
+            table = self.parse_pivot_unpivot(table)?;
             if self.dialect.supports_match_recognize()
                 && self.parse_keyword(Keyword::MATCH_RECOGNIZE)
             {
@@ -21015,15 +21008,7 @@ impl<'a> Parser<'a> {
             inheritance,
         };
 
-        while let Some(kw) = self.parse_one_of_keywords(&[Keyword::PIVOT, Keyword::UNPIVOT]) {
-            table = match kw {
-                Keyword::PIVOT => self.parse_pivot_table_factor(table)?,
-                Keyword::UNPIVOT => self.parse_unpivot_table_factor(table)?,
-                unexpected_keyword => return Err(ParserError::ParserError(
-                    format!("Internal parser error: unexpected keyword `{unexpected_keyword}` in pivot/unpivot"),
-                )),
-            }
-        }
+        table = self.parse_pivot_unpivot(table)?;
 
         if self.dialect.supports_match_recognize() && self.parse_keyword(Keyword::MATCH_RECOGNIZE) {
             table = self.parse_match_recognize(table)?;
@@ -21033,6 +21018,19 @@ impl<'a> Parser<'a> {
             table = self.parse_resample_table_factor(table)?;
         }
 
+        Ok(table)
+    }
+
+    fn parse_pivot_unpivot(&mut self, mut table: TableFactor) -> Result<TableFactor, ParserError> {
+        while let Some(keyword) = self.parse_one_of_keywords(&[Keyword::PIVOT, Keyword::UNPIVOT]) {
+            table = match keyword {
+                Keyword::PIVOT => self.parse_pivot_table_factor(table)?,
+                Keyword::UNPIVOT => self.parse_unpivot_table_factor(table)?,
+                unexpected_keyword => return Err(ParserError::ParserError(
+                    format!("Internal parser error: unexpected keyword `{unexpected_keyword}` in pivot/unpivot"),
+                )),
+            };
+        }
         Ok(table)
     }
 
