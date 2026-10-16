@@ -20734,7 +20734,7 @@ impl<'a> Parser<'a> {
                 "CHANGES does not accept doubled-quote identifiers".to_string(),
             ));
         }
-        let version = if !matches!(
+        let mut version = if !matches!(
             self.peek_nth_token_ref(1).token,
             Token::LParen | Token::Period
         ) && (self.peek_keyword(Keyword::AT)
@@ -20752,6 +20752,15 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+
+        if args.is_some()
+            && version.is_none()
+            && matches!(name.0.as_slice(), [ObjectNamePart::Identifier(ident)]
+                if ident.quote_style.is_none()
+                    && ident.value.eq_ignore_ascii_case("DYNAMIC_TABLE_REFRESH_BOUNDARY"))
+        {
+            version = self.maybe_parse_table_version()?;
+        }
 
         let with_ordinality = self.parse_keywords(&[Keyword::WITH, Keyword::ORDINALITY]);
 
