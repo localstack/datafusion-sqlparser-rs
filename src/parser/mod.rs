@@ -7378,6 +7378,7 @@ impl<'a> Parser<'a> {
                     | "HANDLER"
                     | "IMPORTS"
                     | "PACKAGES"
+                    | "ARTIFACT_REPOSITORY"
                     | "EXTERNAL_ACCESS_INTEGRATIONS"
                     | "SECRETS"
                     | "COMMENT"
