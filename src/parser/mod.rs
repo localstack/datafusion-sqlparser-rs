@@ -14280,8 +14280,20 @@ impl<'a> Parser<'a> {
             let new_name = self.parse_object_name(false)?;
             AlterWarehouseOperation::RenameTo { new_name }
         } else if self.parse_keyword(Keyword::UNSET) {
-            let params = self.parse_comma_separated(Parser::parse_identifier)?;
-            AlterWarehouseOperation::Unset { params }
+            if matches!(
+                &self.peek_token().token,
+                Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("DCM")
+            ) && matches!(
+                &self.peek_nth_token_ref(1).token,
+                Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("PROJECT")
+            ) {
+                let _ = self.next_token();
+                let _ = self.next_token();
+                AlterWarehouseOperation::UnsetDcmProject
+            } else {
+                let params = self.parse_comma_separated(Parser::parse_identifier)?;
+                AlterWarehouseOperation::Unset { params }
+            }
         } else if self.parse_keyword(Keyword::SET) {
             // Warehouse SET properties are space-separated in Snowflake (commas
             // are also tolerated between them), e.g.
