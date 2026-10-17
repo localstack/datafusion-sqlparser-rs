@@ -2551,6 +2551,11 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// `SET ALLOWED_VALUES '<value>' [, ...]`
+    SetAllowedValues {
+        /// Replacement restriction in sequence order.
+        values: Vec<String>,
+    },
     /// `ADD ALLOWED_VALUES '<value>' [, ...]`
     AddAllowedValues {
         /// Values to add to the restriction.
@@ -2603,9 +2608,12 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlterTagOperation::AddAllowedValues { values }
+            AlterTagOperation::SetAllowedValues { values }
+            | AlterTagOperation::AddAllowedValues { values }
             | AlterTagOperation::DropAllowedValues { values } => {
-                let action = if matches!(self, AlterTagOperation::AddAllowedValues { .. }) {
+                let action = if matches!(self, AlterTagOperation::SetAllowedValues { .. }) {
+                    "SET"
+                } else if matches!(self, AlterTagOperation::AddAllowedValues { .. }) {
                     "ADD"
                 } else {
                     "DROP"

@@ -5181,7 +5181,10 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     let operation = if parser.parse_keyword(Keyword::SET) {
-        if parser.parse_keyword(Keyword::DATA) {
+        if parser.parse_keyword(Keyword::ALLOWED_VALUES) {
+            let values = parser.parse_comma_separated(|parser| parser.parse_literal_string())?;
+            AlterTagOperation::SetAllowedValues { values }
+        } else if parser.parse_keyword(Keyword::DATA) {
             parser.expect_keywords(&[Keyword::MOVEMENT, Keyword::POLICY])?;
             let policy = parser.parse_object_name(false)?;
             let force = parser.parse_keyword(Keyword::FORCE);
