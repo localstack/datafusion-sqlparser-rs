@@ -25786,6 +25786,15 @@ impl<'a> Parser<'a> {
                     names.push(w.quote_style.is_some());
                     options.push(self.parse_key_value_option(&w, optional_equals)?)
                 }
+                Token::SingleQuotedString(value) => {
+                    names.push(true);
+                    let key = Word {
+                        value,
+                        quote_style: Some('\''),
+                        keyword: Keyword::NoKeyword,
+                    };
+                    options.push(self.parse_key_value_option(&key, optional_equals)?);
+                }
                 Token::Word(w) if end_words.contains(&w.keyword) => {
                     self.prev_token();
                     break;
