@@ -7158,6 +7158,9 @@ fn parse_create_catalog_integration(
     let mut catalog_source: Option<CatalogSource> = None;
     let mut table_format: Option<CatalogTableFormat> = None;
     let mut catalog_namespace: Option<String> = None;
+    let mut glue_aws_role_arn = None;
+    let mut glue_catalog_id = None;
+    let mut glue_region = None;
     let mut rest_config: Option<CatalogRestConfig> = None;
     let mut rest_authentication: Option<CatalogRestAuthentication> = None;
     let mut enabled: Option<bool> = None;
@@ -7174,6 +7177,15 @@ fn parse_create_catalog_integration(
         } else if parser.parse_keyword(Keyword::CATALOG_NAMESPACE) {
             parser.expect_token(&Token::Eq)?;
             catalog_namespace = Some(parser.parse_literal_string()?);
+        } else if parse_bare_word(parser, "GLUE_AWS_ROLE_ARN") {
+            parser.expect_token(&Token::Eq)?;
+            glue_aws_role_arn = Some(parser.parse_literal_string()?);
+        } else if parse_bare_word(parser, "GLUE_CATALOG_ID") {
+            parser.expect_token(&Token::Eq)?;
+            glue_catalog_id = Some(parser.parse_literal_string()?);
+        } else if parse_bare_word(parser, "GLUE_REGION") {
+            parser.expect_token(&Token::Eq)?;
+            glue_region = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::REST_CONFIG) {
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
@@ -7215,6 +7227,9 @@ fn parse_create_catalog_integration(
         catalog_source,
         table_format,
         catalog_namespace,
+        glue_aws_role_arn,
+        glue_catalog_id,
+        glue_region,
         rest_config,
         rest_authentication,
         enabled,
