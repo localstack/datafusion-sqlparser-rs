@@ -5124,22 +5124,26 @@ fn parse_create_tag(
         }
     }
 
-    let mut multi_value = if !or_alter && parser.parse_keyword(Keyword::MULTI_VALUE) {
-        parser.expect_token(&Token::Eq)?;
-        Some(parser.parse_boolean_string()?)
-    } else {
-        None
-    };
-    let comment = if parser.parse_keyword(Keyword::COMMENT) {
-        parser.expect_token(&Token::Eq)?;
-        Some(parser.parse_comment_value()?)
-    } else {
-        None
-    };
-
-    if !or_alter && multi_value.is_none() && parser.parse_keyword(Keyword::MULTI_VALUE) {
-        parser.expect_token(&Token::Eq)?;
-        multi_value = Some(parser.parse_boolean_string()?);
+    let mut multi_value = None;
+    let mut comment = None;
+    let mut propagate = None;
+    let mut on_conflict = None;
+    loop {
+        if !or_alter && multi_value.is_none() && parser.parse_keyword(Keyword::MULTI_VALUE) {
+            parser.expect_token(&Token::Eq)?;
+            multi_value = Some(parser.parse_boolean_string()?);
+        } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            comment = Some(parser.parse_comment_value()?);
+        } else if !or_alter && propagate.is_none() && parse_tag_keyword(parser, "PROPAGATE") {
+            parser.expect_token(&Token::Eq)?;
+            propagate = Some(parse_tag_config_value(parser)?);
+        } else if !or_alter && on_conflict.is_none() && parse_tag_keyword(parser, "ON_CONFLICT") {
+            parser.expect_token(&Token::Eq)?;
+            on_conflict = Some(parse_tag_config_value(parser)?);
+        } else {
+            break;
+        }
     }
     Ok(Statement::CreateTag {
         or_replace,
@@ -5148,8 +5152,30 @@ fn parse_create_tag(
         name,
         allowed_values,
         multi_value,
+        propagate,
+        on_conflict,
         comment,
     })
+}
+
+fn parse_tag_keyword(parser: &mut Parser, name: &str) -> bool {
+    if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(name)) {
+        let _ = parser.next_token();
+        true
+    } else {
+        false
+    }
+}
+
+fn parse_tag_config_value(parser: &mut Parser) -> Result<String, ParserError> {
+    if let Token::Word(word) = &parser.peek_token().token {
+        if word.quote_style.is_none() {
+            let value = word.value.to_uppercase();
+            let _ = parser.next_token();
+            return Ok(value);
+        }
+    }
+    parser.parse_literal_string()
 }
 
 /// Parse a comma-separated list of `MASKING POLICY <name>` items, where the
@@ -5181,29 +5207,65 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             let policy = parser.parse_object_name(false)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetDataMovementPolicy { policy, force }
-        } else if parser.parse_keyword(Keyword::MULTI_VALUE) {
-            parser.expect_token(&Token::Eq)?;
-            let enabled = parser.parse_boolean_string()?;
-            let comment = if parser.parse_keyword(Keyword::COMMENT) {
-                parser.expect_token(&Token::Eq)?;
-                Some(parser.parse_comment_value()?)
+        } else if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && ["MULTI_VALUE", "COMMENT", "PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name))) {
+            let mut propagate = None;
+            let mut on_conflict = None;
+            let mut multi_value = None;
+            let mut comment = None;
+            loop {
+                if propagate.is_none() && parse_tag_keyword(parser, "PROPAGATE") {
+                    parser.expect_token(&Token::Eq)?;
+                    propagate = Some(parse_tag_config_value(parser)?);
+                } else if on_conflict.is_none() && parse_tag_keyword(parser, "ON_CONFLICT") {
+                    parser.expect_token(&Token::Eq)?;
+                    on_conflict = Some(parse_tag_config_value(parser)?);
+                } else if multi_value.is_none() && parser.parse_keyword(Keyword::MULTI_VALUE) {
+                    parser.expect_token(&Token::Eq)?;
+                    multi_value = Some(parser.parse_boolean_string()?);
+                } else if comment.is_none() && parser.parse_keyword(Keyword::COMMENT) {
+                    parser.expect_token(&Token::Eq)?;
+                    comment = Some(parser.parse_comment_value()?);
+                } else {
+                    break;
+                }
+                if parser.peek_token().token == Token::Comma
+                    && matches!(&parser.peek_nth_token_ref(1).token, Token::Word(word) if word.quote_style.is_none() && ["MULTI_VALUE", "COMMENT", "PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name)))
+                {
+                    let _ = parser.next_token();
+                }
+            }
+            if propagate.is_none() && on_conflict.is_none() {
+                if let Some(enabled) = multi_value {
+                    AlterTagOperation::SetMultiValue { enabled, comment }
+                } else {
+                    return parser.expected("MULTI_VALUE", parser.peek_token());
+                }
             } else {
-                None
-            };
-            AlterTagOperation::SetMultiValue { enabled, comment }
-        } else if parser.parse_keyword(Keyword::COMMENT) {
-            parser.expect_token(&Token::Eq)?;
-            let comment = Some(parser.parse_comment_value()?);
-            parser.expect_keyword(Keyword::MULTI_VALUE)?;
-            parser.expect_token(&Token::Eq)?;
-            let enabled = parser.parse_boolean_string()?;
-            AlterTagOperation::SetMultiValue { enabled, comment }
+                AlterTagOperation::SetPropagation { propagate, on_conflict, multi_value, comment }
+            }
         } else {
             let policies = parse_masking_policy_list(parser)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetMaskingPolicy { policies, force }
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
+        if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && ["PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name))) {
+            let mut propagate = false;
+            let mut on_conflict = false;
+            loop {
+                if parse_tag_keyword(parser, "PROPAGATE") {
+                    propagate = true;
+                } else if parse_tag_keyword(parser, "ON_CONFLICT") {
+                    on_conflict = true;
+                } else {
+                    return parser.expected("PROPAGATE or ON_CONFLICT", parser.peek_token());
+                }
+                if !parser.consume_token(&Token::Comma) {
+                    break;
+                }
+            }
+            return Ok(Statement::AlterTag { if_exists, name, operation: AlterTagOperation::UnsetPropagation { propagate, on_conflict } });
+        }
         if parser.parse_keyword(Keyword::ALLOWED_VALUES) {
             return Ok(Statement::AlterTag {
                 if_exists,
