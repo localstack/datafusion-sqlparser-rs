@@ -2551,6 +2551,18 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// `ADD ALLOWED_VALUES '<value>' [, ...]`
+    AddAllowedValues {
+        /// Values to add to the restriction.
+        values: Vec<String>,
+    },
+    /// `DROP ALLOWED_VALUES '<value>' [, ...]`
+    DropAllowedValues {
+        /// Values to remove from the restriction.
+        values: Vec<String>,
+    },
+    /// `UNSET ALLOWED_VALUES`
+    UnsetAllowedValues,
     /// Set the irreversible multi-value property and an optional comment.
     SetMultiValue {
         /// Whether to enable multi-value assignments.
@@ -2591,6 +2603,23 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTagOperation::AddAllowedValues { values }
+            | AlterTagOperation::DropAllowedValues { values } => {
+                let action = if matches!(self, AlterTagOperation::AddAllowedValues { .. }) {
+                    "ADD"
+                } else {
+                    "DROP"
+                };
+                write!(f, "{action} ALLOWED_VALUES ")?;
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "'{}'", super::value::escape_single_quote_string(value))?;
+                }
+                Ok(())
+            }
+            AlterTagOperation::UnsetAllowedValues => write!(f, "UNSET ALLOWED_VALUES"),
             AlterTagOperation::SetMultiValue { enabled, comment } => {
                 write!(f, "SET MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
                 if let Some(comment) = comment {

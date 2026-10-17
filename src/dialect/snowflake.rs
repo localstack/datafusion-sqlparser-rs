@@ -5204,6 +5204,13 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             AlterTagOperation::SetMaskingPolicy { policies, force }
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
+        if parser.parse_keyword(Keyword::ALLOWED_VALUES) {
+            return Ok(Statement::AlterTag {
+                if_exists,
+                name,
+                operation: AlterTagOperation::UnsetAllowedValues,
+            });
+        }
         if parser.parse_keyword(Keyword::MULTI_VALUE) {
             return Ok(Statement::AlterTag {
                 if_exists,
@@ -5228,6 +5235,14 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             let policies = parse_masking_policy_list(parser)?;
             AlterTagOperation::UnsetMaskingPolicy { policies }
         }
+    } else if parser.parse_keyword(Keyword::ADD) {
+        parser.expect_keyword(Keyword::ALLOWED_VALUES)?;
+        let values = parser.parse_comma_separated(|parser| parser.parse_literal_string())?;
+        AlterTagOperation::AddAllowedValues { values }
+    } else if parser.parse_keyword(Keyword::DROP) {
+        parser.expect_keyword(Keyword::ALLOWED_VALUES)?;
+        let values = parser.parse_comma_separated(|parser| parser.parse_literal_string())?;
+        AlterTagOperation::DropAllowedValues { values }
     } else {
         parser.expect_keywords(&[Keyword::RENAME, Keyword::TO])?;
         let new_name = parser.parse_object_name(false)?;
