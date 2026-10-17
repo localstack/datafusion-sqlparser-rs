@@ -4873,6 +4873,7 @@ fn parse_external_volume_storage_location(
     let mut storage_base_url: Option<String> = None;
     let mut storage_aws_role_arn = None;
     let mut storage_aws_external_id = None;
+    let mut azure_tenant_id = None;
     let mut encryption = None;
 
     // Parse the remaining fields (STORAGE_BASE_URL + optionals) in any order
@@ -4903,6 +4904,9 @@ fn parse_external_volume_storage_location(
             }
             parser.expect_token(&Token::Eq)?;
             storage_aws_external_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AZURE_TENANT_ID) {
+            parser.expect_token(&Token::Eq)?;
+            azure_tenant_id = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::ENCRYPTION) {
             if encryption.is_some() {
                 return Err(ParserError::ParserError(
@@ -4928,6 +4932,7 @@ fn parse_external_volume_storage_location(
         storage_base_url,
         storage_aws_role_arn,
         storage_aws_external_id,
+        azure_tenant_id,
         encryption,
     })
 }
