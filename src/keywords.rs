@@ -172,6 +172,7 @@ define_keywords!(
     AWS_SERVICE,
     AWS_SIGV4,
     AWS_SNS_TOPIC,
+    AZURE_TENANT_ID,
     BACKUP,
     BACKWARD,
     BASE64,
