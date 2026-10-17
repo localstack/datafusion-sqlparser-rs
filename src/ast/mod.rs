@@ -5834,6 +5834,10 @@ pub enum Statement {
         allowed_values: Vec<String>,
         /// Optional `MULTI_VALUE` property.
         multi_value: Option<bool>,
+        /// Stored propagation mode.
+        propagate: Option<String>,
+        /// Stored conflict strategy or value.
+        on_conflict: Option<String>,
         /// Optional comment.
         comment: Option<String>,
     },
@@ -9775,6 +9779,8 @@ impl fmt::Display for Statement {
                 name,
                 allowed_values,
                 multi_value,
+                propagate,
+                on_conflict,
                 comment,
             } => {
                 write!(
@@ -9794,6 +9800,12 @@ impl fmt::Display for Statement {
                 }
                 if let Some(enabled) = multi_value {
                     write!(f, " MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                }
+                if let Some(mode) = propagate {
+                    write!(f, " PROPAGATE = '{}'", value::escape_single_quote_string(mode))?;
+                }
+                if let Some(strategy) = on_conflict {
+                    write!(f, " ON_CONFLICT = '{}'", value::escape_single_quote_string(strategy))?;
                 }
                 if let Some(ref c) = comment {
                     write!(f, " COMMENT = '{}'", value::escape_single_quote_string(c))?;
