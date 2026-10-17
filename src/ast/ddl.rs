@@ -2589,6 +2589,24 @@ impl fmt::Display for AlterSnowflakeSecretOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTagOperation {
+    /// Propagation configuration and accompanying tag properties.
+    SetPropagation {
+        /// Propagation mode.
+        propagate: Option<String>,
+        /// Conflict strategy or value.
+        on_conflict: Option<String>,
+        /// Multi-value property.
+        multi_value: Option<bool>,
+        /// Comment.
+        comment: Option<String>,
+    },
+    /// Reset propagation configuration.
+    UnsetPropagation {
+        /// Reset propagation and its conflict strategy.
+        propagate: bool,
+        /// Reset the conflict strategy.
+        on_conflict: bool,
+    },
     /// `SET ALLOWED_VALUES '<value>' [, ...]`
     SetAllowedValues {
         /// Replacement restriction in sequence order.
@@ -2646,6 +2664,25 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterTagOperation::SetPropagation { propagate, on_conflict, multi_value, comment } => {
+                write!(f, "SET")?;
+                if let Some(enabled) = multi_value {
+                    write!(f, " MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                }
+                for (name, value) in [("PROPAGATE", propagate), ("ON_CONFLICT", on_conflict), ("COMMENT", comment)] {
+                    if let Some(value) = value {
+                        write!(f, " {name} = '{}'", super::value::escape_single_quote_string(value))?;
+                    }
+                }
+                Ok(())
+            }
+            AlterTagOperation::UnsetPropagation { propagate, on_conflict } => {
+                write!(f, "UNSET {}", if *propagate { "PROPAGATE" } else { "ON_CONFLICT" })?;
+                if *propagate && *on_conflict {
+                    write!(f, ", ON_CONFLICT")?;
+                }
+                Ok(())
+            }
             AlterTagOperation::SetAllowedValues { values }
             | AlterTagOperation::AddAllowedValues { values }
             | AlterTagOperation::DropAllowedValues { values } => {
