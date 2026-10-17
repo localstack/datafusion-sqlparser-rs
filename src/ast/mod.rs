@@ -16391,6 +16391,8 @@ pub struct ExternalVolumeStorageLocation {
     pub storage_aws_role_arn: Option<String>,
     /// Optional `STORAGE_AWS_EXTERNAL_ID`.
     pub storage_aws_external_id: Option<String>,
+    /// Optional `AZURE_TENANT_ID`.
+    pub azure_tenant_id: Option<String>,
     /// Optional `ENCRYPTION` settings.
     pub encryption: Option<ExternalVolumeEncryption>,
 }
@@ -16417,6 +16419,9 @@ impl fmt::Display for ExternalVolumeStorageLocation {
                 " STORAGE_AWS_EXTERNAL_ID = '{}'",
                 value::escape_single_quote_string(ext_id)
             )?;
+        }
+        if let Some(ref tenant) = self.azure_tenant_id {
+            write!(f, " AZURE_TENANT_ID = '{}'", value::escape_single_quote_string(tenant))?;
         }
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
