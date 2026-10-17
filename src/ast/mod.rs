@@ -6662,6 +6662,12 @@ pub enum Statement {
         table_format: CatalogTableFormat,
         /// Optional `CATALOG_NAMESPACE = '…'`.
         catalog_namespace: Option<String>,
+        #[doc = "AWS role assumed for the Glue catalog."]
+        glue_aws_role_arn: Option<String>,
+        #[doc = "AWS Glue catalog identifier."]
+        glue_catalog_id: Option<String>,
+        #[doc = "AWS region hosting the Glue catalog."]
+        glue_region: Option<String>,
         /// Optional `REST_CONFIG = ( … )`.
         rest_config: Option<CatalogRestConfig>,
         /// Optional `REST_AUTHENTICATION = ( … )`.
@@ -10512,6 +10518,9 @@ impl fmt::Display for Statement {
                 catalog_source,
                 table_format,
                 catalog_namespace,
+                glue_aws_role_arn,
+                glue_catalog_id,
+                glue_region,
                 rest_config,
                 rest_authentication,
                 enabled,
@@ -10531,6 +10540,19 @@ impl fmt::Display for Statement {
                         " CATALOG_NAMESPACE = '{}'",
                         value::escape_single_quote_string(ns)
                     )?;
+                }
+                for (keyword, value) in [
+                    ("GLUE_AWS_ROLE_ARN", glue_aws_role_arn),
+                    ("GLUE_CATALOG_ID", glue_catalog_id),
+                    ("GLUE_REGION", glue_region),
+                ] {
+                    if let Some(value) = value {
+                        write!(
+                            f,
+                            " {keyword} = '{}'",
+                            value::escape_single_quote_string(value)
+                        )?;
+                    }
                 }
                 if let Some(ref cfg) = rest_config {
                     write!(f, " REST_CONFIG = ({cfg})")?;
