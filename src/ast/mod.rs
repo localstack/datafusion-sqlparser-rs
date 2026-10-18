@@ -7540,6 +7540,17 @@ pub enum Statement {
     /// ```
     /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/create-user)
     CreateUser(CreateUser),
+    /// `CREATE ORGANIZATION USER [ IF NOT EXISTS ] <name> [ <properties> ]`
+    CreateOrganizationUser(CreateUser),
+    /// `ALTER ORGANIZATION USER [ IF EXISTS ] <name> { SET | UNSET } <properties>`
+    AlterOrganizationUser(AlterUser),
+    /// `DROP ORGANIZATION USER [ IF EXISTS ] <name>`
+    DropOrganizationUser {
+        /// Suppress the missing-object error.
+        if_exists: bool,
+        /// Organization user identifier.
+        name: Ident,
+    },
     /// ```sql
     /// ALTER USER \[ IF EXISTS \] \[ <name> \]
     /// ```
@@ -11234,6 +11245,15 @@ impl fmt::Display for Statement {
             Statement::Remove(command) => write!(f, "REMOVE {command}"),
             Statement::ExportData(e) => write!(f, "{e}"),
             Statement::CreateUser(s) => write!(f, "{s}"),
+            Statement::CreateOrganizationUser(user) => user.fmt_with_kind(f, "ORGANIZATION USER"),
+            Statement::AlterOrganizationUser(user) => user.fmt_with_kind(f, "ORGANIZATION USER"),
+            Statement::DropOrganizationUser { if_exists, name } => {
+                write!(f, "DROP ORGANIZATION USER ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name}")
+            }
             Statement::AlterSchema(s) => write!(f, "{s}"),
             Statement::Vacuum(s) => write!(f, "{s}"),
             Statement::AlterUser(s) => write!(f, "{s}"),
@@ -18021,11 +18041,17 @@ pub struct CreateUser {
 
 impl fmt::Display for CreateUser {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_with_kind(f, "USER")
+    }
+}
+
+impl CreateUser {
+    fn fmt_with_kind(&self, f: &mut fmt::Formatter, kind: &str) -> fmt::Result {
         write!(f, "CREATE")?;
         if self.or_replace {
             write!(f, " OR REPLACE")?;
         }
-        write!(f, " USER")?;
+        write!(f, " {kind}")?;
         if self.if_not_exists {
             write!(f, " IF NOT EXISTS")?;
         }
@@ -18265,8 +18291,14 @@ impl fmt::Display for UserPolicyKind {
 
 impl fmt::Display for AlterUser {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_with_kind(f, "USER")
+    }
+}
+
+impl AlterUser {
+    fn fmt_with_kind(&self, f: &mut fmt::Formatter, kind: &str) -> fmt::Result {
         write!(f, "ALTER")?;
-        write!(f, " USER")?;
+        write!(f, " {kind}")?;
         if self.if_exists {
             write!(f, " IF EXISTS")?;
         }

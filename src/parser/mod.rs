@@ -6122,6 +6122,9 @@ impl<'a> Parser<'a> {
             self.parse_create_macro(or_replace, temporary)
         } else if self.parse_keyword(Keyword::SECRET) {
             self.parse_create_secret(or_replace, temporary, persistent)
+        } else if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
+            self.parse_create_user(or_replace)
+                .map(Statement::CreateOrganizationUser)
         } else if self.parse_keyword(Keyword::USER) {
             self.parse_create_user(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::AGGREGATE) {
@@ -9579,6 +9582,11 @@ impl<'a> Parser<'a> {
 
     /// Parse a `DROP` statement.
     pub fn parse_drop(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
+            let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            let name = self.parse_identifier()?;
+            return Ok(Statement::DropOrganizationUser { if_exists, name });
+        }
         // MySQL dialect supports `TEMPORARY`
         let temporary = dialect_of!(self is MySqlDialect | GenericDialect | DuckDbDialect)
             && self.parse_keyword(Keyword::TEMPORARY);
@@ -13937,6 +13945,10 @@ impl<'a> Parser<'a> {
 
     /// Parse an `ALTER <object>` statement and dispatch to the appropriate alter handler.
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
+            return self.parse_alter_user_with_required_properties(true)
+                .map(Statement::AlterOrganizationUser);
+        }
         if self.dialect.supports_text_search_statements()
             && self.peek_keywords(&[Keyword::TEXT, Keyword::SEARCH])
         {
