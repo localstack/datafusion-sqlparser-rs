@@ -637,6 +637,10 @@ impl Spanned for Statement {
             Statement::DescribeAuthenticationPolicy { .. } => Span::empty(),
             Statement::ShowAuthenticationPolicies { .. } => Span::empty(),
             Statement::CreateBackupPolicy { .. } => Span::empty(),
+            Statement::CreateMaintenancePolicy { .. }
+            | Statement::DropMaintenancePolicy { .. }
+            | Statement::DescribeMaintenancePolicy { .. }
+            | Statement::ShowMaintenancePolicies { .. } => Span::empty(),
             Statement::AlterBackupPolicy { .. } => Span::empty(),
             Statement::DropBackupPolicy { .. } => Span::empty(),
             Statement::DescribeBackupPolicy { .. } => Span::empty(),
