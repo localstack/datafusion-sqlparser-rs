@@ -7515,6 +7515,31 @@ pub enum Statement {
     CreateUser(CreateUser),
     /// `CREATE ORGANIZATION USER [ IF NOT EXISTS ] <name> [ <properties> ]`
     CreateOrganizationUser(CreateUser),
+    /// `CREATE ORGANIZATION USER GROUP`.
+    CreateOrganizationUserGroup {
+        /// Only create a group if absent.
+        if_not_exists: bool,
+        /// Group identifier.
+        name: Ident,
+        /// Whether the group can receive grants.
+        is_grantable: Option<bool>,
+    },
+    /// `ALTER ORGANIZATION USER GROUP`.
+    AlterOrganizationUserGroup {
+        /// Missing-object modifier.
+        if_exists: bool,
+        /// Group identifier.
+        name: Ident,
+        /// Membership or property change.
+        operation: AlterOrganizationUserGroupOperation,
+    },
+    /// `DROP ORGANIZATION USER GROUP`.
+    DropOrganizationUserGroup {
+        /// Suppress the missing-object error.
+        if_exists: bool,
+        /// Group identifier.
+        name: Ident,
+    },
     /// `ALTER ORGANIZATION USER [ IF EXISTS ] <name> { SET | UNSET } <properties>`
     AlterOrganizationUser(AlterUser),
     /// `DROP ORGANIZATION USER [ IF EXISTS ] <name>`
@@ -11229,6 +11254,31 @@ impl fmt::Display for Statement {
             Statement::ExportData(e) => write!(f, "{e}"),
             Statement::CreateUser(s) => write!(f, "{s}"),
             Statement::CreateOrganizationUser(user) => user.fmt_with_kind(f, "ORGANIZATION USER"),
+            Statement::CreateOrganizationUserGroup { if_not_exists, name, is_grantable } => {
+                write!(f, "CREATE ORGANIZATION USER GROUP ")?;
+                if *if_not_exists {
+                    write!(f, "IF NOT EXISTS ")?;
+                }
+                write!(f, "{name}")?;
+                if let Some(value) = is_grantable {
+                    write!(f, " IS_GRANTABLE = {}", if *value { "TRUE" } else { "FALSE" })?;
+                }
+                Ok(())
+            }
+            Statement::AlterOrganizationUserGroup { if_exists, name, operation } => {
+                write!(f, "ALTER ORGANIZATION USER GROUP ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name} {operation}")
+            }
+            Statement::DropOrganizationUserGroup { if_exists, name } => {
+                write!(f, "DROP ORGANIZATION USER GROUP ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name}")
+            }
             Statement::AlterOrganizationUser(user) => user.fmt_with_kind(f, "ORGANIZATION USER"),
             Statement::DropOrganizationUser { if_exists, name } => {
                 write!(f, "DROP ORGANIZATION USER ")?;
@@ -17949,6 +17999,47 @@ impl fmt::Display for ExportData {
         }
     }
 }
+/// Membership and visibility changes for an organization user group.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterOrganizationUserGroupOperation {
+    /// Add organization users.
+    AddUsers(Vec<Ident>),
+    /// Remove organization users.
+    RemoveUsers(Vec<Ident>),
+    /// Make the group visible in all accounts.
+    SetVisibilityAll,
+    /// Limit visibility to accounts.
+    SetVisibilityAccounts(Vec<Ident>),
+    /// Limit visibility to region groups.
+    SetVisibilityRegionGroups(Vec<String>),
+    /// Set grantability.
+    SetIsGrantable(bool),
+}
+
+impl fmt::Display for AlterOrganizationUserGroupOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::AddUsers(users) => write!(f, "ADD ORGANIZATION USERS {}", display_comma_separated(users)),
+            Self::RemoveUsers(users) => write!(f, "REMOVE ORGANIZATION USERS {}", display_comma_separated(users)),
+            Self::SetVisibilityAll => write!(f, "SET VISIBILITY = ALL"),
+            Self::SetVisibilityAccounts(accounts) => write!(f, "SET VISIBILITY = ACCOUNTS {}", display_comma_separated(accounts)),
+            Self::SetVisibilityRegionGroups(groups) => {
+                write!(f, "SET VISIBILITY = REGION GROUPS ")?;
+                for (index, group) in groups.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "'{}'", value::escape_single_quote_string(group))?;
+                }
+                Ok(())
+            }
+            Self::SetIsGrantable(value) => write!(f, "SET IS_GRANTABLE = {}", if *value { "TRUE" } else { "FALSE" }),
+        }
+    }
+}
+
 /// Creates a user
 ///
 /// Syntax:
