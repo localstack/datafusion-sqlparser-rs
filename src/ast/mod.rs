@@ -6812,6 +6812,17 @@ pub enum Statement {
         params: KeyValueOptions,
     },
     /// ```sql
+    /// ALTER CATALOG INTEGRATION [IF EXISTS] <name> SET ...
+    /// ```
+    AlterCatalogIntegration {
+        /// Integration name.
+        name: ObjectName,
+        /// Whether a missing integration is ignored.
+        if_exists: bool,
+        /// Properties to update.
+        set_options: KeyValueOptions,
+    },
+    /// ```sql
     /// ALTER API INTEGRATION [IF EXISTS] <name> { SET ... | UNSET ... }
     /// ```
     AlterApiIntegration {
@@ -10767,6 +10778,17 @@ impl fmt::Display for Statement {
                     write!(f, " {params}")?;
                 }
                 Ok(())
+            }
+            Statement::AlterCatalogIntegration {
+                name,
+                if_exists,
+                set_options,
+            } => {
+                write!(
+                    f,
+                    "ALTER CATALOG INTEGRATION {}{name} SET {set_options}",
+                    if *if_exists { "IF EXISTS " } else { "" }
+                )
             }
             Statement::AlterApiIntegration {
                 name,
