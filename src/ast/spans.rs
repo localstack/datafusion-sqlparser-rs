@@ -550,6 +550,9 @@ impl Spanned for Statement {
                     .chain(connection.iter().map(|i| i.span())),
             ),
             Statement::CreateUser(..) => Span::empty(),
+            Statement::CreateOrganizationUser(..)
+            | Statement::AlterOrganizationUser(..)
+            | Statement::DropOrganizationUser { .. } => Span::empty(),
             Statement::AlterSchema(s) => s.span(),
             Statement::Vacuum(..) => Span::empty(),
             Statement::AlterUser(..) => Span::empty(),

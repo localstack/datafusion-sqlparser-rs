@@ -149,6 +149,13 @@ impl Parser<'_> {
     /// ALTER USER [ IF EXISTS ] [ <name> ] [ OPTIONS ]
     /// ```
     pub fn parse_alter_user(&mut self) -> Result<AlterUser, ParserError> {
+        self.parse_alter_user_with_required_properties(false)
+    }
+
+    pub(crate) fn parse_alter_user_with_required_properties(
+        &mut self,
+        require_properties: bool,
+    ) -> Result<AlterUser, ParserError> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let action_keywords = [
             Keyword::RENAME,
@@ -323,7 +330,11 @@ impl Parser<'_> {
         };
 
         let set_props = if self.parse_keyword(Keyword::SET) {
-            self.parse_key_value_options(false, &[], false)?
+            let properties = self.parse_key_value_options(false, &[], false)?;
+            if require_properties && properties.options.is_empty() {
+                return self.expected_ref("property assignment", self.peek_token_ref());
+            }
+            properties
         } else {
             KeyValueOptions {
                 delimiter: KeyValueOptionsDelimiter::Comma,
