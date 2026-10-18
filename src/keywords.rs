@@ -696,6 +696,7 @@ define_keywords!(
     LSEG,
     MACRO,
     MAIN,
+    MAINTENANCE,
     MANAGE,
     MANAGED,
     MANAGEDLOCATION,
