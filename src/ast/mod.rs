@@ -5882,6 +5882,13 @@ pub enum Statement {
         unset_tags: Vec<ObjectName>,
     },
     /// ```sql
+    /// SHOW CONTACTS [ LIKE '<pattern>' ] [ IN ... ]
+    /// ```
+    ShowContacts {
+        /// Options controlling the SHOW output.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// SHOW TAGS [ LIKE '<pattern>' ] [ IN ... ]
     /// ```
     ShowTags {
@@ -9880,6 +9887,9 @@ impl fmt::Display for Statement {
                 } else {
                     write!(f, "SET TAG {}", display_comma_separated(set_tags))
                 }
+            }
+            Statement::ShowContacts { show_options } => {
+                write!(f, "SHOW CONTACTS{show_options}")
             }
             Statement::ShowTags {
                 terse,
