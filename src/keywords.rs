@@ -703,6 +703,7 @@ define_keywords!(
     MACRO,
     MAIN,
     MAINTAIN,
+    MAINTENANCE,
     MANAGE,
     MANAGED,
     MANAGEDLOCATION,
