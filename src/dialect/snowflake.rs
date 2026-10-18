@@ -210,6 +210,20 @@ impl SnowflakeDialect {
             return Some(parse_alter_storage_integration(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::CATALOG, Keyword::INTEGRATION]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                parser.expect_keyword(Keyword::SET)?;
+                let set_options = parser.parse_catalog_integration_options()?;
+                Ok(Statement::AlterCatalogIntegration {
+                    name,
+                    if_exists,
+                    set_options,
+                })
+            })());
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::API, Keyword::INTEGRATION]) {
             // ALTER API INTEGRATION
             return Some(parse_alter_api_integration(parser));
