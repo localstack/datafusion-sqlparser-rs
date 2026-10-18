@@ -6123,6 +6123,17 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::SECRET) {
             self.parse_create_secret(or_replace, temporary, persistent)
         } else if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
+            if self.parse_keyword(Keyword::GROUP) {
+                let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                let name = self.parse_identifier()?;
+                let is_grantable = if self.parse_keyword(Keyword::IS_GRANTABLE) {
+                    self.expect_token(&Token::Eq)?;
+                    Some(self.parse_boolean_string()?)
+                } else {
+                    None
+                };
+                return Ok(Statement::CreateOrganizationUserGroup { if_not_exists, name, is_grantable });
+            }
             self.parse_create_user(or_replace)
                 .map(Statement::CreateOrganizationUser)
         } else if self.parse_keyword(Keyword::USER) {
@@ -9583,8 +9594,12 @@ impl<'a> Parser<'a> {
     /// Parse a `DROP` statement.
     pub fn parse_drop(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
+            let group = self.parse_keyword(Keyword::GROUP);
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             let name = self.parse_identifier()?;
+            if group {
+                return Ok(Statement::DropOrganizationUserGroup { if_exists, name });
+            }
             return Ok(Statement::DropOrganizationUser { if_exists, name });
         }
         // MySQL dialect supports `TEMPORARY`
@@ -13943,9 +13958,42 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_alter_organization_user_group(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_identifier()?;
+        let operation = if self.parse_keyword(Keyword::ADD) {
+            self.expect_keywords(&[Keyword::ORGANIZATION, Keyword::USERS])?;
+            AlterOrganizationUserGroupOperation::AddUsers(self.parse_comma_separated(Self::parse_identifier)?)
+        } else if self.parse_keyword(Keyword::REMOVE) {
+            self.expect_keywords(&[Keyword::ORGANIZATION, Keyword::USERS])?;
+            AlterOrganizationUserGroupOperation::RemoveUsers(self.parse_comma_separated(Self::parse_identifier)?)
+        } else {
+            self.expect_keyword(Keyword::SET)?;
+            if self.parse_keyword(Keyword::IS_GRANTABLE) {
+                self.expect_token(&Token::Eq)?;
+                AlterOrganizationUserGroupOperation::SetIsGrantable(self.parse_boolean_string()?)
+            } else {
+                self.expect_keyword(Keyword::VISIBILITY)?;
+                self.expect_token(&Token::Eq)?;
+                if self.parse_keyword(Keyword::ALL) {
+                    AlterOrganizationUserGroupOperation::SetVisibilityAll
+                } else if self.parse_keyword(Keyword::ACCOUNTS) {
+                    AlterOrganizationUserGroupOperation::SetVisibilityAccounts(self.parse_comma_separated(Self::parse_identifier)?)
+                } else {
+                    self.expect_keywords(&[Keyword::REGION, Keyword::GROUPS])?;
+                    AlterOrganizationUserGroupOperation::SetVisibilityRegionGroups(self.parse_comma_separated(Self::parse_literal_string)?)
+                }
+            }
+        };
+        Ok(Statement::AlterOrganizationUserGroup { if_exists, name, operation })
+    }
+
     /// Parse an `ALTER <object>` statement and dispatch to the appropriate alter handler.
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
+            if self.parse_keyword(Keyword::GROUP) {
+                return self.parse_alter_organization_user_group();
+            }
             return self.parse_alter_user_with_required_properties(true)
                 .map(Statement::AlterOrganizationUser);
         }
