@@ -6206,6 +6206,36 @@ pub enum Statement {
         on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] MAINTENANCE POLICY [IF NOT EXISTS] <name> <options>
+    /// ```
+    CreateMaintenancePolicy {
+        /// Replace an existing policy.
+        or_replace: bool,
+        /// Succeed if the policy exists.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Schedule and comment properties.
+        options: KeyValueOptions,
+    },
+    /// DROP MAINTENANCE POLICY [IF EXISTS] <name>
+    DropMaintenancePolicy {
+        /// Succeed if the policy is absent.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// DESC[RIBE] MAINTENANCE POLICY <name>
+    DescribeMaintenancePolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// SHOW MAINTENANCE POLICIES [LIKE '<pattern>'] [IN <scope>]
+    ShowMaintenancePolicies {
+        /// Filter and scope.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [ OR REPLACE | OR ALTER ] BACKUP POLICY [IF NOT EXISTS] <name>
     ///   [ WITH RETENTION LOCK ] [ <property> = <value> ... ] [ COMMENT = '<c>' ]
     /// ```
@@ -10122,6 +10152,20 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateMaintenancePolicy { or_replace, if_not_exists, name, options } => {
+                write!(f, "CREATE {}MAINTENANCE POLICY {}{name}",
+                    if *or_replace { "OR REPLACE " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::DropMaintenancePolicy { if_exists, name } => {
+                write!(f, "DROP MAINTENANCE POLICY {}{name}", if *if_exists { "IF EXISTS " } else { "" })
+            }
+            Statement::DescribeMaintenancePolicy { name } => write!(f, "DESCRIBE MAINTENANCE POLICY {name}"),
+            Statement::ShowMaintenancePolicies { show_options } => write!(f, "SHOW MAINTENANCE POLICIES{show_options}"),
             Statement::CreateBackupPolicy {
                 or_replace,
                 or_alter,
