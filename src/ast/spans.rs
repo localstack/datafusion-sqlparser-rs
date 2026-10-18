@@ -602,7 +602,7 @@ impl Spanned for Statement {
             Statement::AlterTag { .. } => Span::empty(),
             Statement::DropTag { .. } => Span::empty(),
             Statement::SetTags { .. } => Span::empty(),
-            Statement::ShowTags { .. } => Span::empty(),
+            Statement::ShowTags { .. } | Statement::ShowContacts { .. } => Span::empty(),
             Statement::ShowSequences { .. } => Span::empty(),
             Statement::ShowKeys { .. } => Span::empty(),
             Statement::CreateRowAccessPolicy { .. } => Span::empty(),

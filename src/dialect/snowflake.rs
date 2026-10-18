@@ -1057,6 +1057,11 @@ impl SnowflakeDialect {
             if parser.parse_keyword(Keyword::TAGS) {
                 return Some(parse_show_tags(terse, parser));
             }
+            if parser.parse_keyword(Keyword::CONTACTS) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| {
+                    Statement::ShowContacts { show_options }
+                }));
+            }
             if parser.parse_keyword(Keyword::SEQUENCES) {
                 return Some(parse_show_sequences(terse, parser));
             }
