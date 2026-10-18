@@ -25799,6 +25799,38 @@ impl<'a> Parser<'a> {
         matches!(self.state, ColumnDefinition)
     }
 
+    pub(crate) fn parse_catalog_integration_options(
+        &mut self,
+    ) -> Result<KeyValueOptions, ParserError> {
+        let mut index = self.index;
+        while let Some(token) = self.tokens.get(index) {
+            if matches!(token.token, Token::SemiColon | Token::EOF) {
+                break;
+            }
+            if matches!(&token.token, Token::Word(word)
+                if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("E"))
+            {
+                if let Some(TokenWithSpan {
+                    token: Token::SingleQuotedString(value),
+                    span,
+                }) = self.tokens.get(index + 1).filter(|next| next.span.start == token.span.end)
+                {
+                    let mut literal = token.clone();
+                    literal.token = Token::EscapedStringLiteral(value.clone());
+                    literal.span.end = span.end;
+                    self.tokens[index] = literal;
+                    self.tokens.remove(index + 1);
+                }
+            }
+            index += 1;
+        }
+        let options = self.parse_key_value_options(false, &[], false)?;
+        if self.get_current_token().token == Token::EOF {
+            self.prev_token();
+        }
+        Ok(options)
+    }
+
     /// Parses options provided in key-value format.
     ///
     /// * `parenthesized` - true if the options are enclosed in parenthesis
@@ -25888,7 +25920,9 @@ impl<'a> Parser<'a> {
         }
         let peeked_token = self.peek_token();
         match peeked_token.token {
-            Token::SingleQuotedString(_) | Token::DollarQuotedString(_) => Ok(KeyValueOption {
+            Token::SingleQuotedString(_)
+            | Token::DollarQuotedString(_)
+            | Token::EscapedStringLiteral(_) => Ok(KeyValueOption {
                 option_name: key.value.clone(),
                 option_value: KeyValueOptionKind::Single(self.parse_value()?),
             }),
