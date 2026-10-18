@@ -296,6 +296,7 @@ define_keywords!(
     CONNECT_BY_ROOT,
     CONSTRAINT,
     CONTACT,
+    CONTACTS,
     CONTAINS,
     CONTINUE,
     CONVERT,
