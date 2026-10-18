@@ -690,6 +690,7 @@ impl Spanned for Statement {
             Statement::DescribeStorageIntegration { .. } => Span::empty(),
             Statement::ShowStorageIntegrations { .. } => Span::empty(),
             Statement::CreateApiIntegration { .. } => Span::empty(),
+            Statement::AlterCatalogIntegration { .. } => Span::empty(),
             Statement::AlterApiIntegration { .. } => Span::empty(),
             Statement::DropApiIntegration { .. } => Span::empty(),
             Statement::DescribeApiIntegration { .. } => Span::empty(),
