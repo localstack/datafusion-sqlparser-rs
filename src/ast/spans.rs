@@ -551,6 +551,9 @@ impl Spanned for Statement {
             ),
             Statement::CreateUser(..) => Span::empty(),
             Statement::CreateOrganizationUser(..)
+            | Statement::CreateOrganizationUserGroup { .. }
+            | Statement::AlterOrganizationUserGroup { .. }
+            | Statement::DropOrganizationUserGroup { .. }
             | Statement::AlterOrganizationUser(..)
             | Statement::DropOrganizationUser { .. } => Span::empty(),
             Statement::AlterSchema(s) => s.span(),
