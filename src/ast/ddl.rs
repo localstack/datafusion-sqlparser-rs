@@ -2279,6 +2279,22 @@ pub enum AlterSessionPolicyOperation {
     },
 }
 
+/// An operation in an `ALTER MAINTENANCE POLICY` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterMaintenancePolicyOperation {
+    /// Space-separated properties.
+    Set(KeyValueOptions),
+    /// Properties to clear.
+    Unset(Vec<Ident>),
+    /// Rename the policy.
+    RenameTo {
+        /// Destination name.
+        new_name: ObjectName,
+    },
+}
+
 /// An operation on a backup policy in an `ALTER BACKUP POLICY` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -2311,6 +2327,16 @@ pub enum AlterAuthenticationPolicyOperation {
         /// The new policy name.
         new_name: ObjectName,
     },
+}
+
+impl fmt::Display for AlterMaintenancePolicyOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Set(options) => write!(f, "SET {options}"),
+            Self::Unset(props) => write!(f, "UNSET {}", display_comma_separated(props)),
+            Self::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+        }
+    }
 }
 
 impl fmt::Display for AlterSessionPolicyOperation {

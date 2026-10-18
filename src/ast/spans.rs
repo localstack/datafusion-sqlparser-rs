@@ -631,6 +631,7 @@ impl Spanned for Statement {
             Statement::ShowSemanticElements { .. } => Span::empty(),
             Statement::CreateSessionPolicy { .. } => Span::empty(),
             Statement::AlterSessionPolicy { .. } => Span::empty(),
+            Statement::AlterMaintenancePolicy { .. } => Span::empty(),
             Statement::DropSessionPolicy { .. } => Span::empty(),
             Statement::DescribeSessionPolicy { .. } => Span::empty(),
             Statement::ShowSessionPolicies { .. } => Span::empty(),

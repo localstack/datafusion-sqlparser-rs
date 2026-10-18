@@ -32,6 +32,7 @@ use crate::ast::{
     AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
     AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
     AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
+    AlterMaintenancePolicyOperation,
     CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewCortexSearch,
     SemanticViewDistinctRange, SemanticViewExpr, SemanticViewNonAdditiveDimension,
     SemanticViewRelationship, SemanticViewTable,
@@ -399,6 +400,10 @@ impl SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::PASSWORD, Keyword::POLICY]) {
             // ALTER PASSWORD POLICY
             return Some(parse_alter_password_policy(parser));
+        }
+
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::MAINTENANCE, Keyword::POLICY]) {
+            return Some(parse_alter_maintenance_policy(parser));
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SEMANTIC, Keyword::VIEW]) {
@@ -6521,6 +6526,23 @@ fn parse_create_authentication_policy(
         name,
         options,
     })
+}
+
+fn parse_alter_maintenance_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        AlterMaintenancePolicyOperation::RenameTo {
+            new_name: parser.parse_object_name(false)?,
+        }
+    } else if parser.parse_keyword(Keyword::SET) {
+        AlterMaintenancePolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterMaintenancePolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+    } else {
+        return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
+    };
+    Ok(Statement::AlterMaintenancePolicy { if_exists, name, operation })
 }
 
 /// Parse `ALTER SESSION POLICY [IF EXISTS] <name>

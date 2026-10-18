@@ -84,6 +84,7 @@ pub use self::ddl::{
     ModifyBackupAction,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
+    AlterMaintenancePolicyOperation,
     AlterAuthenticationPolicyOperation,
     AlterBackupPolicyOperation,
     AlterSemanticViewOperation,
@@ -6267,6 +6268,15 @@ pub enum Statement {
         /// Schedule and comment properties.
         options: KeyValueOptions,
     },
+    /// ALTER MAINTENANCE POLICY [IF EXISTS] <name> <operation>
+    AlterMaintenancePolicy {
+        /// Succeed if the policy is absent.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Property mutation or rename.
+        operation: AlterMaintenancePolicyOperation,
+    },
     /// DROP MAINTENANCE POLICY [IF EXISTS] <name>
     DropMaintenancePolicy {
         /// Succeed if the policy is absent.
@@ -10209,6 +10219,9 @@ impl fmt::Display for Statement {
                     write!(f, " {options}")?;
                 }
                 Ok(())
+            }
+            Statement::AlterMaintenancePolicy { if_exists, name, operation } => {
+                write!(f, "ALTER MAINTENANCE POLICY {}{name} {operation}", if *if_exists { "IF EXISTS " } else { "" })
             }
             Statement::DropMaintenancePolicy { if_exists, name } => {
                 write!(f, "DROP MAINTENANCE POLICY {}{name}", if *if_exists { "IF EXISTS " } else { "" })
