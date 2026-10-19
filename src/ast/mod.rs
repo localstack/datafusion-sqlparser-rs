@@ -6359,6 +6359,8 @@ pub enum Statement {
     DescribeBackupSet {
         /// Backup set name.
         name: ObjectName,
+        /// Whether the SNAPSHOT spelling was used.
+        snapshot: bool,
     },
     /// ```sql
     /// SHOW BACKUP SETS [ LIKE '<pattern>' ] [ IN <scope> ]
@@ -10393,7 +10395,10 @@ impl fmt::Display for Statement {
                     if_exists = if *if_exists { "IF EXISTS " } else { "" },
                 )
             }
-            Statement::DescribeBackupSet { name } => write!(f, "DESCRIBE BACKUP SET {name}"),
+            Statement::DescribeBackupSet { name, snapshot } => {
+                let spelling = if *snapshot { "SNAPSHOT" } else { "BACKUP" };
+                write!(f, "DESCRIBE {spelling} SET {name}")
+            }
             Statement::ShowBackupSets { show_options } => {
                 write!(f, "SHOW BACKUP SETS{show_options}")
             }
