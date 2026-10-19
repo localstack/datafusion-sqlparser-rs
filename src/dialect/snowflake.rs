@@ -416,6 +416,14 @@ impl SnowflakeDialect {
             return Some(parse_alter_password_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::FEATURE, Keyword::POLICY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                let operation = parse_metadata_policy_operation(parser)?;
+                Ok(Statement::AlterFeaturePolicy { if_exists, name, operation })
+            })());
+        }
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::MAINTENANCE, Keyword::POLICY]) {
             return Some(parse_alter_maintenance_policy(parser));
         }
@@ -571,6 +579,13 @@ impl SnowflakeDialect {
             return Some(parse_drop_backup_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::FEATURE, Keyword::POLICY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                Ok(Statement::DropFeaturePolicy { if_exists, name })
+            })());
+        }
         if parser.parse_keywords(&[Keyword::DROP, Keyword::MAINTENANCE, Keyword::POLICY]) {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -674,6 +689,9 @@ impl SnowflakeDialect {
             {
                 // DESC[RIBE] BACKUP POLICY
                 return Some(parse_describe_backup_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICY]) {
+                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeFeaturePolicy { name }));
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICY]) {
                 return Some(parser.parse_object_name(false).map(|name| Statement::DescribeMaintenancePolicy { name }));
@@ -798,6 +816,14 @@ impl SnowflakeDialect {
             // CREATE [OR REPLACE | OR ALTER] BACKUP POLICY
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICY]) {
                 return Some(parse_create_backup_policy(or_replace, or_alter, parser));
+            }
+            if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICY]) {
+                return Some((|| {
+                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    let options = parser.parse_key_value_options(false, &[], false)?;
+                    Ok(Statement::CreateFeaturePolicy { or_replace, if_not_exists, name, options })
+                })());
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICY]) {
                 return Some((|| {
@@ -1151,6 +1177,22 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICIES]) {
                 return Some(parse_show_backup_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICIES]) {
+                return Some((|| {
+                    let show_options = parser.parse_show_stmt_options()?;
+                    let on_entity = if parser.parse_keyword(Keyword::ON) {
+                        Some(if parser.parse_keyword(Keyword::ACCOUNT) {
+                            crate::ast::ShowFeaturePolicyEntity::Account
+                        } else if parser.parse_keyword(Keyword::DATABASE) {
+                            crate::ast::ShowFeaturePolicyEntity::Database(parser.parse_object_name(false)?)
+                        } else {
+                            parser.expect_keyword(Keyword::APPLICATION)?;
+                            crate::ast::ShowFeaturePolicyEntity::Application(parser.parse_object_name(false)?)
+                        })
+                    } else { None };
+                    Ok(Statement::ShowFeaturePolicies { show_options, on_entity })
+                })());
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICIES]) {
                 return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowMaintenancePolicies { show_options }));
@@ -6542,6 +6584,11 @@ fn parse_create_authentication_policy(
 fn parse_alter_maintenance_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    let operation = parse_metadata_policy_operation(parser)?;
+    Ok(Statement::AlterMaintenancePolicy { if_exists, name, operation })
+}
+
+fn parse_metadata_policy_operation(parser: &mut Parser) -> Result<AlterMaintenancePolicyOperation, ParserError> {
     let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
         AlterMaintenancePolicyOperation::RenameTo {
             new_name: parser.parse_object_name(false)?,
@@ -6553,7 +6600,7 @@ fn parse_alter_maintenance_policy(parser: &mut Parser) -> Result<Statement, Pars
     } else {
         return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
     };
-    Ok(Statement::AlterMaintenancePolicy { if_exists, name, operation })
+    Ok(operation)
 }
 
 /// Parse `ALTER SESSION POLICY [IF EXISTS] <name>
