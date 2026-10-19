@@ -646,6 +646,7 @@ impl Spanned for Statement {
             Statement::ShowAuthenticationPolicies { .. } => Span::empty(),
             Statement::CreateBackupPolicy { .. } => Span::empty(),
             Statement::CreatePackagesPolicy { .. }
+            | Statement::AlterPackagesPolicy { .. }
             | Statement::DropPackagesPolicy { .. }
             | Statement::DescribePackagesPolicy { .. }
             | Statement::ShowPackagesPolicies { .. }

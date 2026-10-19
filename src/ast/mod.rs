@@ -6337,6 +6337,15 @@ pub enum Statement {
         /// Package lists and comment.
         options: KeyValueOptions,
     },
+    /// ALTER PACKAGES POLICY.
+    AlterPackagesPolicy {
+        /// Succeed if the policy is absent.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Property mutation or rename.
+        operation: AlterMaintenancePolicyOperation,
+    },
     /// DROP PACKAGES POLICY.
     DropPackagesPolicy {
         /// Succeed if the policy is absent.
@@ -10399,6 +10408,7 @@ impl fmt::Display for Statement {
                 if !options.options.is_empty() { write!(f, " {options}")?; }
                 Ok(())
             },
+            Statement::AlterPackagesPolicy { if_exists, name, operation } => write!(f, "ALTER PACKAGES POLICY {}{name} {operation}", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DropPackagesPolicy { if_exists, name } => write!(f, "DROP PACKAGES POLICY {}{name}", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DescribePackagesPolicy { name } => write!(f, "DESCRIBE PACKAGES POLICY {name}"),
             Statement::ShowPackagesPolicies { show_options } => write!(f, "SHOW PACKAGES POLICIES{show_options}"),
