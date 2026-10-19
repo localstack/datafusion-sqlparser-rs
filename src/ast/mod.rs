@@ -5258,6 +5258,23 @@ pub enum Statement {
     ///
     /// See <https://docs.snowflake.com/en/sql-reference/sql/create-warehouse>
     CreateWarehouse(CreateWarehouse),
+    /// Snowflake application-service creation and its OR ALTER variant.
+    CreateApplicationService {
+        /// Whether OR ALTER was specified.
+        or_alter: bool,
+        /// Whether IF NOT EXISTS was specified.
+        if_not_exists: bool,
+        /// Service name.
+        name: ObjectName,
+        /// Artifact repository supplying the package.
+        repository: ObjectName,
+        /// Package name.
+        package: Ident,
+        /// Named version or alias.
+        version: Option<Ident>,
+        /// Service properties, including the uninterpreted specification string.
+        options: KeyValueOptions,
+    },
     /// ```sql
     /// CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>
     ///   [ { AT | BEFORE } ( <key> => <expr> ) ]
@@ -9238,6 +9255,27 @@ impl fmt::Display for Statement {
                 Ok(())
             }
             Statement::CreateWarehouse(s) => write!(f, "{s}"),
+            Statement::CreateApplicationService {
+                or_alter,
+                if_not_exists,
+                name,
+                repository,
+                package,
+                version,
+                options,
+            } => {
+                write!(f, "CREATE{} APPLICATION SERVICE{} {name}",
+                    if *or_alter { " OR ALTER" } else { "" },
+                    if *if_not_exists { " IF NOT EXISTS" } else { "" })?;
+                write!(f, " FROM ARTIFACT REPOSITORY {repository} PACKAGE {package}")?;
+                if let Some(version) = version {
+                    write!(f, " VERSION {version}")?;
+                }
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
             Statement::CreateStream {
                 or_replace,
                 or_alter,
