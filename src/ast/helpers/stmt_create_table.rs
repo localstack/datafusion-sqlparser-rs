@@ -92,6 +92,8 @@ pub struct CreateTableBuilder {
     pub dynamic: bool,
     /// Whether `HYBRID` table option is set (Snowflake).
     pub hybrid: bool,
+    /// Snowflake `INTERACTIVE` table modifier.
+    pub interactive: bool,
     /// The table name.
     pub name: ObjectName,
     /// Column definitions for the table.
@@ -260,6 +262,7 @@ impl CreateTableBuilder {
             snapshot: false,
             dynamic: false,
             hybrid: false,
+            interactive: false,
             name,
             columns: vec![],
             constraints: vec![],
@@ -399,6 +402,11 @@ impl CreateTableBuilder {
     /// Set `HYBRID` table option (Snowflake).
     pub fn hybrid(mut self, hybrid: bool) -> Self {
         self.hybrid = hybrid;
+        self
+    }
+    /// Set the Snowflake `INTERACTIVE` table modifier.
+    pub fn interactive(mut self, interactive: bool) -> Self {
+        self.interactive = interactive;
         self
     }
     /// Set the table column definitions.
@@ -779,6 +787,7 @@ impl CreateTableBuilder {
             snapshot: self.snapshot,
             dynamic: self.dynamic,
             hybrid: self.hybrid,
+            interactive: self.interactive,
             name: self.name,
             columns: self.columns,
             constraints: self.constraints,
@@ -894,6 +903,7 @@ impl From<CreateTable> for CreateTableBuilder {
             snapshot: table.snapshot,
             dynamic: table.dynamic,
             hybrid: table.hybrid,
+            interactive: table.interactive,
             name: table.name,
             columns: table.columns,
             constraints: table.constraints,

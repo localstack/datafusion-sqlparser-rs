@@ -713,6 +713,7 @@ fn test_duckdb_union_datatype() {
             snapshot: false,
             dynamic: Default::default(),
             hybrid: Default::default(),
+            interactive: Default::default(),
             name: ObjectName::from(vec!["tbl1".into()]),
             columns: vec![
                 ColumnDef {

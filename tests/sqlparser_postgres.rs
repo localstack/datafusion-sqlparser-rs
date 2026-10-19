@@ -7037,6 +7037,7 @@ fn parse_trigger_related_functions() {
             global: None,
             dynamic: false,
             hybrid: false,
+            interactive: false,
             if_not_exists: false,
             transient: false,
             volatile: false,
