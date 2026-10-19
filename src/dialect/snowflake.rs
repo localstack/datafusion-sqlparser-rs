@@ -579,6 +579,13 @@ impl SnowflakeDialect {
             return Some(parse_drop_backup_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::PACKAGES, Keyword::POLICY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                Ok(Statement::DropPackagesPolicy { if_exists, name })
+            })());
+        }
         if parser.parse_keywords(&[Keyword::DROP, Keyword::FEATURE, Keyword::POLICY]) {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -689,6 +696,9 @@ impl SnowflakeDialect {
             {
                 // DESC[RIBE] BACKUP POLICY
                 return Some(parse_describe_backup_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
+                return Some(parser.parse_object_name(false).map(|name| Statement::DescribePackagesPolicy { name }));
             }
             if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICY]) {
                 return Some(parser.parse_object_name(false).map(|name| Statement::DescribeFeaturePolicy { name }));
@@ -834,6 +844,16 @@ impl SnowflakeDialect {
                 })());
             }
 
+            if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
+                return Some((|| {
+                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    parser.expect_keyword(Keyword::LANGUAGE)?;
+                    let language = parser.parse_identifier()?;
+                    let options = parser.parse_key_value_options(false, &[], false)?;
+                    Ok(Statement::CreatePackagesPolicy { or_replace, if_not_exists, name, language, options })
+                })());
+            }
             // CREATE [OR REPLACE] NETWORK RULE
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 return Some(parse_create_network_rule(or_replace, parser));
@@ -1177,6 +1197,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICIES]) {
                 return Some(parse_show_backup_policies(parser));
+            }
+            if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICIES]) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowPackagesPolicies { show_options }));
             }
             if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICIES]) {
                 return Some((|| {
