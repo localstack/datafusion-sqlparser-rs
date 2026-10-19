@@ -6273,6 +6273,45 @@ pub enum Statement {
         on_entity: Option<ShowPolicyEntity>,
     },
     /// ```sql
+    /// CREATE [OR REPLACE] FEATURE POLICY [IF NOT EXISTS] <name> <options>
+    CreateFeaturePolicy {
+        /// Replace an existing policy.
+        or_replace: bool,
+        /// Succeed if the policy exists.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Metadata properties.
+        options: KeyValueOptions,
+    },
+    /// ALTER FEATURE POLICY [IF EXISTS] <name> <operation>
+    AlterFeaturePolicy {
+        /// Succeed if the policy is absent.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Property mutation or rename.
+        operation: AlterMaintenancePolicyOperation,
+    },
+    /// DROP FEATURE POLICY <name>
+    DropFeaturePolicy {
+        /// Succeed if the policy is absent.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// DESC[RIBE] FEATURE POLICY <name>
+    DescribeFeaturePolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// SHOW FEATURE POLICIES [IN <scope>] [ON <entity>]
+    ShowFeaturePolicies {
+        /// Catalog filter and scope.
+        show_options: ShowStatementOptions,
+        /// Attachment target.
+        on_entity: Option<ShowFeaturePolicyEntity>,
+    },
     /// CREATE [OR REPLACE] MAINTENANCE POLICY [IF NOT EXISTS] <name> <options>
     /// ```
     CreateMaintenancePolicy {
@@ -10285,6 +10324,25 @@ impl fmt::Display for Statement {
                 if !options.options.is_empty() {
                     write!(f, " {options}")?;
                 }
+                Ok(())
+            }
+            Statement::CreateFeaturePolicy { or_replace, if_not_exists, name, options } => {
+                write!(f, "CREATE {}FEATURE POLICY {}{name}",
+                    if *or_replace { "OR REPLACE " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
+                if !options.options.is_empty() {
+                    write!(f, " {options}")?;
+                }
+                Ok(())
+            }
+            Statement::AlterFeaturePolicy { if_exists, name, operation } => {
+                write!(f, "ALTER FEATURE POLICY {}{name} {operation}", if *if_exists { "IF EXISTS " } else { "" })
+            }
+            Statement::DropFeaturePolicy { if_exists, name } => write!(f, "DROP FEATURE POLICY {}{name}", if *if_exists { "IF EXISTS " } else { "" }),
+            Statement::DescribeFeaturePolicy { name } => write!(f, "DESCRIBE FEATURE POLICY {name}"),
+            Statement::ShowFeaturePolicies { show_options, on_entity } => {
+                write!(f, "SHOW FEATURE POLICIES{show_options}")?;
+                if let Some(entity) = on_entity { write!(f, " ON {entity}")?; }
                 Ok(())
             }
             Statement::CreateMaintenancePolicy { or_replace, if_not_exists, name, options } => {
@@ -16537,6 +16595,29 @@ impl fmt::Display for ShowPolicyEntity {
         match self {
             ShowPolicyEntity::Account => write!(f, "ACCOUNT"),
             ShowPolicyEntity::User(name) => write!(f, "USER {name}"),
+        }
+    }
+}
+
+/// Attachment target for SHOW FEATURE POLICIES.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ShowFeaturePolicyEntity {
+    /// The current account.
+    Account,
+    /// A database.
+    Database(ObjectName),
+    /// A Native App.
+    Application(ObjectName),
+}
+
+impl fmt::Display for ShowFeaturePolicyEntity {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Account => write!(formatter, "ACCOUNT"),
+            Self::Database(name) => write!(formatter, "DATABASE {name}"),
+            Self::Application(name) => write!(formatter, "APPLICATION {name}"),
         }
     }
 }

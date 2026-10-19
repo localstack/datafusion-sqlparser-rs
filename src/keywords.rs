@@ -476,6 +476,7 @@ define_keywords!(
     FALLBACK,
     FALSE,
     FAMILY,
+    FEATURE,
     FETCH,
     FIELDS,
     FILE,
