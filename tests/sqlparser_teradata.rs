@@ -122,9 +122,9 @@ fn parse_leading_comma_before_table_options() {
         all_dialects_where(|d| !d.supports_leading_comma_before_table_options());
     for dialect in &unsupported_dialects.dialects {
         let expected = if dialect.is::<sqlparser::dialect::SnowflakeDialect>() {
-            "Expected: end of statement, found: FALLBACK"
+            "Expected: end of statement, found: FALLBACK at Line: 1, Column: 19"
         } else {
-            "Expected: end of statement, found: ,"
+            "Expected: end of statement, found: , at Line: 1, Column: 17"
         };
         assert_eq!(
             sqlparser::parser::Parser::parse_sql(&**dialect, "CREATE TABLE foo, FALLBACK (id INT)"),
