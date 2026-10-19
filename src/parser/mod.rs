@@ -6142,8 +6142,10 @@ impl<'a> Parser<'a> {
             self.parse_create_aggregate(or_replace).map(Into::into)
         } else if self.parse_keyword(Keyword::SCHEMA) {
             self.parse_create_schema(or_replace, transient)
+        } else if self.parse_keywords(&[Keyword::INTERACTIVE, Keyword::WAREHOUSE]) {
+            self.parse_create_warehouse(or_replace, or_alter, true).map(Into::into)
         } else if self.parse_keyword(Keyword::WAREHOUSE) {
-            self.parse_create_warehouse(or_replace, or_alter).map(Into::into)
+            self.parse_create_warehouse(or_replace, or_alter, false).map(Into::into)
         } else if self.parse_keyword(Keyword::ACCOUNT) {
             self.parse_create_account()
         } else if self.parse_keyword(Keyword::TASK) {
@@ -6514,6 +6516,7 @@ impl<'a> Parser<'a> {
         &mut self,
         or_replace: bool,
         or_alter: bool,
+        interactive: bool,
     ) -> Result<CreateWarehouse, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
@@ -6531,6 +6534,7 @@ impl<'a> Parser<'a> {
         Ok(CreateWarehouse {
             or_replace,
             or_alter,
+            interactive,
             if_not_exists,
             name,
             options,
