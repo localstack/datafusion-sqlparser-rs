@@ -893,6 +893,7 @@ impl SnowflakeDialect {
             // AST so the create path can persist hybrid-ness; it has no effect
             // on the emitted DDL.
             let hybrid = parser.parse_keyword(Keyword::HYBRID);
+            let interactive = parser.parse_keyword(Keyword::INTERACTIVE);
 
             // CREATE [OR REPLACE] TAG
             if parser.parse_keyword(Keyword::TAG) {
@@ -900,7 +901,7 @@ impl SnowflakeDialect {
             }
 
             let plain_create = !(or_replace || or_alter || global.is_some() || temporary || volatile
-                || transient || iceberg || dynamic || hybrid);
+                || transient || iceberg || dynamic || hybrid || interactive);
             if plain_create && parser.parse_keyword(Keyword::SCHEMA) {
                 if let Some(restore) =
                     parse_create_from_backup_set(BackupSetTargetKind::Schema, false, parser)
@@ -932,7 +933,7 @@ impl SnowflakeDialect {
                     None,
                 ).map(Into::into));
             } else if parser.parse_keyword(Keyword::TABLE) {
-                if !(or_alter || global.is_some() || temporary || volatile || transient || iceberg || dynamic || hybrid) {
+                if !(or_alter || global.is_some() || temporary || volatile || transient || iceberg || dynamic || hybrid || interactive) {
                     if let Some(restore) =
                         parse_create_from_backup_set(BackupSetTargetKind::Table, or_replace, parser)
                     {
@@ -942,7 +943,7 @@ impl SnowflakeDialect {
                 return Some(
                     parse_create_table(
                         or_replace, or_alter, global, temporary, volatile, transient, iceberg,
-                        dynamic, hybrid, parser,
+                        dynamic, hybrid, interactive, parser,
                     )
                     .map(Into::into),
                 );
@@ -986,6 +987,9 @@ impl SnowflakeDialect {
                     back += 1
                 }
                 if hybrid {
+                    back += 1
+                }
+                if interactive {
                     back += 1
                 }
                 for _i in 0..back {
@@ -3063,6 +3067,7 @@ pub fn parse_create_table(
     iceberg: bool,
     dynamic: bool,
     hybrid: bool,
+    interactive: bool,
     parser: &mut Parser,
 ) -> Result<CreateTable, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -3079,6 +3084,7 @@ pub fn parse_create_table(
         .global(global)
         .dynamic(dynamic)
         .hybrid(hybrid)
+        .interactive(interactive)
         .hive_formats(None);
 
     // Snowflake does not enforce order of the parameters in the statement. The parser needs to
