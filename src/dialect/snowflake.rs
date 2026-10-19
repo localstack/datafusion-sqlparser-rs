@@ -664,9 +664,14 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::SET]) {
                 // DESC[RIBE] BACKUP SET
-                return Some(parse_describe_backup_set(parser));
+                return Some(parse_describe_backup_set(parser, false));
             }
-            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICY]) {
+            if parser.parse_keywords(&[Keyword::SNAPSHOT, Keyword::SET]) {
+                return Some(parse_describe_backup_set(parser, true));
+            }
+            if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICY])
+                || parser.parse_keywords(&[Keyword::SNAPSHOT, Keyword::POLICY])
+            {
                 // DESC[RIBE] BACKUP POLICY
                 return Some(parse_describe_backup_policy(parser));
             }
@@ -6852,9 +6857,9 @@ fn parse_drop_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> 
 }
 
 /// Parse `DESC[RIBE] BACKUP SET <name>`
-fn parse_describe_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> {
+fn parse_describe_backup_set(parser: &mut Parser, snapshot: bool) -> Result<Statement, ParserError> {
     let name = parser.parse_object_name(false)?;
-    Ok(Statement::DescribeBackupSet { name })
+    Ok(Statement::DescribeBackupSet { name, snapshot })
 }
 
 /// Parse `ALTER BACKUP POLICY <name>
