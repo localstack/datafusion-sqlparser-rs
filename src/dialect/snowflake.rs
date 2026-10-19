@@ -427,6 +427,14 @@ impl SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::MAINTENANCE, Keyword::POLICY]) {
             return Some(parse_alter_maintenance_policy(parser));
         }
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::PACKAGES, Keyword::POLICY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                let operation = parse_metadata_policy_operation(parser)?;
+                Ok(Statement::AlterPackagesPolicy { if_exists, name, operation })
+            })());
+        }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SEMANTIC, Keyword::VIEW]) {
             // ALTER SEMANTIC VIEW
