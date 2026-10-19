@@ -18250,6 +18250,8 @@ pub struct CreateWarehouse {
     pub or_replace: bool,
     /// `OR ALTER` flag.
     pub or_alter: bool,
+    /// Dedicated `INTERACTIVE WAREHOUSE` form.
+    pub interactive: bool,
     /// `IF NOT EXISTS` flag.
     pub if_not_exists: bool,
     /// Warehouse name.
@@ -18267,6 +18269,9 @@ impl fmt::Display for CreateWarehouse {
             write!(f, " OR REPLACE")?;
         } else if self.or_alter {
             write!(f, " OR ALTER")?;
+        }
+        if self.interactive {
+            write!(f, " INTERACTIVE")?;
         }
         write!(f, " WAREHOUSE")?;
         if self.if_not_exists {
