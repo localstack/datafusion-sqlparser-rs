@@ -6065,6 +6065,8 @@ impl<'a> Parser<'a> {
             } else {
                 self.parse_create_database()
             }
+        } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::SERVICE]) {
+            self.parse_create_application_service(or_alter)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
             self.parse_create_application_role(or_replace, false)
         } else if self.parse_keyword(Keyword::COLLATION) {
@@ -6422,6 +6424,48 @@ impl<'a> Parser<'a> {
             name,
             options,
             with_tags,
+        })
+    }
+
+    fn parse_create_application_service(&mut self, or_alter: bool) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        let name = self.parse_object_name(false)?;
+        self.expect_keywords(&[Keyword::FROM, Keyword::ARTIFACT, Keyword::REPOSITORY])?;
+        let repository = self.parse_object_name(false)?;
+        self.expect_keyword(Keyword::PACKAGE)?;
+        let package = self.parse_identifier()?;
+        let version = if self.parse_keyword(Keyword::VERSION) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        let mut options = Vec::new();
+        while let Token::Word(word) = self.peek_token().token {
+            self.next_token();
+            if word.value.eq_ignore_ascii_case("QUERY_WAREHOUSE") {
+                self.expect_token(&Token::Eq)?;
+                let identifier = self.parse_identifier()?;
+                let value = if identifier.quote_style.is_some() {
+                    Value::DoubleQuotedString(identifier.value)
+                } else {
+                    Value::Placeholder(identifier.value)
+                };
+                options.push(KeyValueOption {
+                    option_name: word.value,
+                    option_value: KeyValueOptionKind::Single(value.into()),
+                });
+            } else {
+                options.push(self.parse_key_value_option(&word, false)?);
+            }
+        }
+        Ok(Statement::CreateApplicationService {
+            or_alter,
+            if_not_exists,
+            name,
+            repository,
+            package,
+            version,
+            options: KeyValueOptions { options, delimiter: KeyValueOptionsDelimiter::Space },
         })
     }
 
