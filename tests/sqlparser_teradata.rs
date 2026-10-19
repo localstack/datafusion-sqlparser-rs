@@ -18,6 +18,7 @@
 //! Test SQL syntax, specific to [sqlparser::dialect::TeradataDialect].
 
 use sqlparser::dialect::{Dialect, GenericDialect, TeradataDialect};
+use sqlparser::parser::ParserError;
 use sqlparser::test_utils::all_dialects_where;
 use test_utils::TestedDialects;
 
@@ -120,9 +121,14 @@ fn parse_leading_comma_before_table_options() {
     let unsupported_dialects =
         all_dialects_where(|d| !d.supports_leading_comma_before_table_options());
     for dialect in &unsupported_dialects.dialects {
-        assert!(
-            sqlparser::parser::Parser::parse_sql(&**dialect, "CREATE TABLE foo, FALLBACK (id INT)")
-                .is_err()
+        let expected = if dialect.is::<sqlparser::dialect::SnowflakeDialect>() {
+            "Expected: end of statement, found: FALLBACK at Line: 1, Column: 19"
+        } else {
+            "Expected: end of statement, found: , at Line: 1, Column: 17"
+        };
+        assert_eq!(
+            sqlparser::parser::Parser::parse_sql(&**dialect, "CREATE TABLE foo, FALLBACK (id INT)"),
+            Err(ParserError::ParserError(expected.to_string()))
         );
     }
 }
