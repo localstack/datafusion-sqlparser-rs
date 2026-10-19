@@ -493,6 +493,7 @@ impl Spanned for Statement {
             Statement::CreateStage { .. } => Span::empty(),
             Statement::CreateFileFormat { .. } => Span::empty(),
             Statement::CreateWarehouse(..) => Span::empty(),
+            Statement::CreateApplicationService { .. } => Span::empty(),
             Statement::AlterStage { .. } => Span::empty(),
             Statement::Assert { .. } => Span::empty(),
             Statement::Grant { .. } => Span::empty(),
