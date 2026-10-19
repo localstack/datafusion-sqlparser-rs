@@ -6283,6 +6283,36 @@ pub enum Statement {
         /// Schedule and comment properties.
         options: KeyValueOptions,
     },
+    /// CREATE PACKAGES POLICY.
+    CreatePackagesPolicy {
+        /// Replace an existing policy.
+        or_replace: bool,
+        /// Succeed if the policy exists.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Function language.
+        language: Ident,
+        /// Package lists and comment.
+        options: KeyValueOptions,
+    },
+    /// DROP PACKAGES POLICY.
+    DropPackagesPolicy {
+        /// Succeed if the policy is absent.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// DESCRIBE PACKAGES POLICY.
+    DescribePackagesPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// SHOW PACKAGES POLICIES.
+    ShowPackagesPolicies {
+        /// Scope and filter.
+        show_options: ShowStatementOptions,
+    },
     /// ALTER MAINTENANCE POLICY [IF EXISTS] <name> <operation>
     AlterMaintenancePolicy {
         /// Succeed if the policy is absent.
@@ -10332,6 +10362,16 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeMaintenancePolicy { name } => write!(f, "DESCRIBE MAINTENANCE POLICY {name}"),
             Statement::ShowMaintenancePolicies { show_options } => write!(f, "SHOW MAINTENANCE POLICIES{show_options}"),
+            Statement::CreatePackagesPolicy { or_replace, if_not_exists, name, language, options } => {
+                write!(f, "CREATE {}PACKAGES POLICY {}{name} LANGUAGE {language}",
+                    if *or_replace { "OR REPLACE " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
+                if !options.options.is_empty() { write!(f, " {options}")?; }
+                Ok(())
+            },
+            Statement::DropPackagesPolicy { if_exists, name } => write!(f, "DROP PACKAGES POLICY {}{name}", if *if_exists { "IF EXISTS " } else { "" }),
+            Statement::DescribePackagesPolicy { name } => write!(f, "DESCRIBE PACKAGES POLICY {name}"),
+            Statement::ShowPackagesPolicies { show_options } => write!(f, "SHOW PACKAGES POLICIES{show_options}"),
             Statement::CreateBackupPolicy {
                 or_replace,
                 or_alter,
