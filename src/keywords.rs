@@ -890,6 +890,8 @@ define_keywords!(
     PACKAGE,
     PACKAGES,
     PACK_KEYS,
+    PAIR,
+    PAIRS,
     PARALLEL,
     PARAMETER,
     PARQUET,
