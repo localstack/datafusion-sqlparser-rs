@@ -5865,6 +5865,11 @@ pub enum Statement {
         /// Options controlling the SHOW output (`LIKE` / `IN` / `LIMIT` / ...).
         show_options: ShowStatementOptions,
     },
+    /// `SHOW USER KEY PAIRS [ FOR USER <name> ]`.
+    ShowUserKeyPairs {
+        /// The selected user, or the current user when omitted.
+        user: Option<Ident>,
+    },
     /// ```sql
     /// SHOW [TERSE] USERS [ LIKE '<pattern>' ] [ STARTS WITH '<prefix>' ] [ LIMIT <n> [ FROM '<name>' ] ]
     /// ```
@@ -10033,6 +10038,13 @@ impl fmt::Display for Statement {
                     "SHOW {terse}STAGES{show_options}",
                     terse = if *terse { "TERSE " } else { "" },
                 )
+            }
+            Statement::ShowUserKeyPairs { user } => {
+                write!(f, "SHOW USER KEY PAIRS")?;
+                if let Some(user) = user {
+                    write!(f, " FOR USER {user}")?;
+                }
+                Ok(())
             }
             Statement::ShowUsers {
                 terse,
@@ -18511,6 +18523,10 @@ pub struct AlterUser {
     pub abort_all_queries: bool,
     /// Optionally add a delegated role authorization.
     pub add_role_delegation: Option<AlterUserAddRoleDelegation>,
+    /// Add a named public key.
+    pub add_key_pair: Option<AlterUserAddKeyPair>,
+    /// Remove a named public key.
+    pub remove_key_pair: Option<Ident>,
     /// Optionally remove a delegated role authorization.
     pub remove_role_delegation: Option<AlterUserRemoveRoleDelegation>,
     /// Enroll the user in MFA.
@@ -18653,6 +18669,17 @@ impl fmt::Display for UserPolicyKind {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// A named key and its `PUBLIC_KEY`, `ROLE_RESTRICTION`, `DAYS_TO_EXPIRY`, and `COMMENT` options.
+pub struct AlterUserAddKeyPair {
+    /// The method name.
+    pub name: Ident,
+    /// The supplied options.
+    pub options: KeyValueOptions,
+}
+
 impl fmt::Display for AlterUser {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_with_kind(f, "USER")
@@ -18681,6 +18708,15 @@ impl AlterUser {
         }
         if self.abort_all_queries {
             write!(f, " ABORT ALL QUERIES")?;
+        }
+        if let Some(key_pair) = &self.add_key_pair {
+            write!(f, " ADD KEY PAIR {}", key_pair.name)?;
+            if !key_pair.options.options.is_empty() {
+                write!(f, " {}", key_pair.options)?;
+            }
+        }
+        if let Some(name) = &self.remove_key_pair {
+            write!(f, " REMOVE KEY PAIR {name}")?;
         }
         if let Some(role_delegation) = &self.add_role_delegation {
             let role = &role_delegation.role;
