@@ -14055,6 +14055,14 @@ impl<'a> Parser<'a> {
             }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
             AlterAccountOperation::UnsetPolicy { policy_kind }
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::TAG]) {
+            AlterAccountOperation::SetTags {
+                tags: self.parse_comma_separated(Parser::parse_tag)?,
+            }
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::TAG]) {
+            AlterAccountOperation::UnsetTags {
+                tags: self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+            }
         } else if self.parse_keyword(Keyword::SET) {
             let params = self.parse_comma_separated(|p| {
                 let name = p.parse_identifier()?;

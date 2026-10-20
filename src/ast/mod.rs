@@ -17137,6 +17137,16 @@ impl fmt::Display for AccountOption {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterAccountOperation {
+    #[doc = "SET TAG <name> = '<value>' [, ...]"]
+    SetTags {
+        #[doc = "Tag assignments."]
+        tags: Vec<Tag>,
+    },
+    #[doc = "UNSET TAG <name> [, ...]"]
+    UnsetTags {
+        #[doc = "Tags to remove."]
+        tags: Vec<ObjectName>,
+    },
     /// `SET <param> = <value> [, ...]`
     Set {
         /// Raw `key = value` pairs; not validated against the Snowflake property
@@ -17170,6 +17180,12 @@ pub enum AlterAccountOperation {
 impl fmt::Display for AlterAccountOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterAccountOperation::SetTags { tags } => {
+                write!(f, "SET TAG {}", display_comma_separated(tags))
+            }
+            AlterAccountOperation::UnsetTags { tags } => {
+                write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
             AlterAccountOperation::SetPolicy {
                 policy_kind,
                 policy,
