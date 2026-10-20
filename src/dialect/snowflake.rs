@@ -620,6 +620,13 @@ impl SnowflakeDialect {
             return Some(parse_drop_network_rule(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::GIT, Keyword::REPOSITORY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                Ok(Statement::DropGitRepository { if_exists, name })
+            })());
+        }
         if parser.parse_keywords(&[Keyword::DROP, Keyword::STREAMLIT]) {
             // DROP STREAMLIT
             return Some(parse_drop_streamlit(parser));
@@ -727,6 +734,9 @@ impl SnowflakeDialect {
             if parser.parse_keyword(Keyword::SECRET) {
                 // DESC[RIBE] SECRET
                 return Some(parse_describe_secret(parser));
+            }
+            if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORY]) {
+                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeGitRepository { name }));
             }
             if parser.parse_keyword(Keyword::STREAMLIT) {
                 // DESC[RIBE] STREAMLIT
@@ -878,6 +888,14 @@ impl SnowflakeDialect {
                 return Some(parse_create_secret(or_replace, parser));
             }
 
+            if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORY]) {
+                return Some((|| {
+                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    let options = parse_streamlit_options(parser)?;
+                    Ok(Statement::CreateGitRepository { or_replace, if_not_exists, name, options })
+                })());
+            }
             // CREATE [OR REPLACE] STREAMLIT
             if parser.parse_keyword(Keyword::STREAMLIT) {
                 return Some(parse_create_streamlit(or_replace, parser));
@@ -1133,6 +1151,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keyword(Keyword::STAGES) {
                 return Some(parse_show_stages(terse, parser));
+            }
+            if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORIES]) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowGitRepositories { show_options }));
             }
             if parser.parse_keyword(Keyword::STREAMLITS) {
                 return Some(parser.parse_show_stmt_options().map(|show_options| {
