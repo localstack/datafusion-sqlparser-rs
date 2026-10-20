@@ -6628,6 +6628,36 @@ pub enum Statement {
         options: KeyValueOptions,
     },
     /// ```sql
+    /// CREATE [ OR REPLACE ] GIT REPOSITORY [ IF NOT EXISTS ] <name> <properties>
+    /// ```
+    CreateGitRepository {
+        /// Replace an existing repository.
+        or_replace: bool,
+        /// Keep an existing repository.
+        if_not_exists: bool,
+        /// Repository name.
+        name: ObjectName,
+        /// Configuration properties.
+        options: Vec<SqlOption>,
+    },
+    /// DROP GIT REPOSITORY.
+    DropGitRepository {
+        /// Succeed for a missing repository.
+        if_exists: bool,
+        /// Repository name.
+        name: ObjectName,
+    },
+    /// DESCRIBE GIT REPOSITORY.
+    DescribeGitRepository {
+        /// Repository name.
+        name: ObjectName,
+    },
+    /// SHOW GIT REPOSITORIES.
+    ShowGitRepositories {
+        /// Filtering, scope and pagination.
+        show_options: ShowStatementOptions,
+    },
+    /// ```sql
     /// CREATE [ OR REPLACE ] STREAMLIT [ IF NOT EXISTS ] <name>
     ///   [ FROM '<source>' ] [ <property> = <value> ... ]
     /// ```
@@ -10652,6 +10682,19 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateGitRepository { or_replace, if_not_exists, name, options } => {
+                write!(f, "CREATE {}GIT REPOSITORY {}{name}",
+                    if *or_replace { "OR REPLACE " } else { "" },
+                    if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
+                if !options.is_empty() {
+                    write!(f, " {}", display_separated(options, " "))?;
+                }
+                Ok(())
+            }
+            Statement::DropGitRepository { if_exists, name } => write!(f,
+                "DROP GIT REPOSITORY {}{name}", if *if_exists { "IF EXISTS " } else { "" }),
+            Statement::DescribeGitRepository { name } => write!(f, "DESCRIBE GIT REPOSITORY {name}"),
+            Statement::ShowGitRepositories { show_options } => write!(f, "SHOW GIT REPOSITORIES{show_options}"),
             Statement::CreateStreamlit {
                 or_replace,
                 if_not_exists,
