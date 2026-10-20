@@ -1276,6 +1276,16 @@ impl SnowflakeDialect {
             if parser.parse_keyword(Keyword::USERS) {
                 return Some(parse_show_users(terse, parser));
             }
+            if parser.parse_keywords(&[Keyword::USER, Keyword::KEY, Keyword::PAIRS]) {
+                return Some((|| {
+                    let user = if parser.parse_keywords(&[Keyword::FOR, Keyword::USER]) {
+                        Some(parser.parse_identifier()?)
+                    } else {
+                        None
+                    };
+                    Ok(Statement::ShowUserKeyPairs { user })
+                })());
+            }
             //Give back Keyword::TERSE
             if terse {
                 parser.prev_token();
