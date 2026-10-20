@@ -420,7 +420,13 @@ impl SnowflakeDialect {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
-                let operation = parse_metadata_policy_operation(parser)?;
+                let operation = if parser.parse_keyword(Keyword::SET)
+                    || parser.peek_token_ref().token == Token::make_keyword("AS")
+                {
+                    AlterMaintenancePolicyOperation::Set(parse_feature_policy_options(parser)?)
+                } else {
+                    parse_metadata_policy_operation(parser)?
+                };
                 Ok(Statement::AlterFeaturePolicy { if_exists, name, operation })
             })());
         }
@@ -839,7 +845,7 @@ impl SnowflakeDialect {
                 return Some((|| {
                     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
-                    let options = parser.parse_key_value_options(false, &[], false)?;
+                    let options = parse_feature_policy_options(parser)?;
                     Ok(Statement::CreateFeaturePolicy { or_replace, if_not_exists, name, options })
                 })());
             }
@@ -6624,6 +6630,19 @@ fn parse_create_authentication_policy(
         name,
         options,
     })
+}
+
+fn parse_feature_policy_options(parser: &mut Parser) -> Result<KeyValueOptions, ParserError> {
+    let mut options = parser.parse_key_value_options(false, &[Keyword::AS], false)?;
+    if parser.parse_keyword(Keyword::AS) {
+        options.options.push(KeyValueOption {
+            option_name: "POLICY_DEFINITION".into(),
+            option_value: KeyValueOptionKind::Single(
+                Value::SingleQuotedString(parser.parse_literal_string()?).into(),
+            ),
+        });
+    }
+    Ok(options)
 }
 
 fn parse_alter_maintenance_policy(parser: &mut Parser) -> Result<Statement, ParserError> {
