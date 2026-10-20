@@ -20,7 +20,7 @@ use crate::{
     ast::{
         helpers::key_value_options::{KeyValueOptions, KeyValueOptionsDelimiter},
         AlterConnectorOwner, AlterPolicy, AlterPolicyOperation, AlterRoleOperation, AlterUser,
-        AlterUserAddMfaMethodOtp, AlterUserAddRoleDelegation, AlterUserModifyMfaMethod,
+        AlterUserAddKeyPair, AlterUserAddMfaMethodOtp, AlterUserAddRoleDelegation, AlterUserModifyMfaMethod,
         AlterUserPassword, AlterUserRemoveRoleDelegation, AlterUserSetPolicy, Expr, MfaMethodKind,
         Password, ResetConfig, RoleOption, SetConfigValue, Statement, UserPolicyKind,
     },
@@ -234,6 +234,18 @@ impl Parser<'_> {
             None
         };
         let enroll_mfa = self.parse_keywords(&[Keyword::ENROLL, Keyword::MFA]);
+        let add_key_pair = if self.parse_keywords(&[Keyword::ADD, Keyword::KEY, Keyword::PAIR]) {
+            let name = self.parse_identifier()?;
+            let options = self.parse_key_value_options(false, &[], false)?;
+            Some(AlterUserAddKeyPair { name, options })
+        } else {
+            None
+        };
+        let remove_key_pair = if self.parse_keywords(&[Keyword::REMOVE, Keyword::KEY, Keyword::PAIR]) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
         let set_default_mfa_method =
             if self.peek_nth_token_ref(2).token != Token::Eq
                 && self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT_MFA_METHOD])
@@ -374,6 +386,8 @@ impl Parser<'_> {
             reset_password,
             abort_all_queries,
             add_role_delegation,
+            add_key_pair,
+            remove_key_pair,
             remove_role_delegation,
             enroll_mfa,
             set_default_mfa_method,
