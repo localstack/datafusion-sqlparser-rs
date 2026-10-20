@@ -26712,6 +26712,23 @@ impl<'a> Parser<'a> {
                 })
             }
             Token::LParen => {
+                if key.value.eq_ignore_ascii_case("ALLOWED_AUTHENTICATION_SECRETS") {
+                    self.expect_token(&Token::LParen)?;
+                    let values = self.parse_comma_separated0(|parser| {
+                        let start = parser.peek_token().span;
+                        if matches!(parser.peek_token_ref().token, Token::Word(_)) {
+                            let name = parser.parse_object_name(false)?;
+                            Ok(Value::Placeholder(name.to_string()).with_span(start))
+                        } else {
+                            parser.parse_value()
+                        }
+                    }, Token::RParen)?;
+                    self.expect_token(&Token::RParen)?;
+                    return Ok(KeyValueOption {
+                        option_name: key.value.clone(),
+                        option_value: KeyValueOptionKind::Multi(values),
+                    });
+                }
                 // Can be a list of values or a list of key value properties.
                 // Try to parse a list of values and if that fails, try to parse
                 // a list of key-value properties.

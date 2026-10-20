@@ -678,6 +678,10 @@ impl Spanned for Statement {
             Statement::CreateSnowflakeSecret { .. } => Span::empty(),
             Statement::AlterSnowflakeSecret { .. } => Span::empty(),
             Statement::DropSnowflakeSecret { .. } => Span::empty(),
+            Statement::CreateGitRepository { .. }
+            | Statement::DropGitRepository { .. }
+            | Statement::DescribeGitRepository { .. }
+            | Statement::ShowGitRepositories { .. } => Span::empty(),
             Statement::CreateStreamlit { .. } => Span::empty(),
             Statement::DropStreamlit { .. } => Span::empty(),
             Statement::DescribeStreamlit { .. } => Span::empty(),
