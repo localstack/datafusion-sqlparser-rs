@@ -26643,6 +26643,8 @@ impl<'a> Parser<'a> {
                         "ENABLE_GET_DDL_USE_DATA_TYPE_ALIAS"
                             | "OPT_OUT_ERROR_LOGGING"
                             | "STRICT_JSON_OUTPUT"
+                            | "MIN_CLUSTER_COUNT"
+                            | "MAX_CLUSTER_COUNT"
                     )
                 {
                     return Ok(KeyValueOption {
