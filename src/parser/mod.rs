@@ -14048,10 +14048,24 @@ impl<'a> Parser<'a> {
             let new_name = self.parse_identifier()?;
             AlterAccountOperation::RenameTo { new_name }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
-            let policy = self.parse_identifier()?;
-            AlterAccountOperation::SetPolicy {
-                policy_kind,
-                policy,
+            let forced = if policy_kind == UserPolicyKind::Password {
+                self.try_parse(|parser| {
+                    let policy = parser.parse_object_name(false)?;
+                    parser.expect_keyword(Keyword::FORCE)?;
+                    Ok(AlterAccountOperation::SetPasswordPolicyForce { policy })
+                })
+                .ok()
+            } else {
+                None
+            };
+            if let Some(operation) = forced {
+                operation
+            } else {
+                let policy = self.parse_identifier()?;
+                AlterAccountOperation::SetPolicy {
+                    policy_kind,
+                    policy,
+                }
             }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
             AlterAccountOperation::UnsetPolicy { policy_kind }

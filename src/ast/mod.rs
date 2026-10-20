@@ -17182,6 +17182,11 @@ pub enum AlterAccountOperation {
         /// The identifier of the policy to attach.
         policy: Ident,
     },
+    /// `SET PASSWORD POLICY <policy_name> FORCE`
+    SetPasswordPolicyForce {
+        /// The qualified name of the password policy to attach.
+        policy: ObjectName,
+    },
     /// `UNSET { AUTHENTICATION | PASSWORD | SESSION } POLICY`
     UnsetPolicy {
         /// The kind of policy being detached from the account.
@@ -17202,6 +17207,9 @@ impl fmt::Display for AlterAccountOperation {
                 policy_kind,
                 policy,
             } => write!(f, "SET {policy_kind} POLICY {policy}"),
+            AlterAccountOperation::SetPasswordPolicyForce { policy } => {
+                write!(f, "SET PASSWORD POLICY {policy} FORCE")
+            }
             AlterAccountOperation::UnsetPolicy { policy_kind } => {
                 write!(f, "UNSET {policy_kind} POLICY")
             }
