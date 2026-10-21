@@ -20030,6 +20030,9 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_views(terse, false)?)
         } else if self.parse_keyword(Keyword::FUNCTIONS) {
             Ok(self.parse_show_functions()?)
+        } else if self.parse_keyword(Keyword::CLASSES) {
+            let show_options = self.parse_show_stmt_options()?;
+            Ok(Statement::ShowClasses { show_options })
         } else if self.parse_keyword(Keyword::PROCESSLIST) {
             Ok(Statement::ShowProcessList { full })
         } else if extended || full {
