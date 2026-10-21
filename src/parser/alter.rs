@@ -237,6 +237,24 @@ impl Parser<'_> {
             }
         }
         let _ = self.parse_keyword(Keyword::WITH);
+        let add_workload_identity = if self.parse_keywords(&[Keyword::ADD, Keyword::WORKLOAD, Keyword::IDENTITY]) {
+            Some(crate::ast::AlterUserAddWorkloadIdentity {
+                name: self.parse_identifier()?,
+                options: self.parse_key_value_options(false, &[], false)?,
+            })
+        } else {
+            None
+        };
+        let remove_workload_identity = if self.parse_keywords(&[Keyword::REMOVE, Keyword::WORKLOAD, Keyword::IDENTITY]) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        let modify_workload_identity = if self.parse_keywords(&[Keyword::MODIFY, Keyword::WORKLOAD, Keyword::IDENTITY]) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
         let rename_to = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             Some(self.parse_identifier()?)
         } else {
@@ -434,6 +452,9 @@ impl Parser<'_> {
             add_role_delegation,
             add_key_pair,
             remove_key_pair,
+            add_workload_identity,
+            modify_workload_identity,
+            remove_workload_identity,
             remove_role_delegation,
             enroll_mfa,
             set_default_mfa_method,
