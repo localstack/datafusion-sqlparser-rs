@@ -14079,6 +14079,12 @@ impl<'a> Parser<'a> {
             Keyword::POLICY,
         ]) {
             AlterAccountOperation::UnsetMultiPartyApprovalPolicy
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::PACKAGES, Keyword::POLICY]) {
+            let policy = self.parse_object_name(false)?;
+            let force = self.parse_keyword(Keyword::FORCE);
+            AlterAccountOperation::SetPackagesPolicy { policy, force }
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::PACKAGES, Keyword::POLICY]) {
+            AlterAccountOperation::UnsetPackagesPolicy
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
             let forced = if policy_kind == UserPolicyKind::Password {
                 self.try_parse(|parser| {
