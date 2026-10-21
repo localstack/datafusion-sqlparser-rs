@@ -6825,6 +6825,11 @@ pub enum Statement {
         /// Call arguments (never evaluated).
         args: Vec<Expr>,
     },
+    /// `SHOW AGENTS` with optional scope and filters.
+    ShowAgents {
+        /// Options controlling the SHOW output.
+        show_options: ShowStatementOptions,
+    },
     /// ```sql
     /// SHOW [ TERSE ] STREAMLITS [ LIKE '<pattern>' ] [ IN <scope> ]
     ///   [ LIMIT <n> [ FROM '<s>' ] ]
@@ -10875,6 +10880,7 @@ impl fmt::Display for Statement {
             Statement::ExecuteStreamlit { name, args } => {
                 write!(f, "EXECUTE STREAMLIT {name}({})", display_comma_separated(args))
             }
+            Statement::ShowAgents { show_options } => write!(f, "SHOW AGENTS{show_options}"),
             Statement::ShowStreamlits {
                 terse,
                 show_options,

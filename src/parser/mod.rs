@@ -20024,6 +20024,10 @@ impl<'a> Parser<'a> {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
         } else if self.parse_keyword(Keyword::TASKS) {
             Ok(self.parse_show_tasks(terse)?)
+        } else if self.parse_keyword(Keyword::AGENTS) {
+            Ok(Statement::ShowAgents {
+                show_options: self.parse_show_stmt_options()?,
+            })
         } else if self.parse_keyword(Keyword::ALERTS) {
             Ok(self.parse_show_alerts(terse)?)
         } else if self.parse_keyword(Keyword::STREAMS) {
