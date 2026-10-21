@@ -14057,6 +14057,24 @@ impl<'a> Parser<'a> {
         } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_identifier()?;
             AlterAccountOperation::RenameTo { new_name }
+        } else if self.parse_keywords(&[
+            Keyword::SET,
+            Keyword::MULTI,
+            Keyword::PARTY,
+            Keyword::APPROVAL,
+            Keyword::POLICY,
+        ]) {
+            let policy = self.parse_object_name(false)?;
+            let force = self.parse_keyword(Keyword::FORCE);
+            AlterAccountOperation::SetMultiPartyApprovalPolicy { policy, force }
+        } else if self.parse_keywords(&[
+            Keyword::UNSET,
+            Keyword::MULTI,
+            Keyword::PARTY,
+            Keyword::APPROVAL,
+            Keyword::POLICY,
+        ]) {
+            AlterAccountOperation::UnsetMultiPartyApprovalPolicy
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
             let forced = if policy_kind == UserPolicyKind::Password {
                 self.try_parse(|parser| {
@@ -22310,6 +22328,7 @@ impl<'a> Parser<'a> {
             "SELECT ERROR TABLE",
             "USE AI FUNCTIONS",
             "APPLY MAINTENANCE POLICY",
+            "APPLY MULTI PARTY APPROVAL POLICY",
             "APPLY FEATURE POLICY",
             "APPLY STORAGE LIFECYCLE POLICY",
             "APPLY CONTACT",
