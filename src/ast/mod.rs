@@ -4767,6 +4767,11 @@ pub enum Statement {
         /// Options controlling the SHOW output (filter, `IN <scope>`, etc.).
         show_options: ShowStatementOptions,
     },
+    /// `SHOW CLASSES` built-in class-definition metadata.
+    ShowClasses {
+        /// Filtering, database scope and pagination.
+        show_options: ShowStatementOptions,
+    },
     /// ```sql
     /// SHOW <variable>
     /// ```
@@ -9044,6 +9049,9 @@ impl fmt::Display for Statement {
             Statement::ShowFunctions { show_options } => {
                 write!(f, "SHOW FUNCTIONS{show_options}")?;
                 Ok(())
+            }
+            Statement::ShowClasses { show_options } => {
+                write!(f, "SHOW CLASSES{show_options}")
             }
             Statement::Use(use_expr) => use_expr.fmt(f),
             Statement::ShowCollation { filter } => {
