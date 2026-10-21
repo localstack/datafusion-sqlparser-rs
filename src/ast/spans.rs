@@ -651,6 +651,10 @@ impl Spanned for Statement {
             Statement::ShowAuthenticationPolicies { .. } => Span::empty(),
             Statement::CreateBackupPolicy { .. } => Span::empty(),
             Statement::CreateDataMovementRule { .. }
+            | Statement::CreateDataMovementPolicy { .. }
+            | Statement::DropDataMovementPolicy { .. }
+            | Statement::DescribeDataMovementPolicy { .. }
+            | Statement::ShowDataMovementPolicies { .. }
             | Statement::DropDataMovementRule { .. }
             | Statement::DescribeDataMovementRule { .. }
             | Statement::ShowDataMovementRules { .. }
