@@ -7508,6 +7508,11 @@ pub enum Statement {
         /// Optional type representation details.
         representation: Option<UserDefinedTypeRepresentation>,
     },
+    /// `DESCRIBE TYPE <name>`.
+    DescribeType {
+        /// Type name.
+        name: ObjectName,
+    },
     /// ```sql
     /// PRAGMA <schema-name>.<pragma-name> = <pragma-value>
     /// ```
@@ -11420,12 +11425,17 @@ impl fmt::Display for Statement {
                 name,
                 representation,
             } => {
-                write!(f, "CREATE TYPE {name}")?;
+                write!(f, "CREATE TYPE ")?;
+                if matches!(representation, Some(UserDefinedTypeRepresentation::Alias { if_not_exists: true, .. })) {
+                    write!(f, "IF NOT EXISTS ")?;
+                }
+                write!(f, "{name}")?;
                 if let Some(repr) = representation {
                     write!(f, " {repr}")?;
                 }
                 Ok(())
             }
+            Statement::DescribeType { name } => write!(f, "DESCRIBE TYPE {name}"),
             Statement::Pragma { name, value, is_eq } => {
                 write!(f, "PRAGMA {name}")?;
                 if let Some(value) = value {

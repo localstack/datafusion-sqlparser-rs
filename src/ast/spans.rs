@@ -690,6 +690,7 @@ impl Spanned for Statement {
             Statement::CreateStreamlit { .. } => Span::empty(),
             Statement::DropStreamlit { .. } => Span::empty(),
             Statement::DescribeStreamlit { .. } => Span::empty(),
+            Statement::DescribeType { name } => name.span(),
             Statement::ShowStreamlitVersions { .. } => Span::empty(),
             Statement::ExecuteStreamlit { .. } => Span::empty(),
             Statement::ShowStreamlits { .. } => Span::empty(),
