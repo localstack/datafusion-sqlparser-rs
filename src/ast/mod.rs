@@ -5870,6 +5870,11 @@ pub enum Statement {
         /// The selected user, or the current user when omitted.
         user: Option<Ident>,
     },
+    /// SHOW USER WORKLOAD IDENTITY AUTHENTICATION METHODS.
+    ShowUserWorkloadIdentityAuthenticationMethods {
+        /// Selected user, or the current user when omitted.
+        user: Option<Ident>,
+    },
     /// ```sql
     /// SHOW [TERSE] USERS [ LIKE '<pattern>' ] [ STARTS WITH '<prefix>' ] [ LIMIT <n> [ FROM '<name>' ] ]
     /// ```
@@ -10082,6 +10087,13 @@ impl fmt::Display for Statement {
             }
             Statement::ShowUserKeyPairs { user } => {
                 write!(f, "SHOW USER KEY PAIRS")?;
+                if let Some(user) = user {
+                    write!(f, " FOR USER {user}")?;
+                }
+                Ok(())
+            }
+            Statement::ShowUserWorkloadIdentityAuthenticationMethods { user } => {
+                write!(f, "SHOW USER WORKLOAD IDENTITY AUTHENTICATION METHODS")?;
                 if let Some(user) = user {
                     write!(f, " FOR USER {user}")?;
                 }
@@ -18628,6 +18640,12 @@ pub struct AlterUser {
     pub add_key_pair: Option<AlterUserAddKeyPair>,
     /// Remove a named public key.
     pub remove_key_pair: Option<Ident>,
+    /// Add a named workload identity.
+    pub add_workload_identity: Option<AlterUserAddWorkloadIdentity>,
+    /// Modify a named workload identity using rename_to, set_props or unset_props.
+    pub modify_workload_identity: Option<Ident>,
+    /// Remove a named workload identity.
+    pub remove_workload_identity: Option<Ident>,
     /// Optionally remove a delegated role authorization.
     pub remove_role_delegation: Option<AlterUserRemoveRoleDelegation>,
     /// Enroll the user in MFA.
@@ -18787,6 +18805,17 @@ impl fmt::Display for AlterUser {
     }
 }
 
+/// Named workload identity configuration.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AlterUserAddWorkloadIdentity {
+    /// Identity name.
+    pub name: Ident,
+    /// Provider configuration.
+    pub options: KeyValueOptions,
+}
+
 impl AlterUser {
     fn fmt_with_kind(&self, f: &mut fmt::Formatter, kind: &str) -> fmt::Result {
         write!(f, "ALTER")?;
@@ -18800,6 +18829,15 @@ impl AlterUser {
                 write!(f, "{qualifier}.")?;
             }
             write!(f, "{name}")?;
+        }
+        if let Some(name) = &self.modify_workload_identity {
+            write!(f, " MODIFY WORKLOAD IDENTITY {name}")?;
+        }
+        if let Some(identity) = &self.add_workload_identity {
+            write!(f, " ADD WORKLOAD IDENTITY {} {}", identity.name, identity.options)?;
+        }
+        if let Some(name) = &self.remove_workload_identity {
+            write!(f, " REMOVE WORKLOAD IDENTITY {name}")?;
         }
         if let Some(new_name) = &self.rename_to {
             write!(f, " RENAME TO {new_name}")?;
