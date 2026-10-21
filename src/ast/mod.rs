@@ -18394,6 +18394,8 @@ pub struct CreateWarehouse {
     pub name: ObjectName,
     /// Warehouse properties and parameters (e.g. `WAREHOUSE_SIZE = 'XSMALL'`).
     pub options: KeyValueOptions,
+    /// Initial interactive table membership.
+    pub tables: Vec<ObjectName>,
     /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
     pub with_tags: Vec<Tag>,
 }
@@ -18414,6 +18416,9 @@ impl fmt::Display for CreateWarehouse {
             write!(f, " IF NOT EXISTS")?;
         }
         write!(f, " {}", self.name)?;
+        if !self.tables.is_empty() {
+            write!(f, " TABLES ({})", display_comma_separated(&self.tables))?;
+        }
         if !self.options.options.is_empty() {
             write!(f, " {}", self.options)?;
         }
