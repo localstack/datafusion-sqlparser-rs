@@ -1034,6 +1034,7 @@ define_keywords!(
     ROLLBACK,
     ROLLUP,
     ROOT,
+    ROTATE,
     ROW,
     ROWGROUPSIZE,
     ROWID,

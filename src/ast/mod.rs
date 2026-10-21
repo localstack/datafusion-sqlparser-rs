@@ -18563,6 +18563,10 @@ pub struct AlterUser {
     pub add_key_pair: Option<AlterUserAddKeyPair>,
     /// Remove a named public key.
     pub remove_key_pair: Option<Ident>,
+    /// Modify a named public key.
+    pub modify_key_pair: Option<AlterUserModifyKeyPair>,
+    /// Rotate a named public key.
+    pub rotate_key_pair: Option<AlterUserAddKeyPair>,
     /// Add a named workload identity.
     pub add_workload_identity: Option<AlterUserAddWorkloadIdentity>,
     /// Modify a named workload identity using rename_to, set_props or unset_props.
@@ -18722,6 +18726,21 @@ pub struct AlterUserAddKeyPair {
     pub options: KeyValueOptions,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// Named public-key property or name mutation.
+pub struct AlterUserModifyKeyPair {
+    /// Existing method name.
+    pub name: Ident,
+    /// Replacement name.
+    pub rename_to: Option<Ident>,
+    /// Properties to set.
+    pub options: KeyValueOptions,
+    /// Properties to restore to defaults.
+    pub unset: Vec<Ident>,
+}
+
 impl fmt::Display for AlterUser {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.fmt_with_kind(f, "USER")
@@ -18779,6 +18798,19 @@ impl AlterUser {
         }
         if let Some(name) = &self.remove_key_pair {
             write!(f, " REMOVE KEY PAIR {name}")?;
+        }
+        if let Some(key_pair) = &self.modify_key_pair {
+            write!(f, " MODIFY KEY PAIR {}", key_pair.name)?;
+            if let Some(name) = &key_pair.rename_to {
+                write!(f, " RENAME TO {name}")?;
+            } else if !key_pair.unset.is_empty() {
+                write!(f, " UNSET {}", display_comma_separated(&key_pair.unset))?;
+            } else {
+                write!(f, " SET {}", key_pair.options)?;
+            }
+        }
+        if let Some(key_pair) = &self.rotate_key_pair {
+            write!(f, " ROTATE KEY PAIR {} {}", key_pair.name, key_pair.options)?;
         }
         if let Some(role_delegation) = &self.add_role_delegation {
             let role = &role_delegation.role;
