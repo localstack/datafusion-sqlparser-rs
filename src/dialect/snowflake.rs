@@ -593,6 +593,13 @@ impl SnowflakeDialect {
             return Some(parse_drop_backup_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                Ok(Statement::DropDataMovementRule { if_exists, name })
+            })());
+        }
         if parser.parse_keywords(&[Keyword::DROP, Keyword::PACKAGES, Keyword::POLICY]) {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -717,6 +724,9 @@ impl SnowflakeDialect {
             {
                 // DESC[RIBE] BACKUP POLICY
                 return Some(parse_describe_backup_policy(parser));
+            }
+            if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
+                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeDataMovementRule { name }));
             }
             if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
                 return Some(parser.parse_object_name(false).map(|name| Statement::DescribePackagesPolicy { name }));
@@ -868,6 +878,30 @@ impl SnowflakeDialect {
                 })());
             }
 
+            if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
+                return Some((|| {
+                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    parser.expect_keyword(Keyword::TYPE)?;
+                    parser.expect_token(&Token::Eq)?;
+                    let movement_type = parser.parse_literal_string()?;
+                    parser.expect_keywords(&[Keyword::MAX_ROWS, Keyword::AS])?;
+                    parser.expect_token(&Token::LParen)?;
+                    parser.expect_token(&Token::RParen)?;
+                    parser.expect_keyword(Keyword::RETURNS)?;
+                    let return_type = parser.parse_data_type()?;
+                    parser.expect_token(&Token::Arrow)?;
+                    let start = parser.peek_token().span.start;
+                    let body = parser.parse_expr()?;
+                    let end = parser.token_at(parser.get_current_index()).span.end;
+                    let body_span = crate::tokenizer::Span { start, end };
+                    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+                        parser.expect_token(&Token::Eq)?;
+                        Some(parser.parse_literal_string()?)
+                    } else { None };
+                    Ok(Statement::CreateDataMovementRule { or_replace, if_not_exists, name, movement_type, return_type, body, body_span, comment })
+                })());
+            }
             if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
                 return Some((|| {
                     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -1254,6 +1288,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICIES]) {
                 return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowMaintenancePolicies { show_options }));
+            }
+            if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULES]) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowDataMovementRules { show_options }));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
