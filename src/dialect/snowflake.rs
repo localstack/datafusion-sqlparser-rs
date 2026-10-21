@@ -1323,6 +1323,16 @@ impl SnowflakeDialect {
                     Ok(Statement::ShowUserKeyPairs { user })
                 })());
             }
+            if parser.parse_keywords(&[Keyword::USER, Keyword::WORKLOAD, Keyword::IDENTITY, Keyword::AUTHENTICATION, Keyword::METHODS]) {
+                return Some((|| {
+                    let user = if parser.parse_keywords(&[Keyword::FOR, Keyword::USER]) {
+                        Some(parser.parse_identifier()?)
+                    } else {
+                        None
+                    };
+                    Ok(Statement::ShowUserWorkloadIdentityAuthenticationMethods { user })
+                })());
+            }
             //Give back Keyword::TERSE
             if terse {
                 parser.prev_token();
