@@ -259,6 +259,7 @@ define_keywords!(
     CHECKSUM,
     CIRCLE,
     CLASS,
+    CLASSES,
     CLEANPATH,
     CLEAR,
     CLOB,
