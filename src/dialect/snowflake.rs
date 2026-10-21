@@ -617,6 +617,13 @@ impl SnowflakeDialect {
             return Some(parse_drop_backup_policy(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                Ok(Statement::DropDataMovementPolicy { if_exists, name })
+            })());
+        }
         if parser.parse_keywords(&[Keyword::DROP, Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -751,6 +758,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
                 return Some(parser.parse_object_name(false).map(|name| Statement::DescribeDataMovementRule { name }));
+            }
+            if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeDataMovementPolicy { name }));
             }
             if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
                 return Some(parser.parse_object_name(false).map(|name| Statement::DescribePackagesPolicy { name }));
@@ -902,6 +912,33 @@ impl SnowflakeDialect {
                 })());
             }
 
+            if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+                return Some((|| {
+                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    let mut lists = [None, None];
+                    for (index, label) in ["ENFORCE_RULES", "ALERT_RULES"].iter().enumerate() {
+                        if parser.peek_token().token.to_string().eq_ignore_ascii_case(label) {
+                            parser.next_token();
+                            parser.expect_token(&Token::Eq)?;
+                            parser.expect_token(&Token::LParen)?;
+                            lists[index] = Some(if parser.consume_token(&Token::RParen) {
+                                Vec::new()
+                            } else {
+                                let rules = parser.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                                parser.expect_token(&Token::RParen)?;
+                                rules
+                            });
+                        }
+                    }
+                    let [enforce_rules, alert_rules] = lists;
+                    let comment = if parser.parse_keyword(Keyword::COMMENT) {
+                        parser.expect_token(&Token::Eq)?;
+                        Some(parser.parse_literal_string()?)
+                    } else { None };
+                    Ok(Statement::CreateDataMovementPolicy { or_replace, if_not_exists, name, enforce_rules, alert_rules, comment })
+                })());
+            }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
                 return Some((|| {
                     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -1328,6 +1365,9 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULES]) {
                 return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowDataMovementRules { show_options }));
+            }
+            if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICIES]) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowDataMovementPolicies { show_options }));
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
