@@ -1302,6 +1302,8 @@ impl Spanned for AlterColumnOperation {
             AlterColumnOperation::DropExpression { .. } => Span::empty(),
             AlterColumnOperation::SetMaskingPolicy { .. } => Span::empty(),
             AlterColumnOperation::UnsetMaskingPolicy
+            | AlterColumnOperation::SetPrivacyDomain { .. }
+            | AlterColumnOperation::UnsetPrivacyDomain
             | AlterColumnOperation::SetProjectionPolicy { .. }
             | AlterColumnOperation::UnsetProjectionPolicy => Span::empty(),
             AlterColumnOperation::GenericOptions { options } => {
