@@ -607,6 +607,7 @@ impl Spanned for Statement {
             Statement::ShowStages { .. } => Span::empty(),
             Statement::ShowUsers { .. } => Span::empty(),
             Statement::ShowUserKeyPairs { .. } => Span::empty(),
+            Statement::ShowUserPats { .. } => Span::empty(),
             Statement::ShowUserWorkloadIdentityAuthenticationMethods { .. } => Span::empty(),
             Statement::CreateTag { .. } => Span::empty(),
             Statement::AlterTag { .. } => Span::empty(),

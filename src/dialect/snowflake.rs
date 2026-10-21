@@ -1360,6 +1360,18 @@ impl SnowflakeDialect {
                     Ok(Statement::ShowUserKeyPairs { user })
                 })());
             }
+            if parser.parse_keywords(&[Keyword::USER, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKENS])
+                || parser.parse_keywords(&[Keyword::USER, Keyword::PATS])
+            {
+                return Some((|| {
+                    let user = if parser.parse_keywords(&[Keyword::FOR, Keyword::USER]) {
+                        Some(parser.parse_identifier()?)
+                    } else {
+                        None
+                    };
+                    Ok(Statement::ShowUserPats { user })
+                })());
+            }
             if parser.parse_keywords(&[Keyword::USER, Keyword::WORKLOAD, Keyword::IDENTITY, Keyword::AUTHENTICATION, Keyword::METHODS]) {
                 return Some((|| {
                     let user = if parser.parse_keywords(&[Keyword::FOR, Keyword::USER]) {

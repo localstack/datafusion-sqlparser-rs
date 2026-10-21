@@ -5875,6 +5875,11 @@ pub enum Statement {
         /// The selected user, or the current user when omitted.
         user: Option<Ident>,
     },
+    /// `SHOW USER PROGRAMMATIC ACCESS TOKENS [ FOR USER <name> ]`.
+    ShowUserPats {
+        /// The selected user, or the current user when omitted.
+        user: Option<Ident>,
+    },
     /// SHOW USER WORKLOAD IDENTITY AUTHENTICATION METHODS.
     ShowUserWorkloadIdentityAuthenticationMethods {
         /// Selected user, or the current user when omitted.
@@ -10111,6 +10116,13 @@ impl fmt::Display for Statement {
             }
             Statement::ShowUserKeyPairs { user } => {
                 write!(f, "SHOW USER KEY PAIRS")?;
+                if let Some(user) = user {
+                    write!(f, " FOR USER {user}")?;
+                }
+                Ok(())
+            }
+            Statement::ShowUserPats { user } => {
+                write!(f, "SHOW USER PROGRAMMATIC ACCESS TOKENS")?;
                 if let Some(user) = user {
                     write!(f, " FOR USER {user}")?;
                 }
@@ -18715,6 +18727,14 @@ pub struct AlterUser {
     pub add_key_pair: Option<AlterUserAddKeyPair>,
     /// Remove a named public key.
     pub remove_key_pair: Option<Ident>,
+    /// Add a named programmatic access token.
+    pub add_pat: Option<AlterUserAddKeyPair>,
+    /// Remove a named programmatic access token.
+    pub remove_pat: Option<Ident>,
+    /// Token-level conditional creation.
+    pub pat_if_not_exists: bool,
+    /// Token-level conditional removal.
+    pub pat_if_exists: bool,
     /// Modify a named public key.
     pub modify_key_pair: Option<AlterUserModifyKeyPair>,
     /// Rotate a named public key.
@@ -18950,6 +18970,23 @@ impl AlterUser {
         }
         if let Some(name) = &self.remove_key_pair {
             write!(f, " REMOVE KEY PAIR {name}")?;
+        }
+        if let Some(pat) = &self.add_pat {
+            write!(f, " ADD PROGRAMMATIC ACCESS TOKEN")?;
+            if self.pat_if_not_exists {
+                write!(f, " IF NOT EXISTS")?;
+            }
+            write!(f, " {}", pat.name)?;
+            if !pat.options.options.is_empty() {
+                write!(f, " {}", pat.options)?;
+            }
+        }
+        if let Some(name) = &self.remove_pat {
+            write!(f, " REMOVE PROGRAMMATIC ACCESS TOKEN")?;
+            if self.pat_if_exists {
+                write!(f, " IF EXISTS")?;
+            }
+            write!(f, " {name}")?;
         }
         if let Some(key_pair) = &self.modify_key_pair {
             write!(f, " MODIFY KEY PAIR {}", key_pair.name)?;
