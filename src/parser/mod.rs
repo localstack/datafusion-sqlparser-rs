@@ -6405,6 +6405,14 @@ impl<'a> Parser<'a> {
     ) -> Result<CreateWarehouse, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
+        let tables = if self.parse_keyword(Keyword::TABLES) {
+            self.expect_token(&Token::LParen)?;
+            let tables = self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+            self.expect_token(&Token::RParen)?;
+            tables
+        } else {
+            Vec::new()
+        };
         let _ = self.parse_keyword(Keyword::WITH);
         let options = self.parse_key_value_options(false, &[Keyword::WITH, Keyword::TAG], false)?;
         // Trailing `[WITH] TAG (<t> = '<v>' [, ...])` clause; no parameter may follow it.
@@ -6423,6 +6431,7 @@ impl<'a> Parser<'a> {
             if_not_exists,
             name,
             options,
+            tables,
             with_tags,
         })
     }
