@@ -1664,6 +1664,15 @@ pub enum AlterColumnOperation {
     UnsetMaskingPolicy,
     /// `UNSET PROJECTION POLICY`
     UnsetProjectionPolicy,
+    /// `SET PRIVACY DOMAIN { BETWEEN (low, high) | IN (values) }`
+    SetPrivacyDomain {
+        /// Whether this is a bounded interval rather than an enumerated domain.
+        between: bool,
+        /// Bounds or enumerated values, in source order.
+        values: Vec<Expr>,
+    },
+    /// `UNSET PRIVACY DOMAIN`
+    UnsetPrivacyDomain,
 }
 
 /// An operation on a masking policy in an `ALTER MASKING POLICY` statement.
@@ -2847,6 +2856,13 @@ impl fmt::Display for AlterColumnOperation {
                 Ok(())
             }
             AlterColumnOperation::UnsetProjectionPolicy => write!(f, "UNSET PROJECTION POLICY"),
+            AlterColumnOperation::SetPrivacyDomain { between, values } => write!(
+                f,
+                "SET PRIVACY DOMAIN {} ({})",
+                if *between { "BETWEEN" } else { "IN" },
+                display_comma_separated(values)
+            ),
+            AlterColumnOperation::UnsetPrivacyDomain => write!(f, "UNSET PRIVACY DOMAIN"),
         }
     }
 }

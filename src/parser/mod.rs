@@ -13958,7 +13958,24 @@ impl<'a> Parser<'a> {
     fn maybe_parse_column_masking_policy(
         &mut self,
     ) -> Result<Option<AlterColumnOperation>, ParserError> {
-        if self.parse_keywords(&[Keyword::SET, Keyword::PROJECTION, Keyword::POLICY]) {
+        if self.parse_keywords(&[Keyword::SET, Keyword::PRIVACY, Keyword::DOMAIN]) {
+            let between = self.parse_keyword(Keyword::BETWEEN);
+            if !between {
+                self.expect_keyword_is(Keyword::IN)?;
+            }
+            self.expect_token(&Token::LParen)?;
+            let values = if between {
+                let low = self.parse_expr()?;
+                self.expect_token(&Token::Comma)?;
+                vec![low, self.parse_expr()?]
+            } else {
+                self.parse_comma_separated0(Parser::parse_expr, Token::RParen)?
+            };
+            self.expect_token(&Token::RParen)?;
+            Ok(Some(AlterColumnOperation::SetPrivacyDomain { between, values }))
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::PRIVACY, Keyword::DOMAIN]) {
+            Ok(Some(AlterColumnOperation::UnsetPrivacyDomain))
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::PROJECTION, Keyword::POLICY]) {
             let policy_name = self.parse_object_name(false)?;
             let force = self.parse_keyword(Keyword::FORCE);
             Ok(Some(AlterColumnOperation::SetProjectionPolicy {
