@@ -6327,6 +6327,38 @@ pub enum Statement {
         /// Filter and scope.
         show_options: ShowStatementOptions,
     },
+    /// CREATE DATA MOVEMENT POLICY
+    CreateDataMovementPolicy {
+        /// Replacement flag.
+        or_replace: bool,
+        /// Conditional creation flag.
+        if_not_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+        /// Enforced rule references.
+        enforce_rules: Option<Vec<ObjectName>>,
+        /// Alert rule references.
+        alert_rules: Option<Vec<ObjectName>>,
+        /// Policy comment.
+        comment: Option<String>,
+    },
+    /// DROP DATA MOVEMENT POLICY
+    DropDataMovementPolicy {
+        /// Conditional removal flag.
+        if_exists: bool,
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// DESCRIBE DATA MOVEMENT POLICY
+    DescribeDataMovementPolicy {
+        /// Policy name.
+        name: ObjectName,
+    },
+    /// SHOW DATA MOVEMENT POLICIES
+    ShowDataMovementPolicies {
+        /// Filter and scope.
+        show_options: ShowStatementOptions,
+    },
     /// CREATE [OR REPLACE] MAINTENANCE POLICY [IF NOT EXISTS] <name> <options>
     CreateMaintenancePolicy {
         /// Replace an existing policy.
@@ -10481,6 +10513,19 @@ impl fmt::Display for Statement {
             Statement::DropDataMovementRule { if_exists, name } => write!(f, "DROP DATA MOVEMENT RULE{} {name}", if *if_exists { " IF EXISTS" } else { "" }),
             Statement::DescribeDataMovementRule { name } => write!(f, "DESCRIBE DATA MOVEMENT RULE {name}"),
             Statement::ShowDataMovementRules { show_options } => write!(f, "SHOW DATA MOVEMENT RULES{show_options}"),
+            Statement::CreateDataMovementPolicy { or_replace, if_not_exists, name, enforce_rules, alert_rules, comment } => {
+                write!(f, "CREATE{} DATA MOVEMENT POLICY{} {name}", if *or_replace { " OR REPLACE" } else { "" }, if *if_not_exists { " IF NOT EXISTS" } else { "" })?;
+                for (label, rules) in [("ENFORCE_RULES", enforce_rules), ("ALERT_RULES", alert_rules)] {
+                    if let Some(rules) = rules {
+                        write!(f, " {label} = ({})", display_comma_separated(rules))?;
+                    }
+                }
+                if let Some(comment) = comment { write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?; }
+                Ok(())
+            }
+            Statement::DropDataMovementPolicy { if_exists, name } => write!(f, "DROP DATA MOVEMENT POLICY{} {name}", if *if_exists { " IF EXISTS" } else { "" }),
+            Statement::DescribeDataMovementPolicy { name } => write!(f, "DESCRIBE DATA MOVEMENT POLICY {name}"),
+            Statement::ShowDataMovementPolicies { show_options } => write!(f, "SHOW DATA MOVEMENT POLICIES{show_options}"),
             Statement::CreateFeaturePolicy { or_replace, if_not_exists, name, options } => {
                 write!(f, "CREATE {}FEATURE POLICY {}{name}",
                     if *or_replace { "OR REPLACE " } else { "" },
