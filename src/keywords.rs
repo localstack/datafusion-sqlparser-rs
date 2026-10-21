@@ -930,6 +930,7 @@ define_keywords!(
     PRIMARY,
     PRINT,
     PRIOR,
+    PRIVACY,
     PRIVATE,
     PRIVILEGES,
     PROC,
