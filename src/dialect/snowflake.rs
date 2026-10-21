@@ -3930,6 +3930,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
     let mut encryption = empty_options();
     let mut encryption_specified = false;
     let mut credentials = empty_options();
+    let mut credentials_specified = false;
     let mut directory_table_params = Vec::new();
     let mut file_format = Vec::new();
     let mut copy_options = Vec::new();
@@ -3965,6 +3966,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             parser.expect_token(&Token::Eq)?;
             aws_access_point_arn = Some(parser.parse_literal_string()?);
         } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
+            credentials_specified = true;
             parser.expect_token(&Token::Eq)?;
             credentials.options = parser.parse_key_value_options(true, &[], false)?.options;
         } else if encryption.options.is_empty() && parser.parse_keyword(Keyword::ENCRYPTION) {
@@ -4016,6 +4018,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
             aws_access_point_arn,
             storage_integration,
             credentials,
+            credentials_specified,
         },
         directory_table_params: KeyValueOptions {
             options: directory_table_params,
@@ -4239,6 +4242,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
             options: vec![],
             delimiter: KeyValueOptionsDelimiter::Space,
         },
+        credentials_specified: false,
     };
     let mut from_query = None;
     let mut partition = None;
@@ -4533,6 +4537,7 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
                 options: vec![],
                 delimiter: KeyValueOptionsDelimiter::Space,
             },
+            credentials_specified: false,
         },
         from_transformations: None,
         from_query: None,
@@ -4713,7 +4718,8 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
     }
 
     // CREDENTIALS
-    if parser.parse_keyword(Keyword::CREDENTIALS) {
+    let credentials_specified = parser.parse_keyword(Keyword::CREDENTIALS);
+    if credentials_specified {
         parser.expect_token(&Token::Eq)?;
         credentials = KeyValueOptions {
             options: parser.parse_key_value_options(true, &[], false)?.options,
@@ -4740,6 +4746,7 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
         aws_access_point_arn: None,
         storage_integration,
         credentials,
+        credentials_specified,
     })
 }
 
