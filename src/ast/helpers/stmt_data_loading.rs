@@ -52,6 +52,8 @@ pub struct StageParamsObject {
     pub storage_integration: Option<String>,
     /// Credentials for accessing the stage.
     pub credentials: KeyValueOptions,
+    /// Whether a CREDENTIALS clause was present, including an empty bag.
+    pub credentials_specified: bool,
 }
 
 /// This enum enables support for both standard SQL select item expressions
