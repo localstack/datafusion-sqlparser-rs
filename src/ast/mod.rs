@@ -6788,6 +6788,13 @@ pub enum Statement {
         /// Repository name.
         name: ObjectName,
     },
+    /// ALTER GIT REPOSITORY FETCH.
+    FetchGitRepository {
+        /// Succeed for a missing repository.
+        if_exists: bool,
+        /// Repository name.
+        name: ObjectName,
+    },
     /// DESCRIBE GIT REPOSITORY.
     DescribeGitRepository {
         /// Repository name.
@@ -10885,6 +10892,8 @@ impl fmt::Display for Statement {
                 "ALTER GIT REPOSITORY {}{name} {operation}", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DropGitRepository { if_exists, name } => write!(f,
                 "DROP GIT REPOSITORY {}{name}", if *if_exists { "IF EXISTS " } else { "" }),
+            Statement::FetchGitRepository { if_exists, name } => write!(f,
+                "ALTER GIT REPOSITORY {}{name} FETCH", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DescribeGitRepository { name } => write!(f, "DESCRIBE GIT REPOSITORY {name}"),
             Statement::ShowGitRepositories { show_options } => write!(f, "SHOW GIT REPOSITORIES{show_options}"),
             Statement::CreateStreamlit {
