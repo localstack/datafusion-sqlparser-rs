@@ -258,6 +258,30 @@ impl SnowflakeDialect {
             return Some(parse_alter_procedure(parser));
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::GIT, Keyword::REPOSITORY]) {
+            return Some((|| {
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                let unset = parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])? == Keyword::UNSET;
+                let operation = if parser.parse_keyword(Keyword::TAG) {
+                    if unset {
+                        crate::ast::AlterGitRepositoryOperation::UnsetTags(parser.parse_comma_separated(|parser| parser.parse_object_name(false))?)
+                    } else {
+                        crate::ast::AlterGitRepositoryOperation::SetTags(parser.parse_comma_separated(Parser::parse_tag)?)
+                    }
+                } else if unset {
+                    crate::ast::AlterGitRepositoryOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+                } else {
+                    let options = parse_streamlit_options(parser)?;
+                    if options.is_empty() {
+                        return parser.expected("property", parser.peek_token());
+                    }
+                    crate::ast::AlterGitRepositoryOperation::Set(options)
+                };
+                Ok(Statement::AlterGitRepository { if_exists, name, operation })
+            })());
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::STREAMLIT]) {
             return Some(parse_alter_streamlit(parser));
         }
@@ -926,8 +950,21 @@ impl SnowflakeDialect {
                 return Some((|| {
                     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
-                    let options = parse_streamlit_options(parser)?;
-                    Ok(Statement::CreateGitRepository { or_replace, if_not_exists, name, options })
+                    let mut options = Vec::new();
+                    let mut tags = Vec::new();
+                    while matches!(parser.peek_token_ref().token, Token::Word(_)) {
+                        if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG]) || parser.parse_keyword(Keyword::TAG) {
+                            parser.expect_token(&Token::LParen)?;
+                            tags = parser.parse_comma_separated(Parser::parse_tag)?;
+                            parser.expect_token(&Token::RParen)?;
+                            break;
+                        }
+                        let key = parser.parse_identifier()?;
+                        parser.expect_token(&Token::Eq)?;
+                        let value = parser.parse_expr()?;
+                        options.push(SqlOption::KeyValue { key, value });
+                    }
+                    Ok(Statement::CreateGitRepository { or_replace, if_not_exists, name, options, tags })
                 })());
             }
             // CREATE [OR REPLACE] STREAMLIT

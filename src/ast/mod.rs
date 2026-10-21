@@ -6732,6 +6732,17 @@ pub enum Statement {
         name: ObjectName,
         /// Configuration properties.
         options: Vec<SqlOption>,
+        #[doc = "Object tag assignments."]
+        tags: Vec<Tag>,
+    },
+    #[doc = "ALTER GIT REPOSITORY."]
+    AlterGitRepository {
+        #[doc = "Succeed for a missing repository."]
+        if_exists: bool,
+        #[doc = "Repository name."]
+        name: ObjectName,
+        #[doc = "Mutation."]
+        operation: AlterGitRepositoryOperation,
     },
     /// DROP GIT REPOSITORY.
     DropGitRepository {
@@ -10796,15 +10807,20 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::CreateGitRepository { or_replace, if_not_exists, name, options } => {
+            Statement::CreateGitRepository { or_replace, if_not_exists, name, options, tags } => {
                 write!(f, "CREATE {}GIT REPOSITORY {}{name}",
                     if *or_replace { "OR REPLACE " } else { "" },
                     if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
                 if !options.is_empty() {
                     write!(f, " {}", display_separated(options, " "))?;
                 }
+                if !tags.is_empty() {
+                    write!(f, " TAG ({})", display_comma_separated(tags))?;
+                }
                 Ok(())
             }
+            Statement::AlterGitRepository { if_exists, name, operation } => write!(f,
+                "ALTER GIT REPOSITORY {}{name} {operation}", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DropGitRepository { if_exists, name } => write!(f,
                 "DROP GIT REPOSITORY {}{name}", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DescribeGitRepository { name } => write!(f, "DESCRIBE GIT REPOSITORY {name}"),
@@ -16993,6 +17009,32 @@ impl fmt::Display for AlterExternalVolumeOperation {
                     value::escape_single_quote_string(name)
                 )
             }
+        }
+    }
+}
+
+#[doc = "Operations for ALTER GIT REPOSITORY."]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterGitRepositoryOperation {
+    #[doc = "SET properties."]
+    Set(Vec<SqlOption>),
+    #[doc = "UNSET properties."]
+    Unset(Vec<Ident>),
+    #[doc = "SET TAG list."]
+    SetTags(Vec<Tag>),
+    #[doc = "UNSET TAG list."]
+    UnsetTags(Vec<ObjectName>),
+}
+
+impl fmt::Display for AlterGitRepositoryOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Set(options) => write!(formatter, "SET {}", display_separated(options, " ")),
+            Self::Unset(names) => write!(formatter, "UNSET {}", display_comma_separated(names)),
+            Self::SetTags(tags) => write!(formatter, "SET TAG {}", display_comma_separated(tags)),
+            Self::UnsetTags(tags) => write!(formatter, "UNSET TAG {}", display_comma_separated(tags)),
         }
     }
 }
