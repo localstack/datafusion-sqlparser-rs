@@ -112,6 +112,7 @@ define_keywords!(
     AFTER,
     AGAINST,
     AGENT,
+    AGENTS,
     AGGREGATE,
     AGGREGATION,
     ALERT,
