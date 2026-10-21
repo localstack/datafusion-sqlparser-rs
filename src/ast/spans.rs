@@ -690,6 +690,7 @@ impl Spanned for Statement {
             Statement::ShowStreamlitVersions { .. } => Span::empty(),
             Statement::ExecuteStreamlit { .. } => Span::empty(),
             Statement::ShowStreamlits { .. } => Span::empty(),
+            Statement::ShowAgents { .. } => Span::empty(),
             Statement::AlterStreamlit { .. } => Span::empty(),
             Statement::DescribeSnowflakeSecret { .. } => Span::empty(),
             Statement::ShowSnowflakeSecrets { .. } => Span::empty(),
