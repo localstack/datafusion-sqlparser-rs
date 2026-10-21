@@ -17208,6 +17208,10 @@ impl fmt::Display for AccountOption {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterAccountOperation {
+    /// `ADD ORGANIZATION USER GROUP <group_name>`
+    AddOrganizationUserGroup(Ident),
+    /// `REMOVE ORGANIZATION USER GROUP <group_name>`
+    RemoveOrganizationUserGroup(Ident),
     #[doc = "SET TAG <name> = '<value>' [, ...]"]
     SetTags {
         #[doc = "Tag assignments."]
@@ -17256,6 +17260,12 @@ pub enum AlterAccountOperation {
 impl fmt::Display for AlterAccountOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterAccountOperation::AddOrganizationUserGroup(name) => {
+                write!(f, "ADD ORGANIZATION USER GROUP {name}")
+            }
+            AlterAccountOperation::RemoveOrganizationUserGroup(name) => {
+                write!(f, "REMOVE ORGANIZATION USER GROUP {name}")
+            }
             AlterAccountOperation::SetTags { tags } => {
                 write!(f, "SET TAG {}", display_comma_separated(tags))
             }

@@ -14040,12 +14040,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_alter_account(&mut self) -> Result<Statement, ParserError> {
-        // The name is optional — bare `ALTER ACCOUNT SET ...` targets the
-        // current account. SET, UNSET, and RENAME are the only operations, so their
-        // presence indicates no name was provided.
         let starts_with_op = matches!(
             self.peek_token().token,
-            Token::Word(ref w) if matches!(w.keyword, Keyword::SET | Keyword::UNSET | Keyword::RENAME)
+            Token::Word(ref w) if matches!(w.keyword, Keyword::SET | Keyword::UNSET | Keyword::RENAME | Keyword::ADD | Keyword::REMOVE)
         );
         let name = if starts_with_op {
             None
@@ -14053,7 +14050,11 @@ impl<'a> Parser<'a> {
             Some(self.parse_identifier()?)
         };
 
-        let operation = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        let operation = if self.parse_keywords(&[Keyword::ADD, Keyword::ORGANIZATION, Keyword::USER, Keyword::GROUP]) {
+            AlterAccountOperation::AddOrganizationUserGroup(self.parse_identifier()?)
+        } else if self.parse_keywords(&[Keyword::REMOVE, Keyword::ORGANIZATION, Keyword::USER, Keyword::GROUP]) {
+            AlterAccountOperation::RemoveOrganizationUserGroup(self.parse_identifier()?)
+        } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_identifier()?;
             AlterAccountOperation::RenameTo { new_name }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
@@ -14100,7 +14101,7 @@ impl<'a> Parser<'a> {
             }
         } else {
             return self.expected(
-                "SET, UNSET, or RENAME TO after ALTER ACCOUNT",
+                "SET, UNSET, RENAME TO, ADD ORGANIZATION USER GROUP, or REMOVE ORGANIZATION USER GROUP after ALTER ACCOUNT",
                 self.peek_token(),
             );
         };
