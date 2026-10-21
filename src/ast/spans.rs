@@ -639,7 +639,11 @@ impl Spanned for Statement {
             Statement::DescribeAuthenticationPolicy { .. } => Span::empty(),
             Statement::ShowAuthenticationPolicies { .. } => Span::empty(),
             Statement::CreateBackupPolicy { .. } => Span::empty(),
-            Statement::CreatePackagesPolicy { .. }
+            Statement::CreateDataMovementRule { .. }
+            | Statement::DropDataMovementRule { .. }
+            | Statement::DescribeDataMovementRule { .. }
+            | Statement::ShowDataMovementRules { .. }
+            | Statement::CreatePackagesPolicy { .. }
             | Statement::AlterPackagesPolicy { .. }
             | Statement::DropPackagesPolicy { .. }
             | Statement::DescribePackagesPolicy { .. }

@@ -6275,8 +6275,44 @@ pub enum Statement {
         /// Attachment target.
         on_entity: Option<ShowFeaturePolicyEntity>,
     },
-    /// CREATE [OR REPLACE] MAINTENANCE POLICY [IF NOT EXISTS] <name> <options>
+    /// CREATE [OR REPLACE] DATA MOVEMENT RULE [IF NOT EXISTS] <name> <definition>
     /// ```
+    CreateDataMovementRule {
+        /// Replace an existing rule.
+        or_replace: bool,
+        /// Succeed if the rule exists.
+        if_not_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+        /// Movement type.
+        movement_type: String,
+        /// Declared MAX_ROWS result type.
+        return_type: DataType,
+        /// Stored MAX_ROWS expression.
+        body: Expr,
+        /// Source extent of the unmodified body.
+        body_span: Span,
+        /// Optional comment.
+        comment: Option<String>,
+    },
+    /// DROP DATA MOVEMENT RULE [IF EXISTS] <name>
+    DropDataMovementRule {
+        /// Succeed if the rule is absent.
+        if_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+    },
+    /// DESC[RIBE] DATA MOVEMENT RULE <name>
+    DescribeDataMovementRule {
+        /// Rule name.
+        name: ObjectName,
+    },
+    /// SHOW DATA MOVEMENT RULES [LIKE '<pattern>'] [IN <scope>]
+    ShowDataMovementRules {
+        /// Filter and scope.
+        show_options: ShowStatementOptions,
+    },
+    /// CREATE [OR REPLACE] MAINTENANCE POLICY [IF NOT EXISTS] <name> <options>
     CreateMaintenancePolicy {
         /// Replace an existing policy.
         or_replace: bool,
@@ -10379,6 +10415,19 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateDataMovementRule { or_replace, if_not_exists, name, movement_type, return_type, body, comment, .. } => {
+                write!(f, "CREATE{} DATA MOVEMENT RULE{} {name} TYPE = '{}' MAX_ROWS AS () RETURNS {return_type} -> {body}",
+                    if *or_replace { " OR REPLACE" } else { "" },
+                    if *if_not_exists { " IF NOT EXISTS" } else { "" },
+                    value::escape_single_quote_string(movement_type))?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
+            Statement::DropDataMovementRule { if_exists, name } => write!(f, "DROP DATA MOVEMENT RULE{} {name}", if *if_exists { " IF EXISTS" } else { "" }),
+            Statement::DescribeDataMovementRule { name } => write!(f, "DESCRIBE DATA MOVEMENT RULE {name}"),
+            Statement::ShowDataMovementRules { show_options } => write!(f, "SHOW DATA MOVEMENT RULES{show_options}"),
             Statement::CreateFeaturePolicy { or_replace, if_not_exists, name, options } => {
                 write!(f, "CREATE {}FEATURE POLICY {}{name}",
                     if *or_replace { "OR REPLACE " } else { "" },
