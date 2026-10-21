@@ -17968,6 +17968,11 @@ impl<'a> Parser<'a> {
                         DescribeAlias::Desc | DescribeAlias::Describe
                     )
                 {
+                    if self.parse_keyword(Keyword::TYPE) {
+                        return Ok(Statement::DescribeType {
+                            name: self.parse_object_name(false)?,
+                        });
+                    }
                     if self.parse_keyword(Keyword::RESULT) {
                         let query_id = self.parse_expr()?;
                         return Ok(Statement::DescribeResult {
@@ -25370,6 +25375,7 @@ impl<'a> Parser<'a> {
 
     /// Parse `CREATE TYPE` statement.
     pub fn parse_create_type(&mut self) -> Result<Statement, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
 
         // Check if we have AS keyword
@@ -25405,7 +25411,21 @@ impl<'a> Parser<'a> {
             // CREATE TYPE name AS (attributes) - Composite
             self.parse_create_type_composite(name)
         } else {
-            self.expected_ref("ENUM, RANGE, or '(' after AS", self.peek_token_ref())
+            let data_type = self.parse_data_type()?;
+            let comment = if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                Some(self.parse_literal_string()?)
+            } else {
+                None
+            };
+            Ok(Statement::CreateType {
+                name,
+                representation: Some(UserDefinedTypeRepresentation::Alias {
+                    data_type,
+                    if_not_exists,
+                    comment,
+                }),
+            })
         }
     }
 
