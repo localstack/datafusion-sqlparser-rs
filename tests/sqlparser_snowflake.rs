@@ -11582,6 +11582,12 @@ fn test_like_escape_is_a_single_value() {
 
 #[test]
 fn test_grant_create_backup_schema_privileges() {
+    for statement in [
+        "GRANT APPLY FEATURE POLICY ON ACCOUNT TO ROLE role1",
+        "REVOKE APPLY FEATURE POLICY ON ACCOUNT FROM ROLE role1",
+    ] {
+        snowflake_and_generic().verified_stmt(statement);
+    }
     for target in [
         "SCHEMA db1.sc1",
         "ALL SCHEMAS IN DATABASE db1",
@@ -11589,6 +11595,7 @@ fn test_grant_create_backup_schema_privileges() {
     ] {
         for privileges in [
             "CREATE BACKUP POLICY",
+            "CREATE FEATURE POLICY",
             "CREATE BACKUP SET",
             "CREATE BACKUP POLICY, CREATE BACKUP SET",
             "CREATE TABLE, CREATE BACKUP POLICY",
