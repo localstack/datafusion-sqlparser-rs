@@ -14429,7 +14429,11 @@ impl<'a> Parser<'a> {
             loop {
                 let name = self.parse_identifier()?;
                 self.expect_token(&Token::Eq)?;
-                let value = self.parse_expr()?;
+                let value = if self.consume_tokens(&[Token::LParen, Token::RParen]) {
+                    Expr::Tuple(Vec::new())
+                } else {
+                    self.parse_expr()?
+                };
                 params.push(WarehouseParam { name, value });
                 let _ = self.consume_token(&Token::Comma);
                 if !matches!(self.peek_token().token, Token::Word(_)) {
