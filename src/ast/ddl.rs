@@ -4098,6 +4098,15 @@ impl fmt::Display for DetachPartitionMode {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum UserDefinedTypeRepresentation {
+    /// A named type backed by a built-in declaration.
+    Alias {
+        /// Base declaration.
+        data_type: DataType,
+        /// Conditional creation.
+        if_not_exists: bool,
+        /// Initial comment.
+        comment: Option<String>,
+    },
     /// Composite type: `CREATE TYPE name AS (attributes)`
     Composite {
         /// List of attributes for the composite type.
@@ -4132,6 +4141,13 @@ pub enum UserDefinedTypeRepresentation {
 impl fmt::Display for UserDefinedTypeRepresentation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::Alias { data_type, comment, .. } => {
+                write!(f, "AS {data_type}")?;
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT = '{}'", crate::ast::value::escape_single_quote_string(comment))?;
+                }
+                Ok(())
+            }
             Self::Composite { attributes } => {
                 write!(f, "AS ({})", display_comma_separated(attributes))
             }
