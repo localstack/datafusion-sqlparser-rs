@@ -262,6 +262,9 @@ impl SnowflakeDialect {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
+                if parser.parse_keyword(Keyword::FETCH) {
+                    return Ok(Statement::FetchGitRepository { if_exists, name });
+                }
                 let unset = parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])? == Keyword::UNSET;
                 let operation = if parser.parse_keyword(Keyword::TAG) {
                     if unset {
