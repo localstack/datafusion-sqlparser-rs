@@ -20058,6 +20058,20 @@ impl<'a> Parser<'a> {
                 self.advance_token();
             }
             Ok(Statement::ShowVariable { variable })
+        } else if matches!(&self.peek_token_ref().token, Token::Word(word)
+            if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("CHANNELS"))
+        {
+            let mut variable = Vec::new();
+            loop {
+                let token = self.peek_token_ref();
+                match &token.token {
+                    Token::EOF | Token::SemiColon | Token::RParen | Token::VerticalBarRightAngleBracket => break,
+                    Token::Word(word) => variable.push(word.to_ident(token.span)),
+                    token => variable.push(Ident::new(token.to_string())),
+                }
+                self.advance_token();
+            }
+            Ok(Statement::ShowVariable { variable })
         } else if self.parse_keyword(Keyword::VARIABLES)
             && (dialect_of!(self is MySqlDialect | GenericDialect)
                 || (dialect_of!(self is SnowflakeDialect) && !global && !session))
