@@ -312,6 +312,17 @@ impl Parser<'_> {
         } else {
             None
         };
+        let mut pat_if_not_exists = false;
+        let add_pat = if self.parse_keywords(&[Keyword::ADD, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
+            || self.parse_keywords(&[Keyword::ADD, Keyword::PAT])
+        {
+            pat_if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+            let name = self.parse_identifier()?;
+            let options = self.parse_key_value_options(false, &[], false)?;
+            Some(AlterUserAddKeyPair { name, options })
+        } else {
+            None
+        };
         let modify_key_pair = if self.parse_keywords(&[Keyword::MODIFY, Keyword::KEY, Keyword::PAIR]) {
             let name = self.parse_identifier()?;
             let mut rename_to = None;
@@ -336,6 +347,15 @@ impl Parser<'_> {
             let name = self.parse_identifier()?;
             let options = self.parse_key_value_options(false, &[], false)?;
             Some(AlterUserAddKeyPair { name, options })
+        } else {
+            None
+        };
+        let mut pat_if_exists = false;
+        let remove_pat = if self.parse_keywords(&[Keyword::REMOVE, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
+            || self.parse_keywords(&[Keyword::REMOVE, Keyword::PAT])
+        {
+            pat_if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            Some(self.parse_identifier()?)
         } else {
             None
         };
@@ -481,6 +501,10 @@ impl Parser<'_> {
             add_role_delegation,
             add_key_pair,
             remove_key_pair,
+            add_pat,
+            remove_pat,
+            pat_if_not_exists,
+            pat_if_exists,
             modify_key_pair,
             rotate_key_pair,
             add_workload_identity,
