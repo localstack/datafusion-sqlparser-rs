@@ -25,6 +25,7 @@ use crate::{
         AlterUserSetPolicy, Expr, MfaMethodKind, Password, ResetConfig, RoleOption, SetConfigValue,
         Statement, UserPolicyKind,
     AlterUserAddKeyPair,
+    AlterUserModifyKeyPair,
     },
     dialect::{MsSqlDialect, PostgreSqlDialect},
     keywords::Keyword,
@@ -211,6 +212,7 @@ impl Parser<'_> {
             Keyword::REMOVE,
             Keyword::ENROLL,
             Keyword::MODIFY,
+            Keyword::ROTATE,
             Keyword::SET,
             Keyword::UNSET,
         ];
@@ -307,6 +309,33 @@ impl Parser<'_> {
         };
         let remove_key_pair = if self.parse_keywords(&[Keyword::REMOVE, Keyword::KEY, Keyword::PAIR]) {
             Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        let modify_key_pair = if self.parse_keywords(&[Keyword::MODIFY, Keyword::KEY, Keyword::PAIR]) {
+            let name = self.parse_identifier()?;
+            let mut rename_to = None;
+            let mut options = KeyValueOptions {
+                delimiter: KeyValueOptionsDelimiter::Space,
+                options: vec![],
+            };
+            let mut unset = vec![];
+            if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+                rename_to = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::SET) {
+                options = self.parse_key_value_options(false, &[], false)?;
+            } else {
+                self.expect_keyword(Keyword::UNSET)?;
+                unset = self.parse_comma_separated(Parser::parse_identifier)?;
+            }
+            Some(AlterUserModifyKeyPair { name, rename_to, options, unset })
+        } else {
+            None
+        };
+        let rotate_key_pair = if self.parse_keywords(&[Keyword::ROTATE, Keyword::KEY, Keyword::PAIR]) {
+            let name = self.parse_identifier()?;
+            let options = self.parse_key_value_options(false, &[], false)?;
+            Some(AlterUserAddKeyPair { name, options })
         } else {
             None
         };
@@ -452,6 +481,8 @@ impl Parser<'_> {
             add_role_delegation,
             add_key_pair,
             remove_key_pair,
+            modify_key_pair,
+            rotate_key_pair,
             add_workload_identity,
             modify_workload_identity,
             remove_workload_identity,

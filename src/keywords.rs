@@ -1057,6 +1057,7 @@ define_keywords!(
     ROLLBACK,
     ROLLUP,
     ROOT,
+    ROTATE,
     ROUTINE,
     ROUTINES,
     ROW,
