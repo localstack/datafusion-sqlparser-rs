@@ -5383,12 +5383,12 @@ pub enum Statement {
         name: ObjectName,
     },
     /// ```sql
-    /// SHOW WAREHOUSES [LIKE '<pattern>']
+    /// SHOW WAREHOUSES [LIKE '<pattern>'] [STARTS WITH '<prefix>'] [LIMIT <n> [FROM '<name>']]
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/show-warehouses>
     ShowWarehouses {
-        /// Optional filter (e.g. `LIKE`).
-        filter: Option<ShowStatementFilter>,
+        /// Optional SHOW filters and limit clauses.
+        show_options: ShowStatementOptions,
     },
     /// ```sql
     /// CREATE ACCOUNT <name>
@@ -9662,12 +9662,8 @@ impl fmt::Display for Statement {
             Statement::DescribeWarehouse { name } => {
                 write!(f, "DESCRIBE WAREHOUSE {name}")
             }
-            Statement::ShowWarehouses { filter } => {
-                write!(f, "SHOW WAREHOUSES")?;
-                if let Some(filter) = filter {
-                    write!(f, " {filter}")?;
-                }
-                Ok(())
+            Statement::ShowWarehouses { show_options } => {
+                write!(f, "SHOW WAREHOUSES{show_options}")
             }
             Statement::CreateAccount { name, options } => {
                 write!(f, "CREATE ACCOUNT {name}")?;

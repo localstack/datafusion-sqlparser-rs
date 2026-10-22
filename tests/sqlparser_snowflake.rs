@@ -7811,8 +7811,8 @@ fn test_create_catalog_integration_option_order_agnostic() {
 fn test_show_warehouses() {
     let sql = "SHOW WAREHOUSES";
     match snowflake().verified_stmt(sql) {
-        Statement::ShowWarehouses { filter } => {
-            assert!(filter.is_none());
+        Statement::ShowWarehouses { show_options } => {
+            assert!(show_options.filter_position.is_none());
         }
         _ => unreachable!(),
     }
@@ -7822,8 +7822,10 @@ fn test_show_warehouses() {
 fn test_show_warehouses_like() {
     let sql = "SHOW WAREHOUSES LIKE 'pat%'";
     match snowflake().verified_stmt(sql) {
-        Statement::ShowWarehouses { filter } => match filter.unwrap() {
-            ShowStatementFilter::Like(p) => assert_eq!("pat%", p),
+        Statement::ShowWarehouses { show_options } => match show_options.filter_position.unwrap() {
+            ShowStatementFilterPosition::Infix(ShowStatementFilter::Like(p)) => {
+                assert_eq!("pat%", p)
+            }
             _ => unreachable!(),
         },
         _ => unreachable!(),
