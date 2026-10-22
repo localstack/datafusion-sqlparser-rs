@@ -18785,6 +18785,10 @@ pub struct AlterUser {
     pub add_pat: Option<AlterUserAddKeyPair>,
     /// Remove a named programmatic access token.
     pub remove_pat: Option<Ident>,
+    /// Modify a named programmatic access token.
+    pub modify_pat: Option<AlterUserModifyKeyPair>,
+    /// Rotate a named programmatic access token.
+    pub rotate_pat: Option<AlterUserAddKeyPair>,
     /// Token-level conditional creation.
     pub pat_if_not_exists: bool,
     /// Token-level conditional removal.
@@ -19050,6 +19054,30 @@ impl AlterUser {
                 write!(f, " UNSET {}", display_comma_separated(&key_pair.unset))?;
             } else {
                 write!(f, " SET {}", key_pair.options)?;
+            }
+        }
+        if let Some(pat) = &self.modify_pat {
+            write!(f, " MODIFY PROGRAMMATIC ACCESS TOKEN")?;
+            if self.pat_if_exists {
+                write!(f, " IF EXISTS")?;
+            }
+            write!(f, " {}", pat.name)?;
+            if let Some(name) = &pat.rename_to {
+                write!(f, " RENAME TO {name}")?;
+            } else if !pat.unset.is_empty() {
+                write!(f, " UNSET {}", display_comma_separated(&pat.unset))?;
+            } else {
+                write!(f, " SET {}", pat.options)?;
+            }
+        }
+        if let Some(pat) = &self.rotate_pat {
+            write!(f, " ROTATE PROGRAMMATIC ACCESS TOKEN")?;
+            if self.pat_if_exists {
+                write!(f, " IF EXISTS")?;
+            }
+            write!(f, " {}", pat.name)?;
+            if !pat.options.options.is_empty() {
+                write!(f, " {}", pat.options)?;
             }
         }
         if let Some(key_pair) = &self.rotate_key_pair {
