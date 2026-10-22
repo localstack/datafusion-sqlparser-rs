@@ -4723,6 +4723,11 @@ pub enum Statement {
         /// Filtering, database scope and pagination.
         show_options: ShowStatementOptions,
     },
+    /// `SHOW TYPES` user-defined type metadata.
+    ShowTypes {
+        /// Name filters and listing scope.
+        show_options: ShowStatementOptions,
+    },
     /// ```sql
     /// SHOW <variable>
     /// ```
@@ -9080,6 +9085,9 @@ impl fmt::Display for Statement {
             }
             Statement::ShowClasses { show_options } => {
                 write!(f, "SHOW CLASSES{show_options}")
+            }
+            Statement::ShowTypes { show_options } => {
+                write!(f, "SHOW TYPES{show_options}")
             }
             Statement::Use(use_expr) => use_expr.fmt(f),
             Statement::ShowCollation { filter } => {
