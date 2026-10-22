@@ -6237,6 +6237,15 @@ impl<'a> Parser<'a> {
             self.parse_create_stream(or_replace, or_alter)
         } else if self.parse_keyword(Keyword::PIPE) {
             self.parse_create_pipe(or_replace, or_alter)
+        } else if self.parse_keyword(Keyword::TYPE) {
+            let mut statement = self.parse_create_type()?;
+            if let Statement::CreateType {
+                representation: Some(UserDefinedTypeRepresentation::Alias { or_replace: replace, .. }),
+                ..
+            } = &mut statement {
+                *replace = or_replace;
+            }
+            Ok(statement)
         } else if or_replace {
             self.expected_ref(
                 "[EXTERNAL] TABLE or [MATERIALIZED] VIEW or FUNCTION or AGGREGATE or SCHEMA or WAREHOUSE or TASK or PROCEDURE or ROLE or SEQUENCE after CREATE OR REPLACE",
@@ -6264,8 +6273,6 @@ impl<'a> Parser<'a> {
             self.parse_create_application_role(or_replace, false)
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
-        } else if self.parse_keyword(Keyword::TYPE) {
-            self.parse_create_type()
         } else if self.parse_keyword(Keyword::CONNECTOR) {
             self.parse_create_connector().map(Into::into)
         } else if self.parse_keyword(Keyword::OPERATOR) {
@@ -9918,6 +9925,8 @@ impl<'a> Parser<'a> {
             ObjectType::Stage
         } else if self.parse_keyword(Keyword::STREAMLIT) {
             ObjectType::Streamlit
+        } else if self.parse_keyword(Keyword::TYPE) {
+            ObjectType::Type
         } else if self.parse_keyword(Keyword::TAG) {
             ObjectType::Tag
         } else if self.parse_keywords(&[Keyword::ROW, Keyword::ACCESS, Keyword::POLICY]) {
@@ -26658,6 +26667,7 @@ impl<'a> Parser<'a> {
             Ok(Statement::CreateType {
                 name,
                 representation: Some(UserDefinedTypeRepresentation::Alias {
+                    or_replace: false,
                     data_type,
                     if_not_exists,
                     comment,
