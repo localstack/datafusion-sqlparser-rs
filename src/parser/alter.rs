@@ -304,6 +304,39 @@ impl Parser<'_> {
             None
         };
         let mut pat_if_exists = false;
+        let modify_pat = if self.parse_keywords(&[Keyword::MODIFY, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
+            || self.parse_keywords(&[Keyword::MODIFY, Keyword::PAT])
+        {
+            pat_if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            let name = self.parse_identifier()?;
+            let mut rename_to = None;
+            let mut options = KeyValueOptions {
+                delimiter: KeyValueOptionsDelimiter::Space,
+                options: vec![],
+            };
+            let mut unset = vec![];
+            if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+                rename_to = Some(self.parse_identifier()?);
+            } else if self.parse_keyword(Keyword::SET) {
+                options = self.parse_key_value_options(false, &[], false)?;
+            } else {
+                self.expect_keyword(Keyword::UNSET)?;
+                unset = self.parse_comma_separated(Parser::parse_identifier)?;
+            }
+            Some(AlterUserModifyKeyPair { name, rename_to, options, unset })
+        } else {
+            None
+        };
+        let rotate_pat = if self.parse_keywords(&[Keyword::ROTATE, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
+            || self.parse_keywords(&[Keyword::ROTATE, Keyword::PAT])
+        {
+            pat_if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            let name = self.parse_identifier()?;
+            let options = self.parse_key_value_options(false, &[], false)?;
+            Some(AlterUserAddKeyPair { name, options })
+        } else {
+            None
+        };
         let remove_pat = if self.parse_keywords(&[Keyword::REMOVE, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
             || self.parse_keywords(&[Keyword::REMOVE, Keyword::PAT])
         {
@@ -456,6 +489,8 @@ impl Parser<'_> {
             remove_key_pair,
             add_pat,
             remove_pat,
+            modify_pat,
+            rotate_pat,
             pat_if_not_exists,
             pat_if_exists,
             modify_key_pair,
