@@ -3961,6 +3961,8 @@ impl fmt::Display for DropBehavior {
 pub enum UserDefinedTypeRepresentation {
     /// A named type backed by a built-in declaration.
     Alias {
+        /// Replace an existing generation.
+        or_replace: bool,
         /// Base declaration.
         data_type: DataType,
         /// Conditional creation.
