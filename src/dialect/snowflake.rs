@@ -4236,9 +4236,11 @@ fn parse_alter_stage(parser: &mut Parser) -> Result<Statement, ParserError> {
 
 pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserError> {
     let mut ident = String::new();
+    let mut in_path = false;
     while let Some(next_token) = parser.next_token_no_skip() {
         match &next_token.token {
             Token::Whitespace(_) => break,
+            Token::Period if in_path => ident.push('.'),
             Token::Period | Token::Comma | Token::SemiColon | Token::LParen | Token::RParen => {
                 parser.prev_token();
                 break;
@@ -4246,7 +4248,10 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
             Token::AtSign => ident.push('@'),
             Token::Tilde => ident.push('~'),
             Token::Mod => ident.push('%'),
-            Token::Div => ident.push('/'),
+            Token::Div => {
+                in_path = true;
+                ident.push('/');
+            }
             Token::Plus => ident.push('+'),
             Token::Minus => ident.push('-'),
             Token::Eq => ident.push('='),
