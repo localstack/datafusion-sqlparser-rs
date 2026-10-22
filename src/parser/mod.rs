@@ -14643,11 +14643,27 @@ impl<'a> Parser<'a> {
 
     /// Parse a [Statement::AlterType]
     pub fn parse_alter_type(&mut self) -> Result<Statement, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
 
-        if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+        if self.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
+            self.expect_token(&Token::Eq)?;
+            let comment = self.parse_literal_string()?;
+            Ok(Statement::AlterType(AlterType {
+                if_exists,
+                name,
+                operation: AlterTypeOperation::SetComment(comment),
+            }))
+        } else if self.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
+            Ok(Statement::AlterType(AlterType {
+                if_exists,
+                name,
+                operation: AlterTypeOperation::UnsetComment,
+            }))
+        } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             let new_name = self.parse_identifier()?;
             Ok(Statement::AlterType(AlterType {
+                if_exists,
                 name,
                 operation: AlterTypeOperation::Rename(AlterTypeRename { new_name }),
             }))
@@ -14663,6 +14679,7 @@ impl<'a> Parser<'a> {
             };
 
             Ok(Statement::AlterType(AlterType {
+                if_exists,
                 name,
                 operation: AlterTypeOperation::AddValue(AlterTypeAddValue {
                     if_not_exists,
@@ -14676,6 +14693,7 @@ impl<'a> Parser<'a> {
             let new_enum_value = self.parse_identifier()?;
 
             Ok(Statement::AlterType(AlterType {
+                if_exists,
                 name,
                 operation: AlterTypeOperation::RenameValue(AlterTypeRenameValue {
                     from: existing_enum_value,
