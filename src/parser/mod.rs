@@ -19651,6 +19651,12 @@ impl<'a> Parser<'a> {
         } else if self.parse_keyword(Keyword::CLASSES) {
             let show_options = self.parse_show_stmt_options()?;
             Ok(Statement::ShowClasses { show_options })
+        } else if matches!(&self.peek_token_ref().token, Token::Word(word)
+            if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("TYPES"))
+        {
+            self.advance_token();
+            let show_options = self.parse_show_stmt_options()?;
+            Ok(Statement::ShowTypes { show_options })
         } else if self.parse_keyword(Keyword::PROCESSLIST) {
             Ok(Statement::ShowProcessList { full })
         } else if extended || full {
