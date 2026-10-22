@@ -1352,6 +1352,8 @@ impl fmt::Display for AlterIndexOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct AlterType {
+    /// Suppress errors for missing or invisible types.
+    pub if_exists: bool,
     /// Name of the type being altered (may be schema-qualified).
     pub name: ObjectName,
     /// The specific alteration operation to perform.
@@ -1363,6 +1365,10 @@ pub struct AlterType {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterTypeOperation {
+    /// Set the type's comment.
+    SetComment(String),
+    /// Remove the type's comment.
+    UnsetComment,
     /// Rename the type.
     Rename(AlterTypeRename),
     /// Add a new value to the type (for enum-like types).
@@ -1418,6 +1424,10 @@ pub struct AlterTypeRenameValue {
 impl fmt::Display for AlterTypeOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::SetComment(comment) => {
+                write!(f, "SET COMMENT = '{}'", comment.replace('\'', "''"))
+            }
+            Self::UnsetComment => write!(f, "UNSET COMMENT"),
             Self::Rename(AlterTypeRename { new_name }) => {
                 write!(f, "RENAME TO {new_name}")
             }

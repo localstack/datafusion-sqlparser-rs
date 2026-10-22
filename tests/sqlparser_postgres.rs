@@ -7435,7 +7435,10 @@ fn parse_alter_type() {
     .enumerate()
     .for_each(|(index, tc)| {
         let statement = pg_and_generic().verified_stmt(tc.sql);
-        if let Statement::AlterType(AlterType { name, operation }) = statement {
+        if let Statement::AlterType(AlterType {
+            name, operation, ..
+        }) = statement
+        {
             assert_eq!(tc.name, name.to_string(), "TestCase[{index}].name");
             assert_eq!(tc.operation, operation, "TestCase[{index}].operation");
         } else {

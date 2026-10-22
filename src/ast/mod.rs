@@ -8705,8 +8705,16 @@ impl fmt::Display for Statement {
                 write!(f, "ALTER VIEW {name} ALTER COLUMN {column_name} {op}")
             }
             Statement::AlterFunction(alter_function) => write!(f, "{alter_function}"),
-            Statement::AlterType(AlterType { name, operation }) => {
-                write!(f, "ALTER TYPE {name} {operation}")
+            Statement::AlterType(AlterType {
+                if_exists,
+                name,
+                operation,
+            }) => {
+                write!(f, "ALTER TYPE ")?;
+                if *if_exists {
+                    write!(f, "IF EXISTS ")?;
+                }
+                write!(f, "{name} {operation}")
             }
             Statement::AlterCollation(alter_collation) => write!(f, "{alter_collation}"),
             Statement::AlterOperator(alter_operator) => write!(f, "{alter_operator}"),
