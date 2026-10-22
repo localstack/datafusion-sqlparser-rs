@@ -469,6 +469,29 @@ impl SnowflakeDialect {
             })());
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
+            return Some((|| {
+                use crate::ast::AlterDataMovementRuleOperation;
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::MAX_ROWS, Keyword::AS]) {
+                        parser.expect_token(&Token::LParen)?;
+                        parser.expect_token(&Token::RParen)?;
+                        parser.expect_keyword(Keyword::RETURNS)?;
+                        let return_type = parser.parse_data_type()?;
+                        parser.expect_token(&Token::Arrow)?;
+                        let start = parser.peek_token().span.start;
+                        let body = parser.parse_expr()?;
+                        let end = parser.token_at(parser.get_current_index()).span.end;
+                        let body_span = crate::tokenizer::Span { start, end };
+                        AlterDataMovementRuleOperation::SetMaxRows { return_type, body, body_span }
+                } else {
+                    AlterDataMovementRuleOperation::Metadata(parse_metadata_policy_operation(parser)?)
+                };
+                Ok(Statement::AlterDataMovementRule { if_exists, name, operation })
+            })());
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::SEMANTIC, Keyword::VIEW]) {
             // ALTER SEMANTIC VIEW
             return Some(parse_alter_semantic_view(parser));
@@ -920,8 +943,10 @@ impl SnowflakeDialect {
                     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     let mut lists = [None, None];
-                    for (index, label) in ["ENFORCE_RULES", "ALERT_RULES"].iter().enumerate() {
-                        if parser.peek_token().token.to_string().eq_ignore_ascii_case(label) {
+                    for _ in 0..2 {
+                        let next = parser.peek_token().token.to_string();
+                        let Some(index) = ["ENFORCE_RULES", "ALERT_RULES"].iter().position(|label| next.eq_ignore_ascii_case(label)) else { break };
+                        if lists[index].is_none() {
                             parser.next_token();
                             parser.expect_token(&Token::Eq)?;
                             parser.expect_token(&Token::LParen)?;
