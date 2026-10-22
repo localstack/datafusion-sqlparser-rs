@@ -6883,6 +6883,19 @@ pub enum Statement {
         /// Call arguments (never evaluated).
         args: Vec<Expr>,
     },
+    /// Execute a code bundle or legacy notebook project.
+    ExecuteCodeBundle {
+        /// The EXECUTE keyword.
+        execute_token: AttachedToken,
+        /// Bundle identifier.
+        name: ObjectName,
+        /// Whether the legacy NOTEBOOK PROJECT spelling is used.
+        legacy: bool,
+        /// Execution parameters.
+        options: Vec<SqlOption>,
+        /// Inline specification override.
+        specification: Option<Expr>,
+    },
     /// `SHOW AGENTS` with optional scope and filters.
     ShowAgents {
         /// Options controlling the SHOW output.
@@ -10971,6 +10984,20 @@ impl fmt::Display for Statement {
             }
             Statement::ExecuteStreamlit { name, args } => {
                 write!(f, "EXECUTE STREAMLIT {name}({})", display_comma_separated(args))
+            }
+            Statement::ExecuteCodeBundle { name, legacy, options, specification, .. } => {
+                write!(
+                    f,
+                    "EXECUTE {} {name}",
+                    if *legacy { "NOTEBOOK PROJECT" } else { "CODE BUNDLE" }
+                )?;
+                for option in options {
+                    write!(f, " {option}")?;
+                }
+                if let Some(specification) = specification {
+                    write!(f, " WITH SPECIFICATION {specification}")?;
+                }
+                Ok(())
             }
             Statement::ShowAgents { show_options } => write!(f, "SHOW AGENTS{show_options}"),
             Statement::ShowStreamlits {

@@ -292,6 +292,22 @@ impl SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::STREAMLIT]) {
             return Some(parse_execute_streamlit(parser));
         }
+        if matches!(&parser.peek_token_ref().token, Token::Word(word) if word.keyword == Keyword::EXECUTE) {
+            let first = parser.peek_nth_token(1);
+            let second = parser.peek_nth_token(2);
+            if let (Token::Word(first), Token::Word(second)) = (&first.token, &second.token) {
+                let modern = first.value.eq_ignore_ascii_case("CODE")
+                    && second.value.eq_ignore_ascii_case("BUNDLE");
+                let legacy = first.value.eq_ignore_ascii_case("NOTEBOOK")
+                    && second.value.eq_ignore_ascii_case("PROJECT");
+                if first.quote_style.is_none() && second.quote_style.is_none() && (modern || legacy) {
+                    let execute_token = AttachedToken(parser.next_token());
+                    parser.next_token();
+                    parser.next_token();
+                    return Some(parse_execute_code_bundle(parser, legacy, execute_token));
+                }
+            }
+        }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
             // ALTER FILE FORMAT
@@ -7356,6 +7372,37 @@ fn parse_create_secret(or_replace: bool, parser: &mut Parser) -> Result<Statemen
         name,
         options,
     })
+}
+
+fn parse_execute_code_bundle(
+    parser: &mut Parser,
+    legacy: bool,
+    execute_token: AttachedToken,
+) -> Result<Statement, ParserError> {
+    let name = parser.parse_object_name(false)?;
+    let mut options = Vec::new();
+    let mut specification = None;
+    while matches!(parser.peek_token_ref().token, Token::Word(_)) {
+        if !legacy && parser.parse_keyword(Keyword::WITH) {
+            let keyword = parser.parse_identifier()?;
+            if !keyword.value.eq_ignore_ascii_case("SPECIFICATION") {
+                return parser.expected("SPECIFICATION", parser.peek_token());
+            }
+            specification = Some(parser.parse_expr()?);
+            break;
+        }
+        let key = parser.parse_identifier()?;
+        parser.expect_token(&Token::Eq)?;
+        let value = if parser.consume_token(&Token::LParen) {
+            let values = parser.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
+            parser.expect_token(&Token::RParen)?;
+            Expr::Tuple(values)
+        } else {
+            parser.parse_expr()?
+        };
+        options.push(SqlOption::KeyValue { key, value });
+    }
+    Ok(Statement::ExecuteCodeBundle { execute_token, name, legacy, options, specification })
 }
 
 /// Parse `CREATE [OR REPLACE] STREAMLIT [IF NOT EXISTS] <name> [FROM '<source>']
