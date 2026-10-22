@@ -11559,7 +11559,11 @@ impl fmt::Display for Statement {
                 name,
                 representation,
             } => {
-                write!(f, "CREATE TYPE ")?;
+                write!(f, "CREATE ")?;
+                if matches!(representation, Some(UserDefinedTypeRepresentation::Alias { or_replace: true, .. })) {
+                    write!(f, "OR REPLACE ")?;
+                }
+                write!(f, "TYPE ")?;
                 if matches!(representation, Some(UserDefinedTypeRepresentation::Alias { if_not_exists: true, .. })) {
                     write!(f, "IF NOT EXISTS ")?;
                 }
