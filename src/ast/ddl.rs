@@ -2332,6 +2332,33 @@ pub enum AlterDataMovementRuleOperation {
     Metadata(AlterMaintenancePolicyOperation),
 }
 
+/// Mutation of a data movement policy's rule lists or metadata.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterDataMovementPolicyOperation {
+    /// Replace, add to, or remove from a rule list.
+    Rules {
+        /// SET, ADD, or REMOVE.
+        action: String,
+        /// ENFORCE_RULES or ALERT_RULES.
+        list: String,
+        /// Rule references.
+        rules: Vec<ObjectName>,
+    },
+    /// Comment change or rename.
+    Metadata(AlterMaintenancePolicyOperation),
+}
+
+impl fmt::Display for AlterDataMovementPolicyOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Rules { action, list, rules } => write!(formatter, "{action} {list} = ({})", display_comma_separated(rules)),
+            Self::Metadata(operation) => write!(formatter, "{operation}"),
+        }
+    }
+}
+
 impl fmt::Display for AlterDataMovementRuleOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
