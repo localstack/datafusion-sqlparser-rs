@@ -14558,7 +14558,11 @@ impl<'a> Parser<'a> {
             let params = self.parse_comma_separated(|p| {
                 let name = p.parse_identifier()?;
                 p.expect_token(&Token::Eq)?;
-                let value = p.parse_expr()?;
+                let value = if p.consume_tokens(&[Token::LParen, Token::RParen]) {
+                    Expr::Tuple(Vec::new())
+                } else {
+                    p.parse_expr()?
+                };
                 Ok::<AccountOption, ParserError>(AccountOption { name, value })
             })?;
             AlterAccountOperation::Set { params }
