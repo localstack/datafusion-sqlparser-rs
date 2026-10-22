@@ -485,6 +485,31 @@ impl SnowflakeDialect {
             })());
         }
 
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+            return Some((|| {
+                use crate::ast::AlterDataMovementPolicyOperation;
+                let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                let name = parser.parse_object_name(false)?;
+                let list = parser.peek_nth_token(1).token.to_string().to_ascii_uppercase();
+                let operation = if ["ENFORCE_RULES", "ALERT_RULES"].contains(&list.as_str())
+                    && matches!(parser.peek_token().token, Token::Word(ref word) if [Keyword::SET, Keyword::ADD, Keyword::REMOVE].contains(&word.keyword)) {
+                    let action = parser.expect_one_of_keywords(&[Keyword::SET, Keyword::ADD, Keyword::REMOVE])?.to_string();
+                    parser.next_token();
+                    parser.expect_token(&Token::Eq)?;
+                    parser.expect_token(&Token::LParen)?;
+                    let rules = if parser.consume_token(&Token::RParen) { Vec::new() } else {
+                        let rules = parser.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                        parser.expect_token(&Token::RParen)?;
+                        rules
+                    };
+                    AlterDataMovementPolicyOperation::Rules { action, list, rules }
+                } else {
+                    AlterDataMovementPolicyOperation::Metadata(parse_metadata_policy_operation(parser)?)
+                };
+                Ok(Statement::AlterDataMovementPolicy { if_exists, name, operation })
+            })());
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
             return Some((|| {
                 use crate::ast::AlterDataMovementRuleOperation;
