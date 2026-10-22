@@ -84,7 +84,7 @@ pub use self::ddl::{
     ModifyBackupAction,
     AlterRowAccessPolicyOperation,
     AlterSessionPolicyOperation,
-    AlterMaintenancePolicyOperation,
+    AlterMaintenancePolicyOperation, AlterDataMovementRuleOperation,
     AlterAuthenticationPolicyOperation,
     AlterBackupPolicyOperation,
     AlterSemanticViewOperation,
@@ -6352,6 +6352,15 @@ pub enum Statement {
         /// Optional comment.
         comment: Option<String>,
     },
+    /// ALTER DATA MOVEMENT RULE [IF EXISTS] <name> <operation>
+    AlterDataMovementRule {
+        /// Succeed if the rule is absent.
+        if_exists: bool,
+        /// Rule name.
+        name: ObjectName,
+        /// Mutation to apply.
+        operation: AlterDataMovementRuleOperation,
+    },
     /// DROP DATA MOVEMENT RULE [IF EXISTS] <name>
     DropDataMovementRule {
         /// Succeed if the rule is absent.
@@ -10553,6 +10562,7 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::AlterDataMovementRule { if_exists, name, operation } => write!(f, "ALTER DATA MOVEMENT RULE{} {name} {operation}", if *if_exists { " IF EXISTS" } else { "" }),
             Statement::DropDataMovementRule { if_exists, name } => write!(f, "DROP DATA MOVEMENT RULE{} {name}", if *if_exists { " IF EXISTS" } else { "" }),
             Statement::DescribeDataMovementRule { name } => write!(f, "DESCRIBE DATA MOVEMENT RULE {name}"),
             Statement::ShowDataMovementRules { show_options } => write!(f, "SHOW DATA MOVEMENT RULES{show_options}"),
