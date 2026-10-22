@@ -5679,7 +5679,13 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             });
         }
         if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
-            return parser.expected("data movement policy name", parser.peek_token());
+            return Ok(Statement::AlterTag {
+                if_exists,
+                name,
+                operation: AlterTagOperation::UnsetDataMovementPolicy {
+                    policy: parser.parse_object_name(false)?,
+                },
+            });
         }
         if matches!(
             &parser.peek_token().token,
