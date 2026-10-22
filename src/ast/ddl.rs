@@ -2739,6 +2739,11 @@ pub enum AlterTagOperation {
         /// Replace an existing attachment.
         force: bool,
     },
+    /// `UNSET DATA MOVEMENT POLICY <policy>`
+    UnsetDataMovementPolicy {
+        /// The data movement policy name.
+        policy: ObjectName,
+    },
     /// `RENAME TO <new_name>`
     RenameTo {
         /// The new tag name.
@@ -2816,6 +2821,9 @@ impl fmt::Display for AlterTagOperation {
                     write!(f, " FORCE")?;
                 }
                 Ok(())
+            }
+            AlterTagOperation::UnsetDataMovementPolicy { policy } => {
+                write!(f, "UNSET DATA MOVEMENT POLICY {policy}")
             }
             AlterTagOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
             AlterTagOperation::SetMaskingPolicy { policies, force } => {
