@@ -7637,10 +7637,10 @@ fn parse_show_procedures(parser: &mut Parser, user: bool) -> Result<Statement, P
     Ok(Statement::ShowProcedures { user, show_options })
 }
 
-/// Parse `SHOW WAREHOUSES [LIKE '<pattern>']`
+/// Parse `SHOW WAREHOUSES [LIKE '<pattern>'] [STARTS WITH '<prefix>'] [LIMIT <n> [FROM '<name>']]`
 fn parse_show_warehouses(parser: &mut Parser) -> Result<Statement, ParserError> {
-    let filter = parser.parse_show_statement_filter()?;
-    Ok(Statement::ShowWarehouses { filter })
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowWarehouses { show_options })
 }
 
 /// Parse `SHOW CONNECTIONS [LIKE '<pattern>']`
