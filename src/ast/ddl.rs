@@ -2276,6 +2276,33 @@ pub enum AlterMaintenancePolicyOperation {
     },
 }
 
+/// Mutation of a data movement rule's metadata.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterDataMovementRuleOperation {
+    /// Replace the stored MAX_ROWS expression.
+    SetMaxRows {
+        /// Declared result type.
+        return_type: DataType,
+        /// Stored expression.
+        body: Expr,
+        /// Source extent of the unmodified body.
+        body_span: Span,
+    },
+    /// Set or unset metadata properties, or rename the rule.
+    Metadata(AlterMaintenancePolicyOperation),
+}
+
+impl fmt::Display for AlterDataMovementRuleOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::SetMaxRows { return_type, body, .. } => write!(formatter, "SET MAX_ROWS AS () RETURNS {return_type} -> {body}"),
+            Self::Metadata(operation) => write!(formatter, "{operation}"),
+        }
+    }
+}
+
 /// An operation on a backup policy in an `ALTER BACKUP POLICY` statement.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
