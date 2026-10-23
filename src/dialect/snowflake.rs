@@ -7661,10 +7661,10 @@ fn parse_show_connections(parser: &mut Parser) -> Result<Statement, ParserError>
     Ok(Statement::ShowConnections { filter })
 }
 
-/// Parse `SHOW SHARES [LIKE '<pattern>']`
+/// Parse `SHOW SHARES [LIKE '<pattern>'] [STARTS WITH '<prefix>'] [LIMIT <n> [FROM '<name>']]`
 fn parse_show_shares(parser: &mut Parser) -> Result<Statement, ParserError> {
-    let filter = parser.parse_show_statement_filter()?;
-    Ok(Statement::ShowShares { filter })
+    let show_options = parser.parse_show_stmt_options()?;
+    Ok(Statement::ShowShares { show_options })
 }
 
 /// Parse `SHOW ACCOUNTS [HISTORY] [LIKE '<pattern>']`
