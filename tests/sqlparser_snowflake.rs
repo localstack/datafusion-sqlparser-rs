@@ -11662,3 +11662,28 @@ fn test_quoted_stage_name_in_expression() {
     // A bind variable is still never a quoted identifier.
     assert!(snowflake().parse_sql_statements(r#"SELECT :"a""#).is_err());
 }
+
+#[test]
+fn dataset_lifecycle() {
+    for statement in [
+        "CREATE DATASET ds",
+        "CREATE OR REPLACE DATASET db.schema.ds",
+        "CREATE DATASET IF NOT EXISTS schema.ds",
+        r#"CREATE DATASET "db"."schema"."ds.with.dot""#,
+        "CREATE OR REPLACE DATASET IF NOT EXISTS ds",
+        "DROP DATASET ds",
+        r#"DROP DATASET IF EXISTS "db"."schema"."ds""#,
+    ] {
+        snowflake().verified_stmt(statement);
+    }
+    for statement in [
+        "CREATE IF NOT EXISTS DATASET ds",
+        "CREATE TEMPORARY DATASET ds",
+        "ALTER DATASET ds RENAME TO other",
+        "UNDROP DATASET ds",
+        "CREATE DATASET",
+        "DROP DATASET",
+    ] {
+        assert!(snowflake().parse_sql_statements(statement).is_err());
+    }
+}

@@ -6828,6 +6828,22 @@ pub enum Statement {
         /// Filtering, scope and pagination.
         show_options: ShowStatementOptions,
     },
+    /// CREATE [OR REPLACE] DATASET [IF NOT EXISTS].
+    CreateDataset {
+        /// Replace an existing dataset.
+        or_replace: bool,
+        /// Succeed without replacing an existing dataset.
+        if_not_exists: bool,
+        /// Dataset name.
+        name: ObjectName,
+    },
+    /// DROP DATASET [IF EXISTS].
+    DropDataset {
+        /// Succeed for a missing dataset.
+        if_exists: bool,
+        /// Dataset name.
+        name: ObjectName,
+    },
     /// ```sql
     /// CREATE [ OR REPLACE ] STREAMLIT [ IF NOT EXISTS ] <name>
     ///   [ FROM '<source>' ] [ <property> = <value> ... ]
@@ -10941,6 +10957,14 @@ impl fmt::Display for Statement {
                 "ALTER GIT REPOSITORY {}{name} FETCH", if *if_exists { "IF EXISTS " } else { "" }),
             Statement::DescribeGitRepository { name } => write!(f, "DESCRIBE GIT REPOSITORY {name}"),
             Statement::ShowGitRepositories { show_options } => write!(f, "SHOW GIT REPOSITORIES{show_options}"),
+            Statement::CreateDataset { or_replace, if_not_exists, name } => write!(
+                f, "CREATE {}DATASET {}{name}",
+                if *or_replace { "OR REPLACE " } else { "" },
+                if *if_not_exists { "IF NOT EXISTS " } else { "" },
+            ),
+            Statement::DropDataset { if_exists, name } => write!(
+                f, "DROP DATASET {}{name}", if *if_exists { "IF EXISTS " } else { "" },
+            ),
             Statement::CreateStreamlit {
                 or_replace,
                 if_not_exists,

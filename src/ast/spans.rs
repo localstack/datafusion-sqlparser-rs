@@ -700,6 +700,7 @@ impl Spanned for Statement {
             | Statement::DescribeGitRepository { .. }
             | Statement::ShowGitRepositories { .. } => Span::empty(),
             Statement::CreateStreamlit { .. } => Span::empty(),
+            Statement::CreateDataset { .. } | Statement::DropDataset { .. } => Span::empty(),
             Statement::DropStreamlit { .. } => Span::empty(),
             Statement::DescribeStreamlit { .. } => Span::empty(),
             Statement::DescribeType { name } => name.span(),
