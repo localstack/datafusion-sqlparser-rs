@@ -185,6 +185,8 @@ pub struct CreateTableBuilder {
     pub catalog: Option<String>,
     /// Optional externally-managed catalog table name.
     pub catalog_table_name: Option<String>,
+    /// Namespace override for the imported Iceberg catalog table.
+    pub catalog_namespace: Option<String>,
     /// Optional object-store metadata-file path for catalog-less Iceberg tables.
     pub metadata_file_path: Option<String>,
     /// Optional invalid-character replacement setting for object-store Iceberg.
@@ -308,6 +310,7 @@ impl CreateTableBuilder {
             with_connection: None,
             catalog: None,
             catalog_table_name: None,
+            catalog_namespace: None,
             metadata_file_path: None,
             replace_invalid_characters: None,
             auto_refresh: None,
@@ -834,6 +837,7 @@ impl CreateTableBuilder {
             with_connection: self.with_connection,
             catalog: self.catalog,
             catalog_table_name: self.catalog_table_name,
+            catalog_namespace: self.catalog_namespace,
             metadata_file_path: self.metadata_file_path,
             replace_invalid_characters: self.replace_invalid_characters,
             auto_refresh: self.auto_refresh,
@@ -950,6 +954,7 @@ impl From<CreateTable> for CreateTableBuilder {
             with_connection: table.with_connection,
             catalog: table.catalog,
             catalog_table_name: table.catalog_table_name,
+            catalog_namespace: table.catalog_namespace,
             metadata_file_path: table.metadata_file_path,
             replace_invalid_characters: table.replace_invalid_characters,
             auto_refresh: table.auto_refresh,
