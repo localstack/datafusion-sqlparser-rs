@@ -6334,7 +6334,7 @@ impl<'a> Parser<'a> {
 
     fn parse_create_user(&mut self, or_replace: bool) -> Result<CreateUser, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
-        let name = self.parse_identifier()?;
+        let name = self.parse_user_name(true)?;
         let options = self
             .parse_key_value_options(false, &[Keyword::WITH, Keyword::TAG], true)?
             .options;
@@ -6368,6 +6368,35 @@ impl<'a> Parser<'a> {
                 delimiter: KeyValueOptionsDelimiter::Comma,
             },
         })
+    }
+
+    fn parse_user_name(&mut self, in_create: bool) -> Result<Ident, ParserError> {
+        let name = self.parse_identifier()?;
+        if self.peek_token_ref().token != Token::LParen
+            || !self
+                .dialect
+                .is_identifier_generating_function_name(&name, &[])
+        {
+            return Ok(name);
+        }
+        let opening = self.expect_token(&Token::LParen)?;
+        let literal_token = self.next_token();
+        let literal = match literal_token.token {
+            Token::SingleQuotedString(literal) => literal,
+            Token::DollarQuotedString(literal) if literal.tag.is_none() => literal.value,
+            _ => {
+                return self.expected(
+                    "literal string",
+                    if in_create { opening } else { literal_token },
+                )
+            }
+        };
+        self.expect_token(&Token::RParen)?;
+        let mut parser = Parser::new(self.dialect).try_with_sql(&literal)?;
+        let mut resolved = parser.parse_identifier()?;
+        parser.expect_token(&Token::EOF)?;
+        resolved.span = name.span;
+        Ok(resolved)
     }
 
     /// `CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON { TABLE | VIEW } <source>`
