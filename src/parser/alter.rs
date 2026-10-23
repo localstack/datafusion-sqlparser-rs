@@ -183,7 +183,7 @@ impl Parser<'_> {
         {
             None
         } else {
-            Some(self.parse_identifier()?)
+            Some(self.parse_user_name(false)?)
         };
         let mut name_qualifier = Vec::new();
         while name.is_some() && self.consume_token(&Token::Period) {
@@ -211,7 +211,7 @@ impl Parser<'_> {
             None
         };
         let rename_to = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
-            Some(self.parse_identifier()?)
+            Some(self.parse_user_name(false)?)
         } else {
             None
         };
