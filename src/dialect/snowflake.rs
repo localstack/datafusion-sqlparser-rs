@@ -732,6 +732,16 @@ impl SnowflakeDialect {
                 Ok(Statement::DropGitRepository { if_exists, name })
             })());
         }
+        if parser.parse_keyword(Keyword::DROP) {
+            if parse_tag_keyword(parser, "DATASET") {
+                return Some((|| {
+                    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    Ok(Statement::DropDataset { if_exists, name })
+                })());
+            }
+            parser.prev_token();
+        }
         if parser.parse_keywords(&[Keyword::DROP, Keyword::STREAMLIT]) {
             // DROP STREAMLIT
             return Some(parse_drop_streamlit(parser));
@@ -1074,6 +1084,13 @@ impl SnowflakeDialect {
                 })());
             }
             // CREATE [OR REPLACE] STREAMLIT
+            if parse_tag_keyword(parser, "DATASET") {
+                return Some((|| {
+                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let name = parser.parse_object_name(false)?;
+                    Ok(Statement::CreateDataset { or_replace, if_not_exists, name })
+                })());
+            }
             if parser.parse_keyword(Keyword::STREAMLIT) {
                 return Some(parse_create_streamlit(or_replace, parser));
             }
