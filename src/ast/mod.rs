@@ -18050,6 +18050,12 @@ pub enum CatalogTableFormat {
     Iceberg,
     /// `DELTA`
     Delta,
+    /// `NONE`
+    None,
+    /// `HIVE`
+    Hive,
+    /// An unrecognized format retained for semantic validation.
+    Other(String),
 }
 
 impl fmt::Display for CatalogTableFormat {
@@ -18057,6 +18063,9 @@ impl fmt::Display for CatalogTableFormat {
         match self {
             CatalogTableFormat::Iceberg => f.write_str("ICEBERG"),
             CatalogTableFormat::Delta => f.write_str("DELTA"),
+            CatalogTableFormat::None => f.write_str("NONE"),
+            CatalogTableFormat::Hive => f.write_str("HIVE"),
+            CatalogTableFormat::Other(value) => f.write_str(value),
         }
     }
 }
