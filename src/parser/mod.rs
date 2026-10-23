@@ -1595,7 +1595,31 @@ impl<'a> Parser<'a> {
 
         let table_names = self.parse_comma_separated(|p| {
             let only = p.parse_keyword(Keyword::ONLY);
-            let name = p.parse_object_name(false)?;
+            let mut name = p.parse_object_name(false)?;
+            if let [ObjectNamePart::Identifier(function)] = name.0.as_slice() {
+                if function.quote_style.is_none()
+                    && function.value.eq_ignore_ascii_case("ERROR_TABLE")
+                    && p.consume_token(&Token::LParen)
+                {
+                    let mut identifiers = Vec::new();
+                    loop {
+                        if !matches!(p.peek_token_ref().token, Token::Word(_)) {
+                            return p.expected("identifier", p.peek_token());
+                        }
+                        identifiers.push(p.parse_identifier()?);
+                        if !p.consume_token(&Token::Period) {
+                            break;
+                        }
+                    }
+                    p.expect_token(&Token::RParen)?;
+                    name = ObjectName(vec![ObjectNamePart::Function(ObjectNamePartFunction {
+                        name: function.clone(),
+                        args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                            Expr::CompoundIdentifier(identifiers),
+                        ))],
+                    })]);
+                }
+            }
             let has_asterisk = p.consume_token(&Token::Mul);
             Ok(TruncateTableTarget {
                 name,
