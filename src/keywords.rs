@@ -929,6 +929,7 @@ define_keywords!(
     POLARIS,
     POLICIES,
     POLICY,
+    POLICY_CONTEXT,
     POLYGON,
     POOL,
     PORTION,

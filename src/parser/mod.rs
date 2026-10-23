@@ -25188,6 +25188,32 @@ impl<'a> Parser<'a> {
 
     /// Parse a SQL `EXECUTE` statement
     pub fn parse_execute(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_keyword(Keyword::USING) {
+            self.expect_keyword(Keyword::POLICY_CONTEXT)?;
+            self.expect_token(&Token::LParen)?;
+            let arguments = self.parse_comma_separated0(
+                |parser| {
+                    if parser.peek_nth_token_ref(1).token == Token::RArrow {
+                        let name = parser.parse_identifier()?;
+                        parser.expect_token(&Token::RArrow)?;
+                        Ok(FunctionArg::Named {
+                            name,
+                            arg: FunctionArgExpr::Expr(parser.parse_expr()?),
+                            operator: FunctionArgOperator::RightArrow,
+                        })
+                    } else {
+                        parser.parse_function_args()
+                    }
+                },
+                Token::RParen,
+            )?;
+            self.expect_token(&Token::RParen)?;
+            self.expect_keyword(Keyword::AS)?;
+            return Ok(Statement::ExecuteUsingPolicyContext {
+                arguments,
+                statement: Box::new(self.parse_statement()?),
+            });
+        }
         // Snowflake `EXECUTE TASK <name>` — check before `EXECUTE IMMEDIATE`
         // and the generic `EXECUTE <procedure>` paths so the bare identifier
         // path can't accidentally consume `TASK`.
