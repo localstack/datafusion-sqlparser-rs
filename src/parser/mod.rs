@@ -14579,16 +14579,22 @@ impl<'a> Parser<'a> {
                 tags: self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
             }
         } else if self.parse_keyword(Keyword::SET) {
-            let params = self.parse_comma_separated(|p| {
-                let name = p.parse_identifier()?;
-                p.expect_token(&Token::Eq)?;
-                let value = if p.consume_tokens(&[Token::LParen, Token::RParen]) {
+            let mut params = Vec::new();
+            loop {
+                let name = self.parse_identifier()?;
+                self.expect_token(&Token::Eq)?;
+                let value = if self.consume_tokens(&[Token::LParen, Token::RParen]) {
                     Expr::Tuple(Vec::new())
                 } else {
-                    p.parse_expr()?
+                    self.parse_expr()?
                 };
-                Ok::<AccountOption, ParserError>(AccountOption { name, value })
-            })?;
+                params.push(AccountOption { name, value });
+                if !self.consume_token(&Token::Comma)
+                    && !matches!(self.peek_token_ref().token, Token::Word(_))
+                {
+                    break;
+                }
+            }
             AlterAccountOperation::Set { params }
         } else if self.parse_keyword(Keyword::UNSET) {
             AlterAccountOperation::Unset {
