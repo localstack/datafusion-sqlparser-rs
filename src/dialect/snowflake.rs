@@ -3456,6 +3456,13 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.enable_schema_evolution(Some(parser.parse_boolean_string()?));
                 }
+                Keyword::NoKeyword if iceberg && word.value.eq_ignore_ascii_case("ENABLE_SCHEMA_INFERENCE") => {
+                    parser.expect_token(&Token::Eq)?;
+                    plain_options.push(SqlOption::KeyValue {
+                        key: Ident::new(word.value.clone()),
+                        value: parser.parse_expr()?,
+                    });
+                }
                 Keyword::ERROR_LOGGING => {
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.error_logging(Some(parser.parse_boolean_string()?));
