@@ -7807,16 +7807,26 @@ fn parse_catalog_source(parser: &mut Parser) -> Result<CatalogSource, ParserErro
     })
 }
 
-/// Parse a `TABLE_FORMAT` identifier (`ICEBERG` or `DELTA`).
+/// Parse a `TABLE_FORMAT` value.
 fn parse_catalog_table_format(parser: &mut Parser) -> Result<CatalogTableFormat, ParserError> {
-    let ident = parser.parse_identifier()?;
-    if ident.value.eq_ignore_ascii_case("ICEBERG") {
-        Ok(CatalogTableFormat::Iceberg)
-    } else if ident.value.eq_ignore_ascii_case("DELTA") {
-        Ok(CatalogTableFormat::Delta)
-    } else {
-        parser.expected("ICEBERG or DELTA", parser.peek_token())
+    if !matches!(
+        parser.peek_token().token,
+        Token::Word(_) | Token::SingleQuotedString(_) | Token::DoubleQuotedString(_)
+    ) {
+        return Ok(CatalogTableFormat::Other(parser.parse_value()?.to_string()));
     }
+    let ident = parser.parse_identifier()?;
+    Ok(match ident.value.to_uppercase().as_str() {
+        "ICEBERG" => CatalogTableFormat::Iceberg,
+        "DELTA" => CatalogTableFormat::Delta,
+        "NONE" => CatalogTableFormat::None,
+        "HIVE" => CatalogTableFormat::Hive,
+        _ => CatalogTableFormat::Other(if ident.quote_style.is_none() {
+            ident.value.to_uppercase()
+        } else {
+            ident.to_string()
+        }),
+    })
 }
 
 /// Parse the body of `REST_CONFIG = ( … )`.
