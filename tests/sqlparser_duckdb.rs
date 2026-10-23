@@ -790,6 +790,7 @@ fn test_duckdb_union_datatype() {
             with_connection: Default::default(),
             catalog: Default::default(),
             catalog_table_name: Default::default(),
+            catalog_namespace: Default::default(),
             metadata_file_path: Default::default(),
             replace_invalid_characters: Default::default(),
             auto_refresh: Default::default(),

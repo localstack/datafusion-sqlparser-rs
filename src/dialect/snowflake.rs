@@ -3593,6 +3593,10 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder.catalog_table_name = Some(parser.parse_literal_string()?);
                 }
+                Keyword::CATALOG_NAMESPACE => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder.catalog_namespace = Some(parser.parse_literal_string()?);
+                }
                 Keyword::AUTO_REFRESH => {
                     parser.expect_token(&Token::Eq)?;
                     builder.auto_refresh = Some(parser.parse_boolean_string()?);
