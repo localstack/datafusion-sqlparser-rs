@@ -503,6 +503,7 @@ impl Spanned for Statement {
             Statement::AlterDefaultPrivileges(privileges) => privileges.span(),
             Statement::Deallocate { .. } => Span::empty(),
             Statement::Execute { .. } => Span::empty(),
+            Statement::ExecuteUsingPolicyContext { statement, .. } => statement.span(),
             Statement::ExecuteImmediateFrom { .. } => Span::empty(),
             Statement::Prepare { .. } => Span::empty(),
             Statement::Kill { .. } => Span::empty(),
