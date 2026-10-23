@@ -7365,6 +7365,13 @@ pub enum Statement {
         /// Whether `PREPARE` keyword was present.
         prepare: bool,
     },
+    /// Simulate context values for an arbitrary statement.
+    ExecuteUsingPolicyContext {
+        /// Named simulation values, retained in source order.
+        arguments: Vec<FunctionArg>,
+        /// Statement evaluated under the simulated context.
+        statement: Box<Statement>,
+    },
     /// ```sql
     /// An `EXECUTE` statement
     /// ```
@@ -9293,6 +9300,11 @@ impl fmt::Display for Statement {
                 prepare = if *prepare { "PREPARE " } else { "" },
                 name = name,
             ),
+            Statement::ExecuteUsingPolicyContext { arguments, statement } => {
+                write!(f, "EXECUTE USING POLICY_CONTEXT(")?;
+                write!(f, "{}", display_comma_separated(arguments))?;
+                write!(f, ") AS {statement}")
+            }
             Statement::Execute {
                 name,
                 parameters,
