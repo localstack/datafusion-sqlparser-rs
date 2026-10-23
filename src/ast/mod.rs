@@ -7006,11 +7006,11 @@ pub enum Statement {
         filter: Option<ShowStatementFilter>,
     },
     /// ```sql
-    /// SHOW SHARES [ LIKE '<pattern>' ]
+    /// SHOW SHARES [ LIKE '<pattern>' ] [ STARTS WITH '<prefix>' ] [ LIMIT <n> [ FROM '<name>' ] ]
     /// ```
     ShowShares {
-        /// Optional `LIKE` filter.
-        filter: Option<ShowStatementFilter>,
+        /// `SHOW` filters and pagination options.
+        show_options: ShowStatementOptions,
     },
     /// ```sql
     /// CREATE [OR REPLACE] CATALOG INTEGRATION [IF NOT EXISTS] <name> ...
@@ -11085,12 +11085,8 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::ShowShares { filter } => {
-                write!(f, "SHOW SHARES")?;
-                if let Some(filter) = filter {
-                    write!(f, " {filter}")?;
-                }
-                Ok(())
+            Statement::ShowShares { show_options } => {
+                write!(f, "SHOW SHARES{show_options}")
             }
             Statement::CreateCatalogIntegration {
                 or_replace,
