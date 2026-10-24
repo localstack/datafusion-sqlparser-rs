@@ -3605,6 +3605,10 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.refresh_on_create(Some(parser.parse_boolean_string()?));
                 }
+                Keyword::PATTERN if builder.iceberg => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.pattern(Some(parser.parse_literal_string()?));
+                }
                 Keyword::BASE_LOCATION => {
                     parser.expect_token(&Token::Eq)?;
                     builder.base_location = Some(parser.parse_literal_string()?);

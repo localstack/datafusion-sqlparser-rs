@@ -5177,6 +5177,9 @@ impl fmt::Display for CreateTable {
             if let Some(base_location) = self.base_location.as_ref() {
                 write!(f, " BASE_LOCATION='{base_location}'")?;
             }
+            if let Some(pattern) = self.pattern.as_ref() {
+                write!(f, " PATTERN='{}'", pattern.replace('\'', "''"))?;
+            }
         }
 
         if let Some(catalog_sync) = self.catalog_sync.as_ref() {
