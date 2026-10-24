@@ -6710,6 +6710,8 @@ pub enum Statement {
     CreateNetworkRule {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Rule name.
@@ -10870,6 +10872,7 @@ impl fmt::Display for Statement {
             ),
             Statement::CreateNetworkRule {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 rule_type,
@@ -10879,8 +10882,9 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}NETWORK RULE {if_not_exists}{name}",
+                    "CREATE {or_replace}{or_alter}NETWORK RULE {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if let Some(rule_type) = rule_type {
