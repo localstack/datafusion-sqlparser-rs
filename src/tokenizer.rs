@@ -220,6 +220,8 @@ pub enum Token {
     DoubleExclamationMark,
     /// AtSign `@` used for PostgreSQL abs operator, also PostgreSQL/Redshift geometrical unary/binary operator (Center, Contained or on)
     AtSign,
+    /// The `snow://` prefix of a Snowflake object location.
+    SnowflakeStageUrlPrefix,
     /// `^@`, a "starts with" string operator in PostgreSQL
     CaretAt,
     /// `|/`, a square root math operator in PostgreSQL
@@ -370,6 +372,7 @@ impl fmt::Display for Token {
             Token::ExclamationMarkDoubleTilde => f.write_str("!~~"),
             Token::ExclamationMarkDoubleTildeAsterisk => f.write_str("!~~*"),
             Token::AtSign => f.write_str("@"),
+            Token::SnowflakeStageUrlPrefix => f.write_str("snow://"),
             Token::CaretAt => f.write_str("^@"),
             Token::ShiftLeft => f.write_str("<<"),
             Token::ShiftRight => f.write_str(">>"),
@@ -1259,6 +1262,15 @@ impl<'a> Tokenizer<'a> {
         chars.next(); // consume the first char
         let ch: String = ch.into_iter().collect();
         let word = self.tokenize_word(ch, chars);
+        if self.dialect.supports_stages()
+            && word.eq_ignore_ascii_case("snow")
+            && chars.peekable.clone().take(3).eq("://".chars())
+        {
+            chars.next();
+            chars.next();
+            chars.next();
+            return Ok(Some(Token::SnowflakeStageUrlPrefix));
+        }
 
         // TODO: implement parsing of exponent here
         if word.chars().all(|x| x.is_ascii_digit() || x == '.') {
