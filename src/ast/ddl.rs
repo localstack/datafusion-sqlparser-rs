@@ -2594,6 +2594,8 @@ pub enum AlterNetworkRuleOperation {
     },
     /// `UNSET COMMENT`
     UnsetComment,
+    /// `UNSET VALUE_LIST`
+    UnsetValueList,
 }
 
 impl fmt::Display for AlterNetworkRuleOperation {
@@ -2620,6 +2622,7 @@ impl fmt::Display for AlterNetworkRuleOperation {
                 Ok(())
             }
             AlterNetworkRuleOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterNetworkRuleOperation::UnsetValueList => write!(f, "UNSET VALUE_LIST"),
         }
     }
 }
