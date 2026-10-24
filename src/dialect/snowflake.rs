@@ -3473,7 +3473,7 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.enable_schema_evolution(Some(parser.parse_boolean_string()?));
                 }
-                Keyword::NoKeyword if iceberg && word.value.eq_ignore_ascii_case("ENABLE_SCHEMA_INFERENCE") => {
+                Keyword::NoKeyword if iceberg && ["ENABLE_SCHEMA_INFERENCE", "MATCH_BY_COLUMN_NAME"].iter().any(|option| word.value.eq_ignore_ascii_case(option)) => {
                     parser.expect_token(&Token::Eq)?;
                     plain_options.push(SqlOption::KeyValue {
                         key: Ident::new(word.value.clone()),
