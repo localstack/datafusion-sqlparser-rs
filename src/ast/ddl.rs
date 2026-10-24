@@ -5126,6 +5126,13 @@ impl fmt::Display for CreateTable {
         }
 
         if self.iceberg {
+            if let Some(refresh_on_create) = self.refresh_on_create {
+                write!(
+                    f,
+                    " REFRESH_ON_CREATE={}",
+                    if refresh_on_create { "TRUE" } else { "FALSE" }
+                )?;
+            }
             if let Some(base_location) = self.base_location.as_ref() {
                 write!(f, " BASE_LOCATION='{base_location}'")?;
             }
