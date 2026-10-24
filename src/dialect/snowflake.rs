@@ -7387,11 +7387,17 @@ fn parse_alter_network_rule(parser: &mut Parser) -> Result<Statement, ParserErro
             value_list,
             comment,
         }
-    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
-        AlterNetworkRuleOperation::UnsetComment
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        if parse_value_list_keyword(parser) {
+            AlterNetworkRuleOperation::UnsetValueList
+        } else if parser.parse_keyword(Keyword::COMMENT) {
+            AlterNetworkRuleOperation::UnsetComment
+        } else {
+            return parser.expected_ref("VALUE_LIST or COMMENT", parser.peek_token_ref());
+        }
     } else {
         return parser.expected_ref(
-            "SET VALUE_LIST/COMMENT or UNSET COMMENT",
+            "SET VALUE_LIST/COMMENT or UNSET VALUE_LIST/COMMENT",
             parser.peek_token_ref(),
         );
     };
