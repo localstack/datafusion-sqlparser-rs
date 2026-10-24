@@ -3595,6 +3595,10 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder.auto_refresh = Some(parser.parse_boolean_string()?);
                 }
+                Keyword::REFRESH_ON_CREATE => {
+                    parser.expect_token(&Token::Eq)?;
+                    builder = builder.refresh_on_create(Some(parser.parse_boolean_string()?));
+                }
                 Keyword::BASE_LOCATION => {
                     parser.expect_token(&Token::Eq)?;
                     builder.base_location = Some(parser.parse_literal_string()?);
