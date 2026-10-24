@@ -5301,6 +5301,7 @@ fn parse_external_volume_storage_location(
     let mut storage_base_url: Option<String> = None;
     let mut storage_aws_role_arn = None;
     let mut storage_aws_external_id = None;
+    let mut aws_sns_topic = None;
     let mut azure_tenant_id = None;
     let mut encryption = None;
 
@@ -5332,6 +5333,9 @@ fn parse_external_volume_storage_location(
             }
             parser.expect_token(&Token::Eq)?;
             storage_aws_external_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::AWS_SNS_TOPIC) {
+            parser.expect_token(&Token::Eq)?;
+            aws_sns_topic = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::AZURE_TENANT_ID) {
             parser.expect_token(&Token::Eq)?;
             azure_tenant_id = Some(parser.parse_literal_string()?);
@@ -5360,6 +5364,7 @@ fn parse_external_volume_storage_location(
         storage_base_url,
         storage_aws_role_arn,
         storage_aws_external_id,
+        aws_sns_topic,
         azure_tenant_id,
         encryption,
     })

@@ -17002,6 +17002,8 @@ pub struct ExternalVolumeStorageLocation {
     pub storage_aws_role_arn: Option<String>,
     /// Optional `STORAGE_AWS_EXTERNAL_ID`.
     pub storage_aws_external_id: Option<String>,
+    /// SNS topic used for Parquet Direct file notifications.
+    pub aws_sns_topic: Option<String>,
     /// Optional `AZURE_TENANT_ID`.
     pub azure_tenant_id: Option<String>,
     /// Optional `ENCRYPTION` settings.
@@ -17033,6 +17035,9 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         }
         if let Some(ref tenant) = self.azure_tenant_id {
             write!(f, " AZURE_TENANT_ID = '{}'", value::escape_single_quote_string(tenant))?;
+        }
+        if let Some(ref topic) = self.aws_sns_topic {
+            write!(f, " AWS_SNS_TOPIC = '{}'", value::escape_single_quote_string(topic))?;
         }
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
