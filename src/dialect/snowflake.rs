@@ -1054,7 +1054,7 @@ impl SnowflakeDialect {
             }
             // CREATE [OR REPLACE] NETWORK RULE
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
-                return Some(parse_create_network_rule(or_replace, parser));
+                return Some(parse_create_network_rule(or_replace, or_alter, parser));
             }
 
             // CREATE [OR REPLACE] SECRET
@@ -7317,6 +7317,7 @@ fn parse_network_rule_value_list(parser: &mut Parser) -> Result<Vec<String>, Par
 ///   [ COMMENT = '<comment>' ]`. The property clauses may appear in any order.
 fn parse_create_network_rule(
     or_replace: bool,
+    or_alter: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -7344,6 +7345,7 @@ fn parse_create_network_rule(
     }
     Ok(Statement::CreateNetworkRule {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         rule_type,
