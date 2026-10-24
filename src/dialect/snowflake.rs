@@ -4343,7 +4343,19 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
 /// Parses a Snowflake stage name, which may start with `@` for internal stages.
 /// Examples: `@mystage`, `@namespace.stage`, `schema.table`
 pub fn parse_snowflake_stage_name(parser: &mut Parser) -> Result<ObjectName, ParserError> {
+    if parser.peek_token().token == Token::SnowflakeStageUrlPrefix {
+            let mut reference = parser.next_token().token.to_string();
+            while !matches!(parser.peek_token_no_skip().token, Token::Whitespace(_) | Token::EOF | Token::SemiColon | Token::LParen | Token::RParen | Token::Comma) {
+                if let Some(token) = parser.next_token_no_skip() {
+                    reference.push_str(&token.token.to_string());
+                }
+            }
+            return Ok(ObjectName::from(vec![Ident::new(reference)]));
+    }
     match parser.next_token().token {
+        Token::SingleQuotedString(reference) if reference.starts_with("snow://") => {
+            Ok(ObjectName::from(vec![Ident::with_quote('\'', reference)]))
+        }
         Token::AtSign => {
             parser.prev_token();
             let mut idents = vec![];
