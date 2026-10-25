@@ -17488,6 +17488,13 @@ pub enum AlterAccountOperation {
         /// The qualified name of the password policy to attach.
         policy: ObjectName,
     },
+    #[doc = "SET SESSION POLICY <policy_name> [ FORCE ]"]
+    SetSessionPolicy {
+        #[doc = "The qualified policy name."]
+        policy: ObjectName,
+        #[doc = "Whether to replace an existing attachment."]
+        force: bool,
+    },
     #[doc = "SET PACKAGES POLICY <policy_name> [ FORCE ]"]
     SetPackagesPolicy {
         #[doc = "The qualified policy name."]
@@ -17534,6 +17541,13 @@ impl fmt::Display for AlterAccountOperation {
             } => write!(f, "SET {policy_kind} POLICY {policy}"),
             AlterAccountOperation::SetPasswordPolicyForce { policy } => {
                 write!(f, "SET PASSWORD POLICY {policy} FORCE")
+            }
+            AlterAccountOperation::SetSessionPolicy { policy, force } => {
+                write!(f, "SET SESSION POLICY {policy}")?;
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
             }
             AlterAccountOperation::SetPackagesPolicy { policy, force } => {
                 write!(f, "SET PACKAGES POLICY {policy}")?;
