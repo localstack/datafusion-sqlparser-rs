@@ -3551,9 +3551,8 @@ pub fn parse_create_table(
                     parser.expect_keywords(&[Keyword::ACCESS, Keyword::POLICY])?;
                     let policy = parser.parse_object_name(false)?;
                     parser.expect_keyword_is(Keyword::ON)?;
-                    parser.expect_token(&Token::LParen)?;
-                    let columns = parser.parse_comma_separated(|p| p.parse_identifier())?;
-                    parser.expect_token(&Token::RParen)?;
+                    let columns =
+                        parser.parse_parenthesized_column_list(IsOptional::Mandatory, true)?;
 
                     builder =
                         builder.with_row_access_policy(Some(RowAccessPolicy::new(policy, columns)))
