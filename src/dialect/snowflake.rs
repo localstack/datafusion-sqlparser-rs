@@ -2711,14 +2711,17 @@ fn parse_alter_dynamic_table_property(
     let value_token = parser.next_token();
     let value = match &value_token.token {
         Token::Minus => {
-            let number_token = parser.next_token();
-            let Token::Number(value, long) = &number_token.token else {
-                return parser.expected("a numeric property value", number_token);
-            };
-            Expr::Value(Value::Number(format!("-{value}"), *long).into())
+            if !matches!(parser.peek_token().token, Token::Number(..)) {
+                return parser.expected("a numeric property value", parser.peek_token());
+            }
+            parser.prev_token();
+            Expr::Value(parser.parse_signed_option_value()?)
         }
         Token::SingleQuotedString(s) => Expr::Value(Value::SingleQuotedString(s.clone()).into()),
-        Token::Number(value, long) => Expr::Value(Value::Number(value.clone(), *long).into()),
+        Token::Number(..) => {
+            parser.prev_token();
+            Expr::Value(parser.parse_number_value()?)
+        }
         Token::Word(w) if w.quote_style.is_none() && w.keyword == Keyword::TRUE => {
             Expr::Value(Value::Boolean(true).into())
         }
