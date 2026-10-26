@@ -13295,7 +13295,9 @@ impl<'a> Parser<'a> {
             } else {
             let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
             let col_name = self.parse_identifier()?;
-            if self.dialect.supports_alter_column_comment()
+            if let Some(op) = self.maybe_parse_write_default()? {
+                AlterTableOperation::AlterColumn { column_name: col_name, op }
+            } else if self.dialect.supports_alter_column_comment()
                 && self.parse_keyword(Keyword::COMMENT)
             {
                 AlterTableOperation::AlterColumn {
@@ -13342,7 +13344,9 @@ impl<'a> Parser<'a> {
             // and Snowflake also accepts the bare form with `COLUMN` omitted:
             // `... ALTER c1 COMMENT 's1', c2 COMMENT 's2'`.
             let column_name = self.parse_identifier()?;
-            let op = if self.parse_keyword(Keyword::COMMENT) {
+            let op = if let Some(op) = self.maybe_parse_write_default()? {
+                op
+            } else if self.parse_keyword(Keyword::COMMENT) {
                 AlterColumnOperation::Comment {
                     comment: self.parse_literal_string()?,
                 }
@@ -13369,7 +13373,9 @@ impl<'a> Parser<'a> {
             let column_name = self.parse_identifier()?;
             let is_postgresql = dialect_of!(self is PostgreSqlDialect);
 
-            let op: AlterColumnOperation = if self.parse_keywords(&[
+            let op: AlterColumnOperation = if let Some(op) = self.maybe_parse_write_default()? {
+                op
+            } else if self.parse_keywords(&[
                 Keyword::SET,
                 Keyword::NOT,
                 Keyword::NULL,
@@ -13578,6 +13584,16 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(operation)
+    }
+
+    fn maybe_parse_write_default(&mut self) -> Result<Option<AlterColumnOperation>, ParserError> {
+        if self.parse_keywords(&[Keyword::SET, Keyword::WRITE, Keyword::DEFAULT]) {
+            Ok(Some(AlterColumnOperation::SetWriteDefault { value: self.parse_expr()? }))
+        } else if self.parse_keywords(&[Keyword::DROP, Keyword::WRITE, Keyword::DEFAULT]) {
+            Ok(Some(AlterColumnOperation::DropWriteDefault))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Try to parse a Snowflake column masking-policy operation
