@@ -27,10 +27,11 @@ use sqlparser_derive::{Visit, VisitMut};
 use crate::ast::helpers::key_value_options::KeyValueOptions;
 use crate::ast::{
     ClusteredBy, ColumnDef, CommentDef, CreateTable, CreateTableLikeKind, CreateTableOptions,
-    DistStyle, DynamicTableCustomRefresh, DynamicTableStartAt, Expr, FileFormat, ForValues, HiveDistributionStyle, HiveFormat, Ident,
-    InitializeKind, ObjectName, OnCommit, OneOrManyWithParens, Query, RefreshModeKind,
-    RowAccessPolicy, SqliteTableOptions, Statement, StorageLifecyclePolicy,
-    StorageSerializationPolicy, TableConstraint, TableVersion, Tag, WithData, WrappedCollection,
+    DistStyle, DynamicTableCustomRefresh, DynamicTableStartAt, Expr, FileFormat, ForValues,
+    HiveDistributionStyle, HiveFormat, Ident, InitializeKind, ObjectName, OnCommit,
+    OneOrManyWithParens, Query, RefreshModeKind, RowAccessPolicy, SqliteTableOptions, Statement,
+    StorageLifecyclePolicy, StorageSerializationPolicy, TableConstraint, TableVersion, Tag,
+    WithData, WrappedCollection,
 };
 
 use crate::parser::ParserError;
@@ -956,7 +957,10 @@ impl From<CreateTable> for CreateTableBuilder {
             immutable_where: table.immutable_where,
             backfill_from: table.backfill_from,
             refresh_mode: table.refresh_mode,
-            refresh_using: table.custom_refresh.as_ref().and_then(|value| value.using.clone()),
+            refresh_using: table
+                .custom_refresh
+                .as_ref()
+                .and_then(|value| value.using.clone()),
             start_at: table.custom_refresh.and_then(|value| value.start_at),
             initialize: table.initialize,
             require_user: table.require_user,

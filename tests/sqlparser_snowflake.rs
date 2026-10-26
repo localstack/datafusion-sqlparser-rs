@@ -1625,7 +1625,10 @@ fn parse_create_dynamic_table() {
             assert_eq!(Some(RefreshModeKind::CustomIncremental), table.refresh_mode);
             let custom_refresh = table.custom_refresh.as_deref().unwrap();
             assert!(matches!(
-                custom_refresh.using.as_deref().map(|query| query.body.as_ref()),
+                custom_refresh
+                    .using
+                    .as_deref()
+                    .map(|query| query.body.as_ref()),
                 Some(SetExpr::Merge(_))
             ));
             assert!(matches!(
@@ -1651,7 +1654,10 @@ fn parse_create_dynamic_table() {
         Statement::CreateTable(table) => {
             let custom_refresh = table.custom_refresh.as_deref().unwrap();
             assert!(matches!(
-                custom_refresh.using.as_deref().map(|query| query.body.as_ref()),
+                custom_refresh
+                    .using
+                    .as_deref()
+                    .map(|query| query.body.as_ref()),
                 Some(SetExpr::Insert(_))
             ));
             assert!(matches!(
@@ -1674,7 +1680,11 @@ fn parse_create_dynamic_table() {
         };
         assert_eq!(
             expected,
-            match table.custom_refresh.as_deref().and_then(|value| value.start_at.as_deref()) {
+            match table
+                .custom_refresh
+                .as_deref()
+                .and_then(|value| value.start_at.as_deref())
+            {
                 Some(DynamicTableStartAt::Statement(_)) => "STATEMENT",
                 Some(DynamicTableStartAt::Offset(_)) => "OFFSET",
                 _ => unreachable!(),
@@ -2589,7 +2599,10 @@ fn parse_snowflake_declare_result_set() {
 fn parse_snowflake_declare_show_payload() {
     fn payload_show(stmt: Statement) -> Statement {
         match stmt {
-            Statement::Declare { mut stmts } => {
+            Statement::Declare {
+                mut stmts,
+                separator: sqlparser::ast::DeclareSeparator::Semicolon,
+            } => {
                 assert_eq!(1, stmts.len());
                 let Declare {
                     assignment,
@@ -2643,7 +2656,10 @@ fn parse_snowflake_declare_call_payload() {
     // The `CALL` payload embedded in a declaration's parenthesized subquery.
     fn payload_call(stmt: Statement) -> Statement {
         match stmt {
-            Statement::Declare { mut stmts } => {
+            Statement::Declare {
+                mut stmts,
+                separator: sqlparser::ast::DeclareSeparator::Semicolon,
+            } => {
                 assert_eq!(1, stmts.len());
                 let Declare { assignment, .. } = stmts.swap_remove(0);
                 let query = match assignment {
@@ -2691,7 +2707,10 @@ END $$"#;
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[0] {
-        Statement::Declare { stmts } => &stmts[0],
+        Statement::Declare {
+            stmts,
+            separator: sqlparser::ast::DeclareSeparator::Semicolon,
+        } => &stmts[0],
         other => panic!("expected Declare, got {other:?}"),
     };
     assert_eq!(decl.declare_type, Some(DeclareType::ResultSet));
@@ -3312,10 +3331,7 @@ fn test_copy_into() {
 
     // A single-quoted internal-stage target (`'@stage/path/'`) is an unload
     // location too, classified exactly like the quoted `'s3://…'` form.
-    let sql = concat!(
-        "COPY INTO '@my_stage/path/' ",
-        "FROM (SELECT * FROM tbl)"
-    );
+    let sql = concat!("COPY INTO '@my_stage/path/' ", "FROM (SELECT * FROM tbl)");
     match snowflake().verified_stmt(sql) {
         Statement::CopyIntoSnowflake {
             kind,
@@ -6621,7 +6637,9 @@ fn test_snowflake_create_function_external_access_and_secrets() {
         .iter()
         .find_map(|o| match o {
             SqlOption::KeyValue { key, value }
-                if key.value.eq_ignore_ascii_case("EXTERNAL_ACCESS_INTEGRATIONS") =>
+                if key
+                    .value
+                    .eq_ignore_ascii_case("EXTERNAL_ACCESS_INTEGRATIONS") =>
             {
                 Some(value)
             }
@@ -6911,7 +6929,10 @@ END $$"#;
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[0] {
-        Statement::Declare { stmts } => &stmts[0],
+        Statement::Declare {
+            stmts,
+            separator: sqlparser::ast::DeclareSeparator::Semicolon,
+        } => &stmts[0],
         other => panic!("expected Declare, got {other:?}"),
     };
     assert_eq!(decl.names[0].value, "res");
@@ -6944,7 +6965,10 @@ END $$"#;
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[0] {
-        Statement::Declare { stmts } => &stmts[0],
+        Statement::Declare {
+            stmts,
+            separator: sqlparser::ast::DeclareSeparator::Semicolon,
+        } => &stmts[0],
         other => panic!("expected Declare, got {other:?}"),
     };
     assert_eq!(decl.names[0].value, "cur");
@@ -6978,7 +7002,10 @@ END $$"#;
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[1] {
-        Statement::Declare { stmts } => &stmts[0],
+        Statement::Declare {
+            stmts,
+            separator: sqlparser::ast::DeclareSeparator::Semicolon,
+        } => &stmts[0],
         other => panic!("expected Declare, got {other:?}"),
     };
     assert_eq!(decl.names[0].value, "cur");
@@ -9434,7 +9461,9 @@ fn test_alter_stage_refresh_subpath_if_exists() {
 fn test_alter_stage_refresh_bare_path_rejected() {
     // A bare quoted path after REFRESH (no `SUBPATH =`) is a syntax error —
     // only the keyword form is accepted.
-    assert!(snowflake().parse_sql_statements("ALTER STAGE s REFRESH 'data'").is_err());
+    assert!(snowflake()
+        .parse_sql_statements("ALTER STAGE s REFRESH 'data'")
+        .is_err());
 }
 
 #[test]
@@ -10421,15 +10450,13 @@ fn test_alter_pipe() {
         }
         _ => unreachable!(),
     }
-    match snowflake().one_statement_parses_to(
-        "ALTER PIPE p SET \"ERROR_INTEGRATION\"=n",
-        "",
-    ) {
+    match snowflake().one_statement_parses_to("ALTER PIPE p SET \"ERROR_INTEGRATION\"=n", "") {
         Statement::AlterPipe {
-            operation: AlterPipeOperation::Set {
-                quoted_property_names,
-                ..
-            },
+            operation:
+                AlterPipeOperation::Set {
+                    quoted_property_names,
+                    ..
+                },
             ..
         } => assert_eq!(vec![true], quoted_property_names),
         _ => unreachable!(),
@@ -10452,10 +10479,7 @@ fn test_alter_pipe() {
         }
         _ => unreachable!(),
     }
-    match snowflake().one_statement_parses_to(
-        "ALTER PIPE p UNSET \"ERROR_INTEGRATION\"",
-        "",
-    ) {
+    match snowflake().one_statement_parses_to("ALTER PIPE p UNSET \"ERROR_INTEGRATION\"", "") {
         Statement::AlterPipe {
             operation:
                 AlterPipeOperation::Unset {
@@ -10577,9 +10601,10 @@ fn parse_sf_alter_role_account_forms() {
 fn parse_sf_alter_role_if_exists_is_accepted() {
     // `IF EXISTS` parses; it is not carried on the AST node (the transform
     // recovers it from the raw SQL), so the canonical form drops it.
-    match snowflake()
-        .one_statement_parses_to("ALTER ROLE IF EXISTS r RENAME TO r2", "ALTER ROLE r RENAME TO r2")
-    {
+    match snowflake().one_statement_parses_to(
+        "ALTER ROLE IF EXISTS r RENAME TO r2",
+        "ALTER ROLE r RENAME TO r2",
+    ) {
         Statement::AlterRole { operation, .. } => {
             assert_eq!(
                 operation,
@@ -10608,7 +10633,10 @@ fn parse_sf_alter_database_role_forms() {
             operation,
         } => {
             assert!(!if_exists);
-            assert_eq!(name, ObjectName::from(vec![Ident::new("db"), Ident::new("r")]));
+            assert_eq!(
+                name,
+                ObjectName::from(vec![Ident::new("db"), Ident::new("r")])
+            );
             assert_eq!(
                 operation,
                 AlterDatabaseRoleOperation::RenameTo {
@@ -10620,7 +10648,9 @@ fn parse_sf_alter_database_role_forms() {
     }
 
     match snowflake().verified_stmt("ALTER DATABASE ROLE r RENAME TO r2") {
-        Statement::AlterDatabaseRole { name, operation, .. } => {
+        Statement::AlterDatabaseRole {
+            name, operation, ..
+        } => {
             assert_eq!(name, ObjectName::from(vec![Ident::new("r")]));
             assert_eq!(
                 operation,
@@ -10679,9 +10709,7 @@ fn parse_sf_alter_database_role_set_tag_still_intercepted() {
     // form falls through to the ALTER DATABASE tag interceptor unaffected.
     match snowflake().verified_stmt("ALTER DATABASE db SET TAG t1='v1'") {
         Statement::SetTags {
-            object_type,
-            unset,
-            ..
+            object_type, unset, ..
         } => {
             assert_eq!(object_type, ObjectType::Database);
             assert!(!unset);
@@ -10696,9 +10724,7 @@ fn parse_sf_alter_role_set_tag_still_intercepted() {
     // `Statement::SetTags`, not `Statement::AlterRole`.
     match snowflake().verified_stmt("ALTER ROLE r SET TAG t1='v1'") {
         Statement::SetTags {
-            object_type,
-            unset,
-            ..
+            object_type, unset, ..
         } => {
             assert_eq!(object_type, ObjectType::Role);
             assert!(!unset);
@@ -10714,9 +10740,7 @@ fn parse_sf_alter_user_set_tag_still_intercepted() {
     // key parses, which the generic `parse_alter_user` grammar cannot handle.
     match snowflake().verified_stmt("ALTER USER u SET TAG t1='v1'") {
         Statement::SetTags {
-            object_type,
-            unset,
-            ..
+            object_type, unset, ..
         } => {
             assert_eq!(object_type, ObjectType::User);
             assert!(!unset);
@@ -10725,9 +10749,7 @@ fn parse_sf_alter_user_set_tag_still_intercepted() {
     }
     match snowflake().verified_stmt("ALTER USER u UNSET TAG t1") {
         Statement::SetTags {
-            object_type,
-            unset,
-            ..
+            object_type, unset, ..
         } => {
             assert_eq!(object_type, ObjectType::User);
             assert!(unset);
@@ -10880,7 +10902,10 @@ fn parse_sf_create_external_function_all_clauses() {
             assert_eq!(2, external.headers.unwrap().len());
             assert_eq!(2, external.context_headers.unwrap().len());
             assert_eq!(Some(100), external.max_batch_rows);
-            assert_eq!(Some(ExternalFunctionCompression::Gzip), external.compression);
+            assert_eq!(
+                Some(ExternalFunctionCompression::Gzip),
+                external.compression
+            );
             assert_eq!(
                 Some("db.s.req".to_string()),
                 external.request_translator.map(|name| name.to_string())
@@ -10908,9 +10933,7 @@ fn parse_sf_create_external_function_requires_api_integration_and_url() {
     assert_eq!(
         "sql parser error: Expected: AS, found: EOF",
         snowflake()
-            .parse_sql_statements(
-                "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api"
-            )
+            .parse_sql_statements("CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api")
             .unwrap_err()
             .to_string()
     );
@@ -10945,13 +10968,19 @@ fn parse_snowflake_update_set_default() {
     // ordinary assignment — parses to Expr::Default and round-trips.
     match snowflake().verified_stmt("UPDATE t SET a = DEFAULT") {
         stmt @ Statement::Update(_) => {
-            assert!(matches!(update_values(&stmt).as_slice(), [Expr::Default(_)]));
+            assert!(matches!(
+                update_values(&stmt).as_slice(),
+                [Expr::Default(_)]
+            ));
         }
         other => unreachable!("expected UPDATE, got {other:?}"),
     }
 
     let stmt = snowflake().verified_stmt("UPDATE t SET t.a = DEFAULT");
-    assert!(matches!(update_values(&stmt).as_slice(), [Expr::Default(_)]));
+    assert!(matches!(
+        update_values(&stmt).as_slice(),
+        [Expr::Default(_)]
+    ));
 
     let stmt = snowflake().verified_stmt("UPDATE t SET a = 1, b = DEFAULT");
     assert!(matches!(
@@ -11133,7 +11162,13 @@ fn parse_create_semantic_view_element_fields() {
         metric.synonyms,
         vec!["revenue".to_string(), "sales".to_string()]
     );
-    assert_eq!(metric.tags, vec![Tag::new(ObjectName::from(vec![Ident::new("cost_center")]), "finance".to_string())]);
+    assert_eq!(
+        metric.tags,
+        vec![Tag::new(
+            ObjectName::from(vec![Ident::new("cost_center")]),
+            "finance".to_string()
+        )]
+    );
     assert_eq!(metric.comment.as_deref(), Some("total revenue"));
 }
 
@@ -11160,7 +11195,10 @@ fn parse_create_semantic_view_opaque_fields() {
     };
     assert_eq!(create.max_staleness.as_deref(), Some("1 day"));
     assert_eq!(create.ai_sql_generation.as_deref(), Some("gen instr"));
-    assert_eq!(create.ai_question_categorization.as_deref(), Some("cat instr"));
+    assert_eq!(
+        create.ai_question_categorization.as_deref(),
+        Some("cat instr")
+    );
     assert!(create.copy_grants);
     let dims = create
         .clauses
@@ -11175,7 +11213,10 @@ fn parse_create_semantic_view_opaque_fields() {
     };
     let cortex = dim.cortex_search.as_ref().expect("cortex search clause");
     assert_eq!(cortex.service.to_string(), "svc");
-    assert_eq!(cortex.using.as_ref().map(ToString::to_string), Some("region".to_string()));
+    assert_eq!(
+        cortex.using.as_ref().map(ToString::to_string),
+        Some("region".to_string())
+    );
 }
 
 #[test]
@@ -11293,7 +11334,10 @@ fn scripting_block_nesting_is_bounded_separately_from_expressions() {
                 )
             };
 
-            assert_eq!(Parser::parse_sql(&SnowflakeDialect {}, &block(8)).err(), None);
+            assert_eq!(
+                Parser::parse_sql(&SnowflakeDialect {}, &block(8)).err(),
+                None
+            );
             assert_eq!(
                 Parser::parse_sql(&SnowflakeDialect {}, &block(9)).err(),
                 Some(ParserError::RecursionLimitExceeded)
@@ -11331,7 +11375,10 @@ fn operator_chains_are_bounded_at_parse_time() {
     let limit = if cfg!(debug_assertions) { 1024 } else { 2048 };
     let chain = |ops: usize| format!("SELECT {}", vec!["1"; ops + 1].join(" + "));
 
-    assert_eq!(Parser::parse_sql(&SnowflakeDialect {}, &chain(limit)).err(), None);
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, &chain(limit)).err(),
+        None
+    );
     assert_eq!(
         Parser::parse_sql(&SnowflakeDialect {}, &chain(limit + 1)).err(),
         Some(ParserError::RecursionLimitExceeded)
@@ -11355,7 +11402,10 @@ fn operator_chains_are_bounded_at_parse_time() {
         vec!["1"; limit / 2 + 1].join(" + "),
         vec!["1"; limit / 2 + 1].join(" + ")
     );
-    assert_eq!(Parser::parse_sql(&SnowflakeDialect {}, &siblings).err(), None);
+    assert_eq!(
+        Parser::parse_sql(&SnowflakeDialect {}, &siblings).err(),
+        None
+    );
 }
 
 thread_local! {
@@ -11425,7 +11475,10 @@ fn execute_task_using_config() {
         "EXECUTE TASK task USING CONFIG = '{}' RETRY LAST",
         "EXECUTE TASK task RETRY LAST USING CONFIG = '{}'",
     ] {
-        assert!(Parser::parse_sql(&SnowflakeDialect {}, sql).is_err(), "{sql}");
+        assert!(
+            Parser::parse_sql(&SnowflakeDialect {}, sql).is_err(),
+            "{sql}"
+        );
     }
 }
 
@@ -11435,10 +11488,15 @@ fn test_array_keyword_is_not_a_type_suffix() {
     // custom type `v` (the SQL-standard `<type> ARRAY` suffix does not exist
     // in Snowflake).
     match snowflake().verified_stmt("CREATE FUNCTION f(v ARRAY) RETURNS ARRAY AS 'v'") {
-        Statement::CreateFunction(CreateFunction { args: Some(args), .. }) => {
+        Statement::CreateFunction(CreateFunction {
+            args: Some(args), ..
+        }) => {
             assert_eq!(1, args.len());
             assert_eq!(Some(Ident::new("v")), args[0].name);
-            assert!(matches!(args[0].data_type, DataType::Array(ArrayElemTypeDef::None)));
+            assert!(matches!(
+                args[0].data_type,
+                DataType::Array(ArrayElemTypeDef::None)
+            ));
         }
         other => panic!("expected CreateFunction, got {other:?}"),
     }
