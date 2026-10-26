@@ -18,10 +18,10 @@
 use crate::{
     ast::{
         ddl::AlterSchema, query::SelectItemQualifiedWildcardKind, AlterSchemaOperation, AlterTable,
-        ColumnOptions, CreateAggregate, CreateAggregateArgs, CreateAggregateOption, CreateOperator,
-        CreateOperatorClass, CreateOperatorFamily, CreateView, ExportData, Owner, TypedString,
-    CreateFunction, CreateFunctionBody, ExternalFunctionHeader, ExternalFunctionParams,
-    DynamicTableStartAt,
+        ColumnOptions, CreateAggregate, CreateAggregateArgs, CreateAggregateOption, CreateFunction,
+        CreateFunctionBody, CreateOperator, CreateOperatorClass, CreateOperatorFamily, CreateView,
+        DynamicTableStartAt, ExportData, ExternalFunctionHeader, ExternalFunctionParams, Owner,
+        TypedString,
     },
     tokenizer::TokenWithSpan,
 };
@@ -39,23 +39,21 @@ use super::{
     ConditionalStatements, ConflictTarget, ConnectByKind, ConstraintCharacteristics, CopySource,
     CreateIndex, CreateRule, CreateRuleAction, CreateTable, CreateTableOptions, Cte, Delete,
     DoUpdate, ExceptSelectItem, ExcludeConstraintElement, ExcludeSelectItem, Expr, ExprWithAlias,
-    Fetch, ForValues, FromTable, Function, FunctionArg, FunctionArgExpr, FunctionArgumentClause,
-    FunctionArgumentList, FunctionArguments, GroupByExpr, HavingBound, IfStatement,
-    IlikeSelectItem, InTarget, IndexColumn, Insert, Interpolate, InterpolateExpr, Join,
-    JoinConstraint, JoinOperator, JsonPath, JsonPathElem, LateralView, LimitClause,
-    MatchRecognizePattern, Measure, Merge, MergeAction, MergeClause, MergeInsertExpr,
-    MergeInsertKind, MergeUpdateExpr, MergeUpdateKind, NamedParenthesizedList,
-    NamedWindowDefinition, ObjectName, ObjectNamePart, Offset, OnConflict, OnConflictAction,
-    OnInsert, OpenStatement, OperateFunctionArg, OrderBy, OrderByExpr, OrderByKind, OutputClause,
-    Parens, Partition, PartitionBoundValue, PivotValueSource, ProjectionSelect, Query,
-    RaiseStatement, RaiseStatementValue, ReferentialAction, RenameSelectItem, ReplaceSelectElement,
-    ReplaceSelectItem, Select, SelectInto, SelectItem, SetExpr, Setting, SqlOption, Statement,
-    Subscript, SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint, TableFactor,
-    TableObject, TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind, Use, Values,
-    ViewColumnDef, WhileStatement, WildcardAdditionalOptions, With, WithFill,
-    ForStatement, LoopControlStatement, LoopStatement, RepeatStatement,
-    ForIterationSource,
-    SemanticViewQueryClause,
+    Fetch, ForIterationSource, ForStatement, ForValues, FromTable, Function, FunctionArg,
+    FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments, GroupByExpr,
+    HavingBound, IfStatement, IlikeSelectItem, InTarget, IndexColumn, Insert, Interpolate,
+    InterpolateExpr, Join, JoinConstraint, JoinOperator, JsonPath, JsonPathElem, LateralView,
+    LimitClause, LoopControlStatement, LoopStatement, MatchRecognizePattern, Measure, Merge,
+    MergeAction, MergeClause, MergeInsertExpr, MergeInsertKind, MergeUpdateExpr, MergeUpdateKind,
+    NamedParenthesizedList, NamedWindowDefinition, ObjectName, ObjectNamePart, Offset, OnConflict,
+    OnConflictAction, OnInsert, OpenStatement, OperateFunctionArg, OrderBy, OrderByExpr,
+    OrderByKind, OutputClause, Parens, Partition, PartitionBoundValue, PivotValueSource,
+    ProjectionSelect, Query, RaiseStatement, RaiseStatementValue, ReferentialAction,
+    RenameSelectItem, RepeatStatement, ReplaceSelectElement, ReplaceSelectItem, Select, SelectInto,
+    SelectItem, SemanticViewQueryClause, SetExpr, Setting, SqlOption, Statement, Subscript,
+    SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint, TableFactor, TableObject,
+    TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind, Use, Values, ViewColumnDef,
+    WhileStatement, WildcardAdditionalOptions, With, WithFill,
 };
 
 /// Given an iterator of spans, return the [Span::union] of all spans.
@@ -835,14 +833,14 @@ impl Spanned for DynamicTableStartAt {
 impl Spanned for CreateTable {
     fn span(&self) -> Span {
         let CreateTable {
-            or_replace: _,    // bool
-            or_alter: _,      // bool
-            temporary: _,     // bool
-            unlogged: _,      // bool
-            external: _,      // bool
-            global: _,        // bool
-            dynamic: _,       // bool
-            hybrid: _,        // bool, Snowflake specific
+            or_replace: _, // bool
+            or_alter: _,   // bool
+            temporary: _,  // bool
+            unlogged: _,   // bool
+            external: _,   // bool
+            global: _,     // bool
+            dynamic: _,    // bool
+            hybrid: _,     // bool, Snowflake specific
             interactive: _,
             if_not_exists: _, // bool
             transient: _,     // bool
@@ -893,10 +891,10 @@ impl Spanned for CreateTable {
             catalog: _,                         // todo, Snowflake specific
             catalog_table_name: _,              // todo, Snowflake specific
             catalog_namespace: _,
-            metadata_file_path: _,              // todo, Snowflake specific
+            metadata_file_path: _, // todo, Snowflake specific
             replace_invalid_characters: _,
-            auto_refresh: _,                    // todo, Snowflake specific
-            catalog_sync: _,                    // todo, Snowflake specific
+            auto_refresh: _, // todo, Snowflake specific
+            catalog_sync: _, // todo, Snowflake specific
             storage_serialization_policy: _,
             table_options,
             target_lag: _,
@@ -1271,8 +1269,11 @@ impl Spanned for AlterColumnOperation {
         match self {
             AlterColumnOperation::SetNotNull => Span::empty(),
             AlterColumnOperation::DropNotNull => Span::empty(),
-            AlterColumnOperation::SetDefault { value } | AlterColumnOperation::SetWriteDefault { value } => value.span(),
-            AlterColumnOperation::DropDefault | AlterColumnOperation::DropWriteDefault => Span::empty(),
+            AlterColumnOperation::SetDefault { value }
+            | AlterColumnOperation::SetWriteDefault { value } => value.span(),
+            AlterColumnOperation::DropDefault | AlterColumnOperation::DropWriteDefault => {
+                Span::empty()
+            }
             AlterColumnOperation::SetDataType {
                 data_type: _,
                 using,
@@ -1453,12 +1454,7 @@ impl Spanned for ExternalFunctionParams {
     fn span(&self) -> Span {
         union_spans(
             iter::once(self.api_integration.span())
-                .chain(
-                    self.headers
-                        .iter()
-                        .flatten()
-                        .map(Spanned::span),
-                )
+                .chain(self.headers.iter().flatten().map(Spanned::span))
                 .chain(
                     self.context_headers
                         .iter()
@@ -1482,9 +1478,9 @@ impl Spanned for ExternalFunctionParams {
 impl Spanned for CreateFunctionBody {
     fn span(&self) -> Span {
         match self {
-            CreateFunctionBody::AsBeforeOptions { body, link_symbol } => {
-                body.span().union_opt(&link_symbol.as_ref().map(Spanned::span))
-            }
+            CreateFunctionBody::AsBeforeOptions { body, link_symbol } => body
+                .span()
+                .union_opt(&link_symbol.as_ref().map(Spanned::span)),
             CreateFunctionBody::AsAfterOptions(body)
             | CreateFunctionBody::Return(body)
             | CreateFunctionBody::AsReturnExpr(body) => body.span(),
@@ -1498,19 +1494,14 @@ impl Spanned for CreateFunction {
     fn span(&self) -> Span {
         union_spans(
             iter::once(self.name.span())
-                .chain(
-                    self.args
-                        .iter()
-                        .flatten()
-                        .flat_map(|argument| {
-                            [
-                                argument.name.as_ref().map(|name| name.span),
-                                argument.default_expr.as_ref().map(Spanned::span),
-                            ]
-                            .into_iter()
-                            .flatten()
-                        }),
-                )
+                .chain(self.args.iter().flatten().flat_map(|argument| {
+                    [
+                        argument.name.as_ref().map(|name| name.span),
+                        argument.default_expr.as_ref().map(Spanned::span),
+                    ]
+                    .into_iter()
+                    .flatten()
+                }))
                 .chain(self.options.iter().flatten().map(Spanned::span))
                 .chain(self.function_body.iter().map(Spanned::span))
                 .chain(self.external_params.iter().map(Spanned::span)),
@@ -1566,7 +1557,12 @@ impl Spanned for CreateTableOptions {
 impl Spanned for AlterTableOperation {
     fn span(&self) -> Span {
         match self {
-            AlterTableOperation::TagValue { column, tag, .. } => union_spans(column.iter().map(|identifier| identifier.span).chain([tag.span()])),
+            AlterTableOperation::TagValue { column, tag, .. } => union_spans(
+                column
+                    .iter()
+                    .map(|identifier| identifier.span)
+                    .chain([tag.span()]),
+            ),
             AlterTableOperation::AlterConstraint { .. }
             | AlterTableOperation::DropConstraintColumns { .. } => Span::empty(),
             AlterTableOperation::AddConstraint {
@@ -2561,14 +2557,19 @@ impl Spanned for TableFactor {
                     .chain(core::iter::once(value.span()))
                     .chain(core::iter::once(name.span))
                     .chain(columns.iter().map(|ilist| ilist.span()))
-                .chain(alias.as_ref().map(|alias| alias.span())),
+                    .chain(alias.as_ref().map(|alias| alias.span())),
             ),
             TableFactor::Resample(resample) => union_spans(
                 core::iter::once(resample.table.span())
                     .chain(core::iter::once(resample.using.span))
                     .chain(core::iter::once(resample.increment.span()))
                     .chain(resample.partition_by.iter().map(|i| i.span))
-                    .chain(resample.metadata_columns.iter().filter_map(|i| i.alias.as_ref().map(|a| a.span)))
+                    .chain(
+                        resample
+                            .metadata_columns
+                            .iter()
+                            .filter_map(|i| i.alias.as_ref().map(|a| a.span)),
+                    )
                     .chain(resample.alias.as_ref().map(|i| i.span())),
             ),
             TableFactor::UnpivotExpr {

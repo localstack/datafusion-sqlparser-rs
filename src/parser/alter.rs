@@ -20,12 +20,10 @@ use crate::{
     ast::{
         helpers::key_value_options::{KeyValueOptions, KeyValueOptionsDelimiter},
         AlterConnectorOwner, AlterPolicy, AlterPolicyOperation, AlterRoleOperation, AlterTrigger,
-        AlterTriggerOperation, AlterUser, AlterUserAddMfaMethodOtp, AlterUserAddRoleDelegation,
-        AlterUserModifyMfaMethod, AlterUserPassword, AlterUserRemoveRoleDelegation,
-        AlterUserSetPolicy, Expr, MfaMethodKind, Password, ResetConfig, RoleOption, SetConfigValue,
-        Statement, UserPolicyKind,
-    AlterUserAddKeyPair,
-    AlterUserModifyKeyPair,
+        AlterTriggerOperation, AlterUser, AlterUserAddKeyPair, AlterUserAddMfaMethodOtp,
+        AlterUserAddRoleDelegation, AlterUserModifyKeyPair, AlterUserModifyMfaMethod,
+        AlterUserPassword, AlterUserRemoveRoleDelegation, AlterUserSetPolicy, Expr, MfaMethodKind,
+        Password, ResetConfig, RoleOption, SetConfigValue, Statement, UserPolicyKind,
     },
     dialect::{MsSqlDialect, PostgreSqlDialect},
     keywords::Keyword,
@@ -221,7 +219,10 @@ impl Parser<'_> {
             Token::Word(word)
                 if action_keywords.contains(&word.keyword) || word.keyword == Keyword::WITH
         );
-        let at_end = matches!(self.peek_nth_token_ref(1).token, Token::EOF | Token::SemiColon);
+        let at_end = matches!(
+            self.peek_nth_token_ref(1).token,
+            Token::EOF | Token::SemiColon
+        );
         let mut name = if action_keywords
             .iter()
             .any(|keyword| self.peek_keyword(*keyword))
@@ -239,24 +240,27 @@ impl Parser<'_> {
             }
         }
         let _ = self.parse_keyword(Keyword::WITH);
-        let add_workload_identity = if self.parse_keywords(&[Keyword::ADD, Keyword::WORKLOAD, Keyword::IDENTITY]) {
-            Some(crate::ast::AlterUserAddWorkloadIdentity {
-                name: self.parse_identifier()?,
-                options: self.parse_key_value_options(false, &[], false)?,
-            })
-        } else {
-            None
-        };
-        let remove_workload_identity = if self.parse_keywords(&[Keyword::REMOVE, Keyword::WORKLOAD, Keyword::IDENTITY]) {
-            Some(self.parse_identifier()?)
-        } else {
-            None
-        };
-        let modify_workload_identity = if self.parse_keywords(&[Keyword::MODIFY, Keyword::WORKLOAD, Keyword::IDENTITY]) {
-            Some(self.parse_identifier()?)
-        } else {
-            None
-        };
+        let add_workload_identity =
+            if self.parse_keywords(&[Keyword::ADD, Keyword::WORKLOAD, Keyword::IDENTITY]) {
+                Some(crate::ast::AlterUserAddWorkloadIdentity {
+                    name: self.parse_identifier()?,
+                    options: self.parse_key_value_options(false, &[], false)?,
+                })
+            } else {
+                None
+            };
+        let remove_workload_identity =
+            if self.parse_keywords(&[Keyword::REMOVE, Keyword::WORKLOAD, Keyword::IDENTITY]) {
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            };
+        let modify_workload_identity =
+            if self.parse_keywords(&[Keyword::MODIFY, Keyword::WORKLOAD, Keyword::IDENTITY]) {
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            };
         let rename_to = if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
             Some(self.parse_user_name(false)?)
         } else {
@@ -307,14 +311,19 @@ impl Parser<'_> {
         } else {
             None
         };
-        let remove_key_pair = if self.parse_keywords(&[Keyword::REMOVE, Keyword::KEY, Keyword::PAIR]) {
-            Some(self.parse_identifier()?)
-        } else {
-            None
-        };
+        let remove_key_pair =
+            if self.parse_keywords(&[Keyword::REMOVE, Keyword::KEY, Keyword::PAIR]) {
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            };
         let mut pat_if_not_exists = false;
-        let add_pat = if self.parse_keywords(&[Keyword::ADD, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
-            || self.parse_keywords(&[Keyword::ADD, Keyword::PAT])
+        let add_pat = if self.parse_keywords(&[
+            Keyword::ADD,
+            Keyword::PROGRAMMATIC,
+            Keyword::ACCESS,
+            Keyword::TOKEN,
+        ]) || self.parse_keywords(&[Keyword::ADD, Keyword::PAT])
         {
             pat_if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
             let name = self.parse_identifier()?;
@@ -323,36 +332,47 @@ impl Parser<'_> {
         } else {
             None
         };
-        let modify_key_pair = if self.parse_keywords(&[Keyword::MODIFY, Keyword::KEY, Keyword::PAIR]) {
-            let name = self.parse_identifier()?;
-            let mut rename_to = None;
-            let mut options = KeyValueOptions {
-                delimiter: KeyValueOptionsDelimiter::Space,
-                options: vec![],
-            };
-            let mut unset = vec![];
-            if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
-                rename_to = Some(self.parse_identifier()?);
-            } else if self.parse_keyword(Keyword::SET) {
-                options = self.parse_key_value_options(false, &[], false)?;
+        let modify_key_pair =
+            if self.parse_keywords(&[Keyword::MODIFY, Keyword::KEY, Keyword::PAIR]) {
+                let name = self.parse_identifier()?;
+                let mut rename_to = None;
+                let mut options = KeyValueOptions {
+                    delimiter: KeyValueOptionsDelimiter::Space,
+                    options: vec![],
+                };
+                let mut unset = vec![];
+                if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+                    rename_to = Some(self.parse_identifier()?);
+                } else if self.parse_keyword(Keyword::SET) {
+                    options = self.parse_key_value_options(false, &[], false)?;
+                } else {
+                    self.expect_keyword(Keyword::UNSET)?;
+                    unset = self.parse_comma_separated(Parser::parse_identifier)?;
+                }
+                Some(AlterUserModifyKeyPair {
+                    name,
+                    rename_to,
+                    options,
+                    unset,
+                })
             } else {
-                self.expect_keyword(Keyword::UNSET)?;
-                unset = self.parse_comma_separated(Parser::parse_identifier)?;
-            }
-            Some(AlterUserModifyKeyPair { name, rename_to, options, unset })
-        } else {
-            None
-        };
-        let rotate_key_pair = if self.parse_keywords(&[Keyword::ROTATE, Keyword::KEY, Keyword::PAIR]) {
-            let name = self.parse_identifier()?;
-            let options = self.parse_key_value_options(false, &[], false)?;
-            Some(AlterUserAddKeyPair { name, options })
-        } else {
-            None
-        };
+                None
+            };
+        let rotate_key_pair =
+            if self.parse_keywords(&[Keyword::ROTATE, Keyword::KEY, Keyword::PAIR]) {
+                let name = self.parse_identifier()?;
+                let options = self.parse_key_value_options(false, &[], false)?;
+                Some(AlterUserAddKeyPair { name, options })
+            } else {
+                None
+            };
         let mut pat_if_exists = false;
-        let modify_pat = if self.parse_keywords(&[Keyword::MODIFY, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
-            || self.parse_keywords(&[Keyword::MODIFY, Keyword::PAT])
+        let modify_pat = if self.parse_keywords(&[
+            Keyword::MODIFY,
+            Keyword::PROGRAMMATIC,
+            Keyword::ACCESS,
+            Keyword::TOKEN,
+        ]) || self.parse_keywords(&[Keyword::MODIFY, Keyword::PAT])
         {
             pat_if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             let name = self.parse_identifier()?;
@@ -370,12 +390,21 @@ impl Parser<'_> {
                 self.expect_keyword(Keyword::UNSET)?;
                 unset = self.parse_comma_separated(Parser::parse_identifier)?;
             }
-            Some(AlterUserModifyKeyPair { name, rename_to, options, unset })
+            Some(AlterUserModifyKeyPair {
+                name,
+                rename_to,
+                options,
+                unset,
+            })
         } else {
             None
         };
-        let rotate_pat = if self.parse_keywords(&[Keyword::ROTATE, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
-            || self.parse_keywords(&[Keyword::ROTATE, Keyword::PAT])
+        let rotate_pat = if self.parse_keywords(&[
+            Keyword::ROTATE,
+            Keyword::PROGRAMMATIC,
+            Keyword::ACCESS,
+            Keyword::TOKEN,
+        ]) || self.parse_keywords(&[Keyword::ROTATE, Keyword::PAT])
         {
             pat_if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             let name = self.parse_identifier()?;
@@ -384,22 +413,25 @@ impl Parser<'_> {
         } else {
             None
         };
-        let remove_pat = if self.parse_keywords(&[Keyword::REMOVE, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKEN])
-            || self.parse_keywords(&[Keyword::REMOVE, Keyword::PAT])
+        let remove_pat = if self.parse_keywords(&[
+            Keyword::REMOVE,
+            Keyword::PROGRAMMATIC,
+            Keyword::ACCESS,
+            Keyword::TOKEN,
+        ]) || self.parse_keywords(&[Keyword::REMOVE, Keyword::PAT])
         {
             pat_if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             Some(self.parse_identifier()?)
         } else {
             None
         };
-        let set_default_mfa_method =
-            if self.peek_nth_token_ref(2).token != Token::Eq
-                && self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT_MFA_METHOD])
-            {
-                Some(self.parse_mfa_method()?)
-            } else {
-                None
-            };
+        let set_default_mfa_method = if self.peek_nth_token_ref(2).token != Token::Eq
+            && self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT_MFA_METHOD])
+        {
+            Some(self.parse_mfa_method()?)
+        } else {
+            None
+        };
         let remove_mfa_method =
             if self.parse_keywords(&[Keyword::REMOVE, Keyword::MFA, Keyword::METHOD]) {
                 Some(self.parse_mfa_method_name()?)

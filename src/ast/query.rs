@@ -2629,14 +2629,24 @@ impl fmt::Display for TableFactor {
                 Ok(())
             }
             TableFactor::Resample(resample) => {
-                let Resample { table, using, increment, partition_by, metadata_columns, alias } =
-                    resample.as_ref();
+                let Resample {
+                    table,
+                    using,
+                    increment,
+                    partition_by,
+                    metadata_columns,
+                    alias,
+                } = resample.as_ref();
                 write!(f, "{table} RESAMPLE(USING {using} INCREMENT BY {increment}")?;
                 if !partition_by.is_empty() {
                     write!(f, " PARTITION BY {}", display_comma_separated(partition_by))?;
                 }
                 if !metadata_columns.is_empty() {
-                    write!(f, " METADATA_COLUMNS {}", display_comma_separated(metadata_columns))?;
+                    write!(
+                        f,
+                        " METADATA_COLUMNS {}",
+                        display_comma_separated(metadata_columns)
+                    )?;
                 }
                 write!(f, ")")?;
                 if let Some(alias) = alias {

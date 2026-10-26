@@ -27,33 +27,31 @@ use crate::ast::helpers::stmt_data_loading::{
     FileStagingCommand, StageLoadSelectItem, StageLoadSelectItemKind, StageParamsObject,
 };
 use crate::ast::{
-    AlterAlertOperation, AlterBackupPolicyOperation, AlterBackupSetOperation, AlterColumnOperation, BackupPolicyPhase, BackupSetTargetKind, ModifyBackupAction,
-    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterStreamlitOperation, AlterMaskingPolicyOperation,
-    AlterAuthenticationPolicyOperation, AlterDatabaseRoleOperation, AlterNetworkRuleOperation,
-    AlterPasswordPolicyOperation, AlterRoleOperation, AlterSemanticViewOperation,
-    AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
-    AlterMaintenancePolicyOperation,
-    CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewCortexSearch,
-    SemanticViewDistinctRange, SemanticViewExpr, SemanticViewNonAdditiveDimension,
-    SemanticViewRelationship, SemanticViewTable,
-    AlterProcedure, AlterProcedureOperation, AlterStageOperation, AlterTable, AlterTableOperation,
-    AlterTableType, AlterTagOperation, CatalogRestAuthentication, CatalogRestConfig, CatalogSource,
-    CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy, ColumnPolicyProperty,
-    ContactEntry, CopyIntoSnowflakeKind, CreateFunction, CreateFunctionBody, CreateTable,
-    CreateTableLikeKind, DollarQuotedString, Expr, ExternalAccessAllowedList,
-    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
-    ExternalTablePartitionColumn, ExternalVolumeEncryption, ExternalVolumeStorageLocation,
-    FunctionBehavior, FunctionCalledOnNull, FunctionReturnType, GeneratedAs, Ident,
-    IdentityParameters, IdentityProperty, IdentityPropertyFormatKind, IdentityPropertyKind,
-    IdentityPropertyOrder, InitializeKind, Insert,
+    AlterAlertOperation, AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation,
+    AlterBackupSetOperation, AlterColumnOperation, AlterDatabaseRoleOperation,
+    AlterExternalVolumeOperation, AlterFileFormatOperation, AlterMaintenancePolicyOperation,
+    AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterPasswordPolicyOperation,
+    AlterProcedure, AlterProcedureOperation, AlterRoleOperation, AlterSemanticViewOperation,
+    AlterSessionPolicyOperation, AlterSnowflakeSecretOperation, AlterStageOperation,
+    AlterStreamlitOperation, AlterTable, AlterTableOperation, AlterTableType, AlterTagOperation,
+    BackupPolicyPhase, BackupSetTargetKind, CatalogRestAuthentication, CatalogRestConfig,
+    CatalogSource, CatalogSyncNamespaceMode, CatalogTableFormat, ColumnOption, ColumnPolicy,
+    ColumnPolicyProperty, ContactEntry, CopyIntoSnowflakeKind, CreateFunction, CreateFunctionBody,
+    CreateSemanticView, CreateTable, CreateTableLikeKind, DollarQuotedString, DynamicTableStartAt,
+    Expr, ExternalAccessAllowedList, ExternalFunctionCompression, ExternalFunctionHeader,
+    ExternalFunctionParams, ExternalTablePartitionColumn, ExternalVolumeEncryption,
+    ExternalVolumeStorageLocation, FunctionBehavior, FunctionCalledOnNull, FunctionReturnType,
+    GeneratedAs, Ident, IdentityParameters, IdentityProperty, IdentityPropertyFormatKind,
+    IdentityPropertyKind, IdentityPropertyOrder, InitializeKind, Insert, ModifyBackupAction,
     MultiTableInsertIntoClause, MultiTableInsertType, MultiTableInsertValue,
     MultiTableInsertValues, MultiTableInsertWhenClause, ObjectName, ObjectNamePart, ObjectType,
-    DynamicTableStartAt, OperateFunctionArg, ProcedureExecuteAs, RefreshModeKind, RenameTableNameKind, RowAccessPolicy,
-    ShowKeysKind, ShowObjects, ShowPolicyEntity, ShowSemanticElementKind,
-    Query, SetExpr, ShowStatementFilterPosition, ShowStatementOptions, SqlOption, Statement,
-    StorageLifecyclePolicy,
-    StorageSerializationPolicy, TableObject, Tag, TagsColumnOption, Value, ValueWithSpan,
-    WrappedCollection,
+    OperateFunctionArg, ProcedureExecuteAs, Query, RefreshModeKind, RenameTableNameKind,
+    RowAccessPolicy, SemanticViewClause, SemanticViewColumnAccess, SemanticViewCortexSearch,
+    SemanticViewDistinctRange, SemanticViewExpr, SemanticViewNonAdditiveDimension,
+    SemanticViewRelationship, SemanticViewTable, SetExpr, ShowKeysKind, ShowObjects,
+    ShowPolicyEntity, ShowSemanticElementKind, ShowStatementFilterPosition, ShowStatementOptions,
+    SqlOption, Statement, StorageLifecyclePolicy, StorageSerializationPolicy, TableObject, Tag,
+    TagsColumnOption, Value, ValueWithSpan, WrappedCollection,
 };
 use crate::dialect::{Dialect, Precedence};
 use crate::keywords::Keyword;
@@ -234,11 +232,7 @@ impl SnowflakeDialect {
             return Some(parse_alter_security_integration(parser));
         }
 
-        if parser.parse_keywords(&[
-            Keyword::ALTER,
-            Keyword::NOTIFICATION,
-            Keyword::INTEGRATION,
-        ]) {
+        if parser.parse_keywords(&[Keyword::ALTER, Keyword::NOTIFICATION, Keyword::INTEGRATION]) {
             // ALTER NOTIFICATION INTEGRATION
             return Some(parse_alter_notification_integration(parser));
         }
@@ -265,15 +259,23 @@ impl SnowflakeDialect {
                 if parser.parse_keyword(Keyword::FETCH) {
                     return Ok(Statement::FetchGitRepository { if_exists, name });
                 }
-                let unset = parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])? == Keyword::UNSET;
+                let unset = parser.expect_one_of_keywords(&[Keyword::SET, Keyword::UNSET])?
+                    == Keyword::UNSET;
                 let operation = if parser.parse_keyword(Keyword::TAG) {
                     if unset {
-                        crate::ast::AlterGitRepositoryOperation::UnsetTags(parser.parse_comma_separated(|parser| parser.parse_object_name(false))?)
+                        crate::ast::AlterGitRepositoryOperation::UnsetTags(
+                            parser
+                                .parse_comma_separated(|parser| parser.parse_object_name(false))?,
+                        )
                     } else {
-                        crate::ast::AlterGitRepositoryOperation::SetTags(parser.parse_comma_separated(Parser::parse_tag)?)
+                        crate::ast::AlterGitRepositoryOperation::SetTags(
+                            parser.parse_comma_separated(Parser::parse_tag)?,
+                        )
                     }
                 } else if unset {
-                    crate::ast::AlterGitRepositoryOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+                    crate::ast::AlterGitRepositoryOperation::Unset(
+                        parser.parse_comma_separated(Parser::parse_identifier)?,
+                    )
                 } else {
                     let options = parse_streamlit_options(parser)?;
                     if options.is_empty() {
@@ -281,7 +283,11 @@ impl SnowflakeDialect {
                     }
                     crate::ast::AlterGitRepositoryOperation::Set(options)
                 };
-                Ok(Statement::AlterGitRepository { if_exists, name, operation })
+                Ok(Statement::AlterGitRepository {
+                    if_exists,
+                    name,
+                    operation,
+                })
             })());
         }
 
@@ -292,7 +298,8 @@ impl SnowflakeDialect {
         if parser.parse_keywords(&[Keyword::EXECUTE, Keyword::STREAMLIT]) {
             return Some(parse_execute_streamlit(parser));
         }
-        if matches!(&parser.peek_token_ref().token, Token::Word(word) if word.keyword == Keyword::EXECUTE) {
+        if matches!(&parser.peek_token_ref().token, Token::Word(word) if word.keyword == Keyword::EXECUTE)
+        {
             let first = parser.peek_nth_token(1);
             let second = parser.peek_nth_token(2);
             if let (Token::Word(first), Token::Word(second)) = (&first.token, &second.token) {
@@ -300,7 +307,8 @@ impl SnowflakeDialect {
                     && second.value.eq_ignore_ascii_case("BUNDLE");
                 let legacy = first.value.eq_ignore_ascii_case("NOTEBOOK")
                     && second.value.eq_ignore_ascii_case("PROJECT");
-                if first.quote_style.is_none() && second.quote_style.is_none() && (modern || legacy) {
+                if first.quote_style.is_none() && second.quote_style.is_none() && (modern || legacy)
+                {
                     let execute_token = AttachedToken(parser.next_token());
                     parser.next_token();
                     parser.next_token();
@@ -470,7 +478,11 @@ impl SnowflakeDialect {
                 } else {
                     parse_metadata_policy_operation(parser)?
                 };
-                Ok(Statement::AlterFeaturePolicy { if_exists, name, operation })
+                Ok(Statement::AlterFeaturePolicy {
+                    if_exists,
+                    name,
+                    operation,
+                })
             })());
         }
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::MAINTENANCE, Keyword::POLICY]) {
@@ -481,41 +493,76 @@ impl SnowflakeDialect {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
                 let operation = parse_metadata_policy_operation(parser)?;
-                Ok(Statement::AlterPackagesPolicy { if_exists, name, operation })
+                Ok(Statement::AlterPackagesPolicy {
+                    if_exists,
+                    name,
+                    operation,
+                })
             })());
         }
 
-        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+        if parser.parse_keywords(&[
+            Keyword::ALTER,
+            Keyword::DATA,
+            Keyword::MOVEMENT,
+            Keyword::POLICY,
+        ]) {
             return Some((|| {
                 use crate::ast::AlterDataMovementPolicyOperation;
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
-                let list = parser.peek_nth_token(1).token.to_string().to_ascii_uppercase();
+                let list = parser
+                    .peek_nth_token(1)
+                    .token
+                    .to_string()
+                    .to_ascii_uppercase();
                 let operation = if ["ENFORCE_RULES", "ALERT_RULES"].contains(&list.as_str())
-                    && matches!(parser.peek_token().token, Token::Word(ref word) if [Keyword::SET, Keyword::ADD, Keyword::REMOVE].contains(&word.keyword)) {
-                    let action = parser.expect_one_of_keywords(&[Keyword::SET, Keyword::ADD, Keyword::REMOVE])?.to_string();
+                    && matches!(parser.peek_token().token, Token::Word(ref word) if [Keyword::SET, Keyword::ADD, Keyword::REMOVE].contains(&word.keyword))
+                {
+                    let action = parser
+                        .expect_one_of_keywords(&[Keyword::SET, Keyword::ADD, Keyword::REMOVE])?
+                        .to_string();
                     parser.next_token();
                     parser.expect_token(&Token::Eq)?;
                     parser.expect_token(&Token::LParen)?;
-                    let rules = if parser.consume_token(&Token::RParen) { Vec::new() } else {
-                        let rules = parser.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                    let rules = if parser.consume_token(&Token::RParen) {
+                        Vec::new()
+                    } else {
+                        let rules = parser
+                            .parse_comma_separated(|parser| parser.parse_object_name(false))?;
                         parser.expect_token(&Token::RParen)?;
                         rules
                     };
-                    AlterDataMovementPolicyOperation::Rules { action, list, rules }
+                    AlterDataMovementPolicyOperation::Rules {
+                        action,
+                        list,
+                        rules,
+                    }
                 } else {
-                    AlterDataMovementPolicyOperation::Metadata(parse_metadata_policy_operation(parser)?)
+                    AlterDataMovementPolicyOperation::Metadata(parse_metadata_policy_operation(
+                        parser,
+                    )?)
                 };
-                Ok(Statement::AlterDataMovementPolicy { if_exists, name, operation })
+                Ok(Statement::AlterDataMovementPolicy {
+                    if_exists,
+                    name,
+                    operation,
+                })
             })());
         }
 
-        if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
+        if parser.parse_keywords(&[
+            Keyword::ALTER,
+            Keyword::DATA,
+            Keyword::MOVEMENT,
+            Keyword::RULE,
+        ]) {
             return Some((|| {
                 use crate::ast::AlterDataMovementRuleOperation;
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
-                let operation = if parser.parse_keywords(&[Keyword::SET, Keyword::MAX_ROWS, Keyword::AS]) {
+                let operation =
+                    if parser.parse_keywords(&[Keyword::SET, Keyword::MAX_ROWS, Keyword::AS]) {
                         parser.expect_token(&Token::LParen)?;
                         parser.expect_token(&Token::RParen)?;
                         parser.expect_keyword(Keyword::RETURNS)?;
@@ -525,11 +572,21 @@ impl SnowflakeDialect {
                         let body = parser.parse_expr()?;
                         let end = parser.token_at(parser.get_current_index()).span.end;
                         let body_span = crate::tokenizer::Span { start, end };
-                        AlterDataMovementRuleOperation::SetMaxRows { return_type, body, body_span }
-                } else {
-                    AlterDataMovementRuleOperation::Metadata(parse_metadata_policy_operation(parser)?)
-                };
-                Ok(Statement::AlterDataMovementRule { if_exists, name, operation })
+                        AlterDataMovementRuleOperation::SetMaxRows {
+                            return_type,
+                            body,
+                            body_span,
+                        }
+                    } else {
+                        AlterDataMovementRuleOperation::Metadata(parse_metadata_policy_operation(
+                            parser,
+                        )?)
+                    };
+                Ok(Statement::AlterDataMovementRule {
+                    if_exists,
+                    name,
+                    operation,
+                })
             })());
         }
 
@@ -610,11 +667,7 @@ impl SnowflakeDialect {
             return Some(parse_drop_security_integration(parser));
         }
 
-        if parser.parse_keywords(&[
-            Keyword::DROP,
-            Keyword::NOTIFICATION,
-            Keyword::INTEGRATION,
-        ]) {
+        if parser.parse_keywords(&[Keyword::DROP, Keyword::NOTIFICATION, Keyword::INTEGRATION]) {
             // DROP NOTIFICATION INTEGRATION
             return Some(parse_drop_notification_integration(parser));
         }
@@ -684,14 +737,24 @@ impl SnowflakeDialect {
             return Some(parse_drop_backup_policy(parser));
         }
 
-        if parser.parse_keywords(&[Keyword::DROP, Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
+        if parser.parse_keywords(&[
+            Keyword::DROP,
+            Keyword::DATA,
+            Keyword::MOVEMENT,
+            Keyword::POLICY,
+        ]) {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
                 Ok(Statement::DropDataMovementPolicy { if_exists, name })
             })());
         }
-        if parser.parse_keywords(&[Keyword::DROP, Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
+        if parser.parse_keywords(&[
+            Keyword::DROP,
+            Keyword::DATA,
+            Keyword::MOVEMENT,
+            Keyword::RULE,
+        ]) {
             return Some((|| {
                 let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
                 let name = parser.parse_object_name(false)?;
@@ -776,11 +839,7 @@ impl SnowflakeDialect {
                 // DESC[RIBE] NOTIFICATION INTEGRATION
                 return Some(parse_describe_notification_integration(parser));
             }
-            if parser.parse_keywords(&[
-                Keyword::EXTERNAL,
-                Keyword::ACCESS,
-                Keyword::INTEGRATION,
-            ]) {
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::ACCESS, Keyword::INTEGRATION]) {
                 // DESC[RIBE] EXTERNAL ACCESS INTEGRATION
                 return Some(parse_describe_external_access_integration(parser));
             }
@@ -834,19 +893,39 @@ impl SnowflakeDialect {
                 return Some(parse_describe_backup_policy(parser));
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
-                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeDataMovementRule { name }));
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribeDataMovementRule { name }),
+                );
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
-                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeDataMovementPolicy { name }));
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribeDataMovementPolicy { name }),
+                );
             }
             if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
-                return Some(parser.parse_object_name(false).map(|name| Statement::DescribePackagesPolicy { name }));
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribePackagesPolicy { name }),
+                );
             }
             if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICY]) {
-                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeFeaturePolicy { name }));
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribeFeaturePolicy { name }),
+                );
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICY]) {
-                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeMaintenancePolicy { name }));
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribeMaintenancePolicy { name }),
+                );
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULE]) {
                 // DESC[RIBE] NETWORK RULE
@@ -857,7 +936,11 @@ impl SnowflakeDialect {
                 return Some(parse_describe_secret(parser));
             }
             if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORY]) {
-                return Some(parser.parse_object_name(false).map(|name| Statement::DescribeGitRepository { name }));
+                return Some(
+                    parser
+                        .parse_object_name(false)
+                        .map(|name| Statement::DescribeGitRepository { name }),
+                );
             }
             if parser.parse_keyword(Keyword::STREAMLIT) {
                 // DESC[RIBE] STREAMLIT
@@ -878,11 +961,7 @@ impl SnowflakeDialect {
             let or_alter = parser.parse_keywords(&[Keyword::OR, Keyword::ALTER]);
 
             // CREATE [OR REPLACE] [SECURE] EXTERNAL FUNCTION
-            if parser.parse_keywords(&[
-                Keyword::SECURE,
-                Keyword::EXTERNAL,
-                Keyword::FUNCTION,
-            ]) {
+            if parser.parse_keywords(&[Keyword::SECURE, Keyword::EXTERNAL, Keyword::FUNCTION]) {
                 return Some(parse_create_external_function(or_replace, true, parser));
             }
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::FUNCTION]) {
@@ -925,11 +1004,7 @@ impl SnowflakeDialect {
             }
 
             // CREATE [OR REPLACE] EXTERNAL ACCESS INTEGRATION
-            if parser.parse_keywords(&[
-                Keyword::EXTERNAL,
-                Keyword::ACCESS,
-                Keyword::INTEGRATION,
-            ]) {
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::ACCESS, Keyword::INTEGRATION]) {
                 return Some(parse_create_external_access_integration(or_replace, parser));
             }
 
@@ -974,29 +1049,47 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICY]) {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     let options = parse_feature_policy_options(parser)?;
-                    Ok(Statement::CreateFeaturePolicy { or_replace, if_not_exists, name, options })
+                    Ok(Statement::CreateFeaturePolicy {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                        options,
+                    })
                 })());
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICY]) {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     let options = parser.parse_key_value_options(false, &[], false)?;
-                    Ok(Statement::CreateMaintenancePolicy { or_replace, if_not_exists, name, options })
+                    Ok(Statement::CreateMaintenancePolicy {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                        options,
+                    })
                 })());
             }
 
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICY]) {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     let mut lists = [None, None];
                     for _ in 0..2 {
                         let next = parser.peek_token().token.to_string();
-                        let Some(index) = ["ENFORCE_RULES", "ALERT_RULES"].iter().position(|label| next.eq_ignore_ascii_case(label)) else { break };
+                        let Some(index) = ["ENFORCE_RULES", "ALERT_RULES"]
+                            .iter()
+                            .position(|label| next.eq_ignore_ascii_case(label))
+                        else {
+                            break;
+                        };
                         if lists[index].is_none() {
                             parser.next_token();
                             parser.expect_token(&Token::Eq)?;
@@ -1004,7 +1097,9 @@ impl SnowflakeDialect {
                             lists[index] = Some(if parser.consume_token(&Token::RParen) {
                                 Vec::new()
                             } else {
-                                let rules = parser.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                                let rules = parser.parse_comma_separated(|parser| {
+                                    parser.parse_object_name(false)
+                                })?;
                                 parser.expect_token(&Token::RParen)?;
                                 rules
                             });
@@ -1014,13 +1109,23 @@ impl SnowflakeDialect {
                     let comment = if parser.parse_keyword(Keyword::COMMENT) {
                         parser.expect_token(&Token::Eq)?;
                         Some(parser.parse_literal_string()?)
-                    } else { None };
-                    Ok(Statement::CreateDataMovementPolicy { or_replace, if_not_exists, name, enforce_rules, alert_rules, comment })
+                    } else {
+                        None
+                    };
+                    Ok(Statement::CreateDataMovementPolicy {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                        enforce_rules,
+                        alert_rules,
+                        comment,
+                    })
                 })());
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULE]) {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     parser.expect_keyword(Keyword::TYPE)?;
                     parser.expect_token(&Token::Eq)?;
@@ -1038,18 +1143,36 @@ impl SnowflakeDialect {
                     let comment = if parser.parse_keyword(Keyword::COMMENT) {
                         parser.expect_token(&Token::Eq)?;
                         Some(parser.parse_literal_string()?)
-                    } else { None };
-                    Ok(Statement::CreateDataMovementRule { or_replace, if_not_exists, name, movement_type, return_type, body, body_span, comment })
+                    } else {
+                        None
+                    };
+                    Ok(Statement::CreateDataMovementRule {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                        movement_type,
+                        return_type,
+                        body,
+                        body_span,
+                        comment,
+                    })
                 })());
             }
             if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICY]) {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     parser.expect_keyword(Keyword::LANGUAGE)?;
                     let language = parser.parse_identifier()?;
                     let options = parser.parse_key_value_options(false, &[], false)?;
-                    Ok(Statement::CreatePackagesPolicy { or_replace, if_not_exists, name, language, options })
+                    Ok(Statement::CreatePackagesPolicy {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                        language,
+                        options,
+                    })
                 })());
             }
             // CREATE [OR REPLACE] NETWORK RULE
@@ -1064,12 +1187,15 @@ impl SnowflakeDialect {
 
             if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORY]) {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
                     let mut options = Vec::new();
                     let mut tags = Vec::new();
                     while matches!(parser.peek_token_ref().token, Token::Word(_)) {
-                        if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG]) || parser.parse_keyword(Keyword::TAG) {
+                        if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                            || parser.parse_keyword(Keyword::TAG)
+                        {
                             parser.expect_token(&Token::LParen)?;
                             tags = parser.parse_comma_separated(Parser::parse_tag)?;
                             parser.expect_token(&Token::RParen)?;
@@ -1080,15 +1206,26 @@ impl SnowflakeDialect {
                         let value = parser.parse_expr()?;
                         options.push(SqlOption::KeyValue { key, value });
                     }
-                    Ok(Statement::CreateGitRepository { or_replace, if_not_exists, name, options, tags })
+                    Ok(Statement::CreateGitRepository {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                        options,
+                        tags,
+                    })
                 })());
             }
             // CREATE [OR REPLACE] STREAMLIT
             if parse_tag_keyword(parser, "DATASET") {
                 return Some((|| {
-                    let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+                    let if_not_exists =
+                        parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
                     let name = parser.parse_object_name(false)?;
-                    Ok(Statement::CreateDataset { or_replace, if_not_exists, name })
+                    Ok(Statement::CreateDataset {
+                        or_replace,
+                        if_not_exists,
+                        name,
+                    })
                 })());
             }
             if parser.parse_keyword(Keyword::STREAMLIT) {
@@ -1172,8 +1309,16 @@ impl SnowflakeDialect {
                 return Some(parse_create_tag(or_replace, or_alter, parser));
             }
 
-            let plain_create = !(or_replace || or_alter || global.is_some() || temporary || volatile
-                || transient || iceberg || dynamic || hybrid || interactive);
+            let plain_create = !(or_replace
+                || or_alter
+                || global.is_some()
+                || temporary
+                || volatile
+                || transient
+                || iceberg
+                || dynamic
+                || hybrid
+                || interactive);
             if plain_create && parser.parse_keyword(Keyword::SCHEMA) {
                 if let Some(restore) =
                     parse_create_from_backup_set(BackupSetTargetKind::Schema, false, parser)
@@ -1198,14 +1343,22 @@ impl SnowflakeDialect {
                 if global.is_some() && !temporary {
                     return Some(parser.expected("TEMP or TEMPORARY", parser.peek_token()));
                 }
-                return Some(parser.parse_create_view(
-                    or_alter,
-                    or_replace,
-                    temporary || volatile,
-                    None,
-                ).map(Into::into));
+                return Some(
+                    parser
+                        .parse_create_view(or_alter, or_replace, temporary || volatile, None)
+                        .map(Into::into),
+                );
             } else if parser.parse_keyword(Keyword::TABLE) {
-                if !(or_alter || global.is_some() || temporary || volatile || transient || iceberg || dynamic || hybrid || interactive) {
+                if !(or_alter
+                    || global.is_some()
+                    || temporary
+                    || volatile
+                    || transient
+                    || iceberg
+                    || dynamic
+                    || hybrid
+                    || interactive)
+                {
                     if let Some(restore) =
                         parse_create_from_backup_set(BackupSetTargetKind::Table, or_replace, parser)
                     {
@@ -1214,8 +1367,17 @@ impl SnowflakeDialect {
                 }
                 return Some(
                     parse_create_table(
-                        or_replace, or_alter, global, temporary, volatile, transient, iceberg,
-                        dynamic, hybrid, interactive, parser,
+                        or_replace,
+                        or_alter,
+                        global,
+                        temporary,
+                        volatile,
+                        transient,
+                        iceberg,
+                        dynamic,
+                        hybrid,
+                        interactive,
+                        parser,
                     )
                     .map(Into::into),
                 );
@@ -1310,11 +1472,7 @@ impl SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::NOTIFICATION, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_notification_integrations(parser));
             }
-            if parser.parse_keywords(&[
-                Keyword::EXTERNAL,
-                Keyword::ACCESS,
-                Keyword::INTEGRATIONS,
-            ]) {
+            if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::ACCESS, Keyword::INTEGRATIONS]) {
                 return Some(parse_show_external_access_integrations(parser));
             }
             if parser.parse_keyword(Keyword::INTEGRATIONS) {
@@ -1347,7 +1505,11 @@ impl SnowflakeDialect {
                 return Some(parse_show_stages(terse, parser));
             }
             if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORIES]) {
-                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowGitRepositories { show_options }));
+                return Some(
+                    parser
+                        .parse_show_stmt_options()
+                        .map(|show_options| Statement::ShowGitRepositories { show_options }),
+                );
             }
             if parser.parse_keyword(Keyword::STREAMLITS) {
                 return Some(parser.parse_show_stmt_options().map(|show_options| {
@@ -1361,9 +1523,11 @@ impl SnowflakeDialect {
                 return Some(parse_show_tags(terse, parser));
             }
             if parser.parse_keyword(Keyword::CONTACTS) {
-                return Some(parser.parse_show_stmt_options().map(|show_options| {
-                    Statement::ShowContacts { show_options }
-                }));
+                return Some(
+                    parser
+                        .parse_show_stmt_options()
+                        .map(|show_options| Statement::ShowContacts { show_options }),
+                );
             }
             if parser.parse_keyword(Keyword::SEQUENCES) {
                 return Some(parse_show_sequences(terse, parser));
@@ -1422,13 +1586,19 @@ impl SnowflakeDialect {
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::SETS]) {
                 let show_options = parser.parse_show_stmt_options();
-                return Some(show_options.map(|show_options| Statement::ShowBackupSets { show_options }));
+                return Some(
+                    show_options.map(|show_options| Statement::ShowBackupSets { show_options }),
+                );
             }
             if parser.parse_keywords(&[Keyword::BACKUP, Keyword::POLICIES]) {
                 return Some(parse_show_backup_policies(parser));
             }
             if parser.parse_keywords(&[Keyword::PACKAGES, Keyword::POLICIES]) {
-                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowPackagesPolicies { show_options }));
+                return Some(
+                    parser
+                        .parse_show_stmt_options()
+                        .map(|show_options| Statement::ShowPackagesPolicies { show_options }),
+                );
             }
             if parser.parse_keywords(&[Keyword::FEATURE, Keyword::POLICIES]) {
                 return Some((|| {
@@ -1437,23 +1607,44 @@ impl SnowflakeDialect {
                         Some(if parser.parse_keyword(Keyword::ACCOUNT) {
                             crate::ast::ShowFeaturePolicyEntity::Account
                         } else if parser.parse_keyword(Keyword::DATABASE) {
-                            crate::ast::ShowFeaturePolicyEntity::Database(parser.parse_object_name(false)?)
+                            crate::ast::ShowFeaturePolicyEntity::Database(
+                                parser.parse_object_name(false)?,
+                            )
                         } else {
                             parser.expect_keyword(Keyword::APPLICATION)?;
-                            crate::ast::ShowFeaturePolicyEntity::Application(parser.parse_object_name(false)?)
+                            crate::ast::ShowFeaturePolicyEntity::Application(
+                                parser.parse_object_name(false)?,
+                            )
                         })
-                    } else { None };
-                    Ok(Statement::ShowFeaturePolicies { show_options, on_entity })
+                    } else {
+                        None
+                    };
+                    Ok(Statement::ShowFeaturePolicies {
+                        show_options,
+                        on_entity,
+                    })
                 })());
             }
             if parser.parse_keywords(&[Keyword::MAINTENANCE, Keyword::POLICIES]) {
-                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowMaintenancePolicies { show_options }));
+                return Some(
+                    parser
+                        .parse_show_stmt_options()
+                        .map(|show_options| Statement::ShowMaintenancePolicies { show_options }),
+                );
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::RULES]) {
-                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowDataMovementRules { show_options }));
+                return Some(
+                    parser
+                        .parse_show_stmt_options()
+                        .map(|show_options| Statement::ShowDataMovementRules { show_options }),
+                );
             }
             if parser.parse_keywords(&[Keyword::DATA, Keyword::MOVEMENT, Keyword::POLICIES]) {
-                return Some(parser.parse_show_stmt_options().map(|show_options| Statement::ShowDataMovementPolicies { show_options }));
+                return Some(
+                    parser
+                        .parse_show_stmt_options()
+                        .map(|show_options| Statement::ShowDataMovementPolicies { show_options }),
+                );
             }
             if parser.parse_keywords(&[Keyword::NETWORK, Keyword::RULES]) {
                 return Some(parse_show_network_rules(parser));
@@ -1486,8 +1677,12 @@ impl SnowflakeDialect {
                     Ok(Statement::ShowUserKeyPairs { user })
                 })());
             }
-            if parser.parse_keywords(&[Keyword::USER, Keyword::PROGRAMMATIC, Keyword::ACCESS, Keyword::TOKENS])
-                || parser.parse_keywords(&[Keyword::USER, Keyword::PATS])
+            if parser.parse_keywords(&[
+                Keyword::USER,
+                Keyword::PROGRAMMATIC,
+                Keyword::ACCESS,
+                Keyword::TOKENS,
+            ]) || parser.parse_keywords(&[Keyword::USER, Keyword::PATS])
             {
                 return Some((|| {
                     let user = if parser.parse_keywords(&[Keyword::FOR, Keyword::USER]) {
@@ -1498,7 +1693,13 @@ impl SnowflakeDialect {
                     Ok(Statement::ShowUserPats { user })
                 })());
             }
-            if parser.parse_keywords(&[Keyword::USER, Keyword::WORKLOAD, Keyword::IDENTITY, Keyword::AUTHENTICATION, Keyword::METHODS]) {
+            if parser.parse_keywords(&[
+                Keyword::USER,
+                Keyword::WORKLOAD,
+                Keyword::IDENTITY,
+                Keyword::AUTHENTICATION,
+                Keyword::METHODS,
+            ]) {
                 return Some((|| {
                     let user = if parser.parse_keywords(&[Keyword::FOR, Keyword::USER]) {
                         Some(parser.parse_identifier()?)
@@ -2154,7 +2355,6 @@ impl Dialect for SnowflakeDialect {
     fn supports_add_column_if_not_exists(&self) -> bool {
         true
     }
-
 }
 
 // Peeks ahead to identify tokens that are expected after
@@ -2221,12 +2421,13 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         additional_names.push(parser.parse_object_name(true)?);
     }
 
-    let operations = if parser.peek_keyword(Keyword::ALTER)
-        || parser.peek_keyword(Keyword::MODIFY)
+    let operations = if parser.peek_keyword(Keyword::ALTER) || parser.peek_keyword(Keyword::MODIFY)
     {
         parse_alter_dynamic_table_column_comments(parser)?
     } else {
-        let operation = if parser.peek_one_of_keywords(&[Keyword::ADD, Keyword::DROP]).is_some()
+        let operation = if parser
+            .peek_one_of_keywords(&[Keyword::ADD, Keyword::DROP])
+            .is_some()
             && parser.peek_nth_token(1).token == Token::make_keyword("VALUE")
         {
             parser.parse_tag_value_assignment()?
@@ -2311,10 +2512,8 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
         vec![operation]
     };
 
-    let copy_session = if matches!(
-        operations.as_slice(),
-        [AlterTableOperation::Refresh { .. }]
-    ) && parser.parse_keyword(Keyword::COPY)
+    let copy_session = if matches!(operations.as_slice(), [AlterTableOperation::Refresh { .. }])
+        && parser.parse_keyword(Keyword::COPY)
     {
         parser.expect_keyword_is(Keyword::SESSION)?;
         true
@@ -2519,9 +2718,7 @@ fn parse_alter_dynamic_table_property(
             Expr::Value(Value::Number(format!("-{value}"), *long).into())
         }
         Token::SingleQuotedString(s) => Expr::Value(Value::SingleQuotedString(s.clone()).into()),
-        Token::Number(value, long) => {
-            Expr::Value(Value::Number(value.clone(), *long).into())
-        }
+        Token::Number(value, long) => Expr::Value(Value::Number(value.clone(), *long).into()),
         Token::Word(w) if w.quote_style.is_none() && w.keyword == Keyword::TRUE => {
             Expr::Value(Value::Boolean(true).into())
         }
@@ -2599,7 +2796,10 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
         loop {
             let key = parser.parse_identifier()?;
             parser.expect_token(&Token::Eq)?;
-            parameters.push(SqlOption::KeyValue { key, value: parser.parse_expr()? });
+            parameters.push(SqlOption::KeyValue {
+                key,
+                value: parser.parse_expr()?,
+            });
             if !parser.consume_token(&Token::Comma)
                 && !matches!(&parser.peek_token_ref().token, Token::Word(word)
                     if word.quote_style.is_none() && matches!(word.value.to_uppercase().as_str(), "LOG_LEVEL" | "TRACE_LEVEL" | "AUTO_EVENT_LOGGING" | "COMMENT"))
@@ -2609,7 +2809,9 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
         }
         match parameters.as_slice() {
             [SqlOption::KeyValue { key, value }] if key.value.eq_ignore_ascii_case("COMMENT") => {
-                AlterProcedureOperation::SetComment { comment: value.clone() }
+                AlterProcedureOperation::SetComment {
+                    comment: value.clone(),
+                }
             }
             _ => AlterProcedureOperation::SetParameters { parameters },
         }
@@ -2921,26 +3123,22 @@ fn parse_create_external_function(
     let return_type = Some(FunctionReturnType::DataType(parser.parse_data_type()?));
     let return_not_null = parser.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
 
-    let called_on_null = if parser.parse_keywords(&[
-        Keyword::CALLED,
-        Keyword::ON,
-        Keyword::NULL,
-        Keyword::INPUT,
-    ]) {
-        Some(FunctionCalledOnNull::CalledOnNullInput)
-    } else if parser.parse_keywords(&[
-        Keyword::RETURNS,
-        Keyword::NULL,
-        Keyword::ON,
-        Keyword::NULL,
-        Keyword::INPUT,
-    ]) {
-        Some(FunctionCalledOnNull::ReturnsNullOnNullInput)
-    } else if parser.parse_keyword(Keyword::STRICT) {
-        Some(FunctionCalledOnNull::Strict)
-    } else {
-        None
-    };
+    let called_on_null =
+        if parser.parse_keywords(&[Keyword::CALLED, Keyword::ON, Keyword::NULL, Keyword::INPUT]) {
+            Some(FunctionCalledOnNull::CalledOnNullInput)
+        } else if parser.parse_keywords(&[
+            Keyword::RETURNS,
+            Keyword::NULL,
+            Keyword::ON,
+            Keyword::NULL,
+            Keyword::INPUT,
+        ]) {
+            Some(FunctionCalledOnNull::ReturnsNullOnNullInput)
+        } else if parser.parse_keyword(Keyword::STRICT) {
+            Some(FunctionCalledOnNull::Strict)
+        } else {
+            None
+        };
 
     let behavior = if parser.parse_keyword(Keyword::VOLATILE) {
         Some(FunctionBehavior::Volatile)
@@ -2968,28 +3166,30 @@ fn parse_create_external_function(
     let headers = if consume_external_function_property(parser, "HEADERS") {
         parser.expect_token(&Token::Eq)?;
         parser.expect_token(&Token::LParen)?;
-        let headers = parser.parse_comma_separated0(|parser| {
-            let name = parse_single_quoted_string(parser)?;
-            parser.expect_token(&Token::Eq)?;
-            let value = parse_single_quoted_string(parser)?;
-            Ok(ExternalFunctionHeader { name, value })
-        }, Token::RParen)?;
+        let headers = parser.parse_comma_separated0(
+            |parser| {
+                let name = parse_single_quoted_string(parser)?;
+                parser.expect_token(&Token::Eq)?;
+                let value = parse_single_quoted_string(parser)?;
+                Ok(ExternalFunctionHeader { name, value })
+            },
+            Token::RParen,
+        )?;
         parser.expect_token(&Token::RParen)?;
         Some(headers)
     } else {
         None
     };
 
-    let context_headers =
-        if consume_external_function_property(parser, "CONTEXT_HEADERS") {
-            parser.expect_token(&Token::Eq)?;
-            parser.expect_token(&Token::LParen)?;
-            let headers = parser.parse_comma_separated0(Parser::parse_identifier, Token::RParen)?;
-            parser.expect_token(&Token::RParen)?;
-            Some(headers)
-        } else {
-            None
-        };
+    let context_headers = if consume_external_function_property(parser, "CONTEXT_HEADERS") {
+        parser.expect_token(&Token::Eq)?;
+        parser.expect_token(&Token::LParen)?;
+        let headers = parser.parse_comma_separated0(Parser::parse_identifier, Token::RParen)?;
+        parser.expect_token(&Token::RParen)?;
+        Some(headers)
+    } else {
+        None
+    };
 
     let max_batch_rows = if consume_external_function_property(parser, "MAX_BATCH_ROWS") {
         parser.expect_token(&Token::Eq)?;
@@ -3005,29 +3205,26 @@ fn parse_create_external_function(
         None
     };
 
-    let request_translator =
-        if consume_external_function_property(parser, "REQUEST_TRANSLATOR") {
-            parser.expect_token(&Token::Eq)?;
-            Some(parser.parse_object_name(false)?)
-        } else {
-            None
-        };
-    let response_translator =
-        if consume_external_function_property(parser, "RESPONSE_TRANSLATOR") {
-            parser.expect_token(&Token::Eq)?;
-            Some(parser.parse_object_name(false)?)
-        } else {
-            None
-        };
-
-    let compression = if compression.is_none()
-        && consume_external_function_property(parser, "COMPRESSION")
-    {
+    let request_translator = if consume_external_function_property(parser, "REQUEST_TRANSLATOR") {
         parser.expect_token(&Token::Eq)?;
-        Some(parse_external_function_compression(parser)?)
+        Some(parser.parse_object_name(false)?)
     } else {
-        compression
+        None
     };
+    let response_translator = if consume_external_function_property(parser, "RESPONSE_TRANSLATOR") {
+        parser.expect_token(&Token::Eq)?;
+        Some(parser.parse_object_name(false)?)
+    } else {
+        None
+    };
+
+    let compression =
+        if compression.is_none() && consume_external_function_property(parser, "COMPRESSION") {
+            parser.expect_token(&Token::Eq)?;
+            Some(parse_external_function_compression(parser)?)
+        } else {
+            compression
+        };
 
     parser.expect_keyword(Keyword::AS)?;
     let url = parse_single_quoted_string(parser)?;
@@ -3473,7 +3670,12 @@ pub fn parse_create_table(
                     parser.expect_token(&Token::Eq)?;
                     builder = builder.enable_schema_evolution(Some(parser.parse_boolean_string()?));
                 }
-                Keyword::NoKeyword if iceberg && ["ENABLE_SCHEMA_INFERENCE", "MATCH_BY_COLUMN_NAME"].iter().any(|option| word.value.eq_ignore_ascii_case(option)) => {
+                Keyword::NoKeyword
+                    if iceberg
+                        && ["ENABLE_SCHEMA_INFERENCE", "MATCH_BY_COLUMN_NAME"]
+                            .iter()
+                            .any(|option| word.value.eq_ignore_ascii_case(option)) =>
+                {
                     parser.expect_token(&Token::Eq)?;
                     plain_options.push(SqlOption::KeyValue {
                         key: Ident::new(word.value.clone()),
@@ -3516,7 +3718,8 @@ pub fn parse_create_table(
                 }
                 Keyword::ICEBERG_DEFAULT_DDL_COLLATION => {
                     parser.expect_token(&Token::Eq)?;
-                    builder = builder.iceberg_default_ddl_collation(Some(parser.parse_literal_string()?));
+                    builder =
+                        builder.iceberg_default_ddl_collation(Some(parser.parse_literal_string()?));
                 }
                 // WITH is optional, we just verify that next token is one of the expected ones and
                 // fallback to the default match statement
@@ -3706,10 +3909,8 @@ pub fn parse_create_table(
                         Token::SingleQuotedString(value) => value.as_str(),
                         Token::Word(word) => word.value.as_str(),
                         _ => {
-                            return parser.expected(
-                                "ADAPTIVE, AUTO, FULL or INCREMENTAL",
-                                value_token,
-                            )
+                            return parser
+                                .expected("ADAPTIVE, AUTO, FULL or INCREMENTAL", value_token)
                         }
                     };
                     let refresh_mode = match value.to_ascii_uppercase().as_str() {
@@ -3860,16 +4061,23 @@ pub fn parse_create_database(
                         builder.clone_version = Some(parser.parse_container_clone_version()?);
                     }
                     builder.ignore_insufficient_retention = parser.parse_keywords(&[
-                        Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
-                        Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+                        Keyword::IGNORE,
+                        Keyword::TABLES,
+                        Keyword::WITH,
+                        Keyword::INSUFFICIENT,
+                        Keyword::DATA,
+                        Keyword::RETENTION,
                     ]);
-                    builder.ignore_hybrid_tables = parser.parse_keywords(&[
-                        Keyword::IGNORE, Keyword::HYBRID, Keyword::TABLES,
-                    ]);
+                    builder.ignore_hybrid_tables =
+                        parser.parse_keywords(&[Keyword::IGNORE, Keyword::HYBRID, Keyword::TABLES]);
                     if builder.ignore_hybrid_tables && !builder.ignore_insufficient_retention {
                         builder.ignore_insufficient_retention = parser.parse_keywords(&[
-                            Keyword::IGNORE, Keyword::TABLES, Keyword::WITH,
-                            Keyword::INSUFFICIENT, Keyword::DATA, Keyword::RETENTION,
+                            Keyword::IGNORE,
+                            Keyword::TABLES,
+                            Keyword::WITH,
+                            Keyword::INSUFFICIENT,
+                            Keyword::DATA,
+                            Keyword::RETENTION,
                         ]);
                     }
                 }
@@ -4347,13 +4555,21 @@ pub fn parse_stage_name_identifier(parser: &mut Parser) -> Result<Ident, ParserE
 /// Examples: `@mystage`, `@namespace.stage`, `schema.table`
 pub fn parse_snowflake_stage_name(parser: &mut Parser) -> Result<ObjectName, ParserError> {
     if parser.peek_token().token == Token::SnowflakeStageUrlPrefix {
-            let mut reference = parser.next_token().token.to_string();
-            while !matches!(parser.peek_token_no_skip().token, Token::Whitespace(_) | Token::EOF | Token::SemiColon | Token::LParen | Token::RParen | Token::Comma) {
-                if let Some(token) = parser.next_token_no_skip() {
-                    reference.push_str(&token.token.to_string());
-                }
+        let mut reference = parser.next_token().token.to_string();
+        while !matches!(
+            parser.peek_token_no_skip().token,
+            Token::Whitespace(_)
+                | Token::EOF
+                | Token::SemiColon
+                | Token::LParen
+                | Token::RParen
+                | Token::Comma
+        ) {
+            if let Some(token) = parser.next_token_no_skip() {
+                reference.push_str(&token.token.to_string());
             }
-            return Ok(ObjectName::from(vec![Ident::new(reference)]));
+        }
+        return Ok(ObjectName::from(vec![Ident::new(reference)]));
     }
     match parser.next_token().token {
         Token::SingleQuotedString(reference) if reference.starts_with("snow://") => {
@@ -4586,7 +4802,8 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
                         )
                         && parser.consume_token(&Token::DoubleEq);
                     if double_equals && parser.peek_token_ref().token == Token::Eq {
-                        return parser.expected_ref("COPY unload boolean value", parser.peek_token_ref());
+                        return parser
+                            .expected_ref("COPY unload boolean value", parser.peek_token_ref());
                     }
                     copy_options.push(parser.parse_key_value_option(&key, double_equals)?);
                 }
@@ -4736,7 +4953,10 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
 fn parse_at_stage_name(parser: &mut Parser) -> Result<ObjectName, ParserError> {
     match &parser.peek_token_ref().token {
         Token::AtSign | Token::Placeholder(_) => parse_snowflake_stage_name(parser),
-        _ => parser.expected_ref("a stage location starting with '@'", parser.peek_token_ref()),
+        _ => parser.expected_ref(
+            "a stage location starting with '@'",
+            parser.peek_token_ref(),
+        ),
     }
 }
 
@@ -5560,8 +5780,8 @@ fn parse_create_tag(
     or_alter: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
-    let if_not_exists = !or_alter
-        && parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    let if_not_exists =
+        !or_alter && parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
 
     let mut allowed_values = Vec::new();
@@ -5609,7 +5829,8 @@ fn parse_create_tag(
 }
 
 fn parse_tag_keyword(parser: &mut Parser, name: &str) -> bool {
-    if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(name)) {
+    if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(name))
+    {
         let _ = parser.next_token();
         true
     } else {
@@ -5657,7 +5878,8 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             let policy = parser.parse_object_name(false)?;
             let force = parser.parse_keyword(Keyword::FORCE);
             AlterTagOperation::SetDataMovementPolicy { policy, force }
-        } else if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && ["MULTI_VALUE", "COMMENT", "PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name))) {
+        } else if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && ["MULTI_VALUE", "COMMENT", "PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name)))
+        {
             let mut propagate = None;
             let mut on_conflict = None;
             let mut multi_value = None;
@@ -5691,7 +5913,12 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
                     return parser.expected("MULTI_VALUE", parser.peek_token());
                 }
             } else {
-                AlterTagOperation::SetPropagation { propagate, on_conflict, multi_value, comment }
+                AlterTagOperation::SetPropagation {
+                    propagate,
+                    on_conflict,
+                    multi_value,
+                    comment,
+                }
             }
         } else {
             let policies = parse_masking_policy_list(parser)?;
@@ -5699,7 +5926,8 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
             AlterTagOperation::SetMaskingPolicy { policies, force }
         }
     } else if parser.parse_keyword(Keyword::UNSET) {
-        if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && ["PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name))) {
+        if matches!(&parser.peek_token().token, Token::Word(word) if word.quote_style.is_none() && ["PROPAGATE", "ON_CONFLICT"].iter().any(|name| word.value.eq_ignore_ascii_case(name)))
+        {
             let mut propagate = false;
             let mut on_conflict = false;
             loop {
@@ -5714,7 +5942,14 @@ fn parse_alter_tag(parser: &mut Parser) -> Result<Statement, ParserError> {
                     break;
                 }
             }
-            return Ok(Statement::AlterTag { if_exists, name, operation: AlterTagOperation::UnsetPropagation { propagate, on_conflict } });
+            return Ok(Statement::AlterTag {
+                if_exists,
+                name,
+                operation: AlterTagOperation::UnsetPropagation {
+                    propagate,
+                    on_conflict,
+                },
+            });
         }
         if parser.parse_keyword(Keyword::ALLOWED_VALUES) {
             return Ok(Statement::AlterTag {
@@ -6295,7 +6530,9 @@ fn maybe_parse_show_policy_on_entity(
     if parser.parse_keyword(Keyword::ACCOUNT) {
         Ok(Some(ShowPolicyEntity::Account))
     } else if parser.parse_keyword(Keyword::USER) {
-        Ok(Some(ShowPolicyEntity::User(parser.parse_object_name(false)?)))
+        Ok(Some(ShowPolicyEntity::User(
+            parser.parse_object_name(false)?,
+        )))
     } else {
         parser.expected_ref("ACCOUNT or USER", parser.peek_token_ref())
     }
@@ -6367,10 +6604,7 @@ fn parse_semantic_view_opaque_paren(parser: &mut Parser) -> Result<String, Parse
 }
 
 /// Parse a parenthesized, comma-separated list using `f` for each element.
-fn parse_semantic_view_paren_list<T, F>(
-    parser: &mut Parser,
-    f: F,
-) -> Result<Vec<T>, ParserError>
+fn parse_semantic_view_paren_list<T, F>(parser: &mut Parser, f: F) -> Result<Vec<T>, ParserError>
 where
     F: FnMut(&mut Parser) -> Result<T, ParserError>,
 {
@@ -6403,7 +6637,10 @@ fn parse_semantic_view_tag_list(parser: &mut Parser) -> Result<Vec<Tag>, ParserE
 fn parse_semantic_view_table(parser: &mut Parser) -> Result<SemanticViewTable, ParserError> {
     let first = parser.parse_object_name(false)?;
     let (alias, name) = if parser.parse_keyword(Keyword::AS) {
-        (Some(semantic_view_ident(first)?), parser.parse_object_name(false)?)
+        (
+            Some(semantic_view_ident(first)?),
+            parser.parse_object_name(false)?,
+        )
     } else {
         (None, first)
     };
@@ -6419,8 +6656,7 @@ fn parse_semantic_view_table(parser: &mut Parser) -> Result<SemanticViewTable, P
             primary_key = parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?;
         } else if parser.parse_keyword(Keyword::UNIQUE) {
             unique.push(parser.parse_parenthesized_column_list(IsOptional::Mandatory, false)?);
-        } else if parser.peek_keyword(Keyword::CONSTRAINT)
-            || parser.peek_keyword(Keyword::DISTINCT)
+        } else if parser.peek_keyword(Keyword::CONSTRAINT) || parser.peek_keyword(Keyword::DISTINCT)
         {
             let name = if parser.parse_keyword(Keyword::CONSTRAINT) {
                 if parser.peek_keyword(Keyword::DISTINCT) {
@@ -6519,7 +6755,10 @@ fn parse_semantic_view_relationship(
 /// Parse a fact, dimension, or metric semantic expression:
 /// `[ PRIVATE | PUBLIC ] <name> [ AS <sql_expr> ] [ WITH SYNONYMS ( ... ) ]
 ///  [ [WITH] TAG ( ... ) ] [ COMMENT = '...' ]`.
-fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<SemanticViewExpr, ParserError> {
+fn parse_semantic_view_expr(
+    parser: &mut Parser,
+    metric: bool,
+) -> Result<SemanticViewExpr, ParserError> {
     let access = if parser.parse_keyword(Keyword::PRIVATE) {
         Some(SemanticViewColumnAccess::Private)
     } else if parser.parse_keyword(Keyword::PUBLIC) {
@@ -6565,7 +6804,11 @@ fn parse_semantic_view_expr(parser: &mut Parser, metric: bool) -> Result<Semanti
             } else {
                 descending
             };
-            Ok(SemanticViewNonAdditiveDimension { name, descending, nulls_first })
+            Ok(SemanticViewNonAdditiveDimension {
+                name,
+                descending,
+                nulls_first,
+            })
         })?
     } else {
         Vec::new()
@@ -6681,7 +6924,8 @@ fn parse_create_semantic_view(
             // integer is a syntax error. Enforce the same so the emulator's
             // acceptance matches the captured snapshots.
             max_staleness = Some(parser.parse_literal_string()?);
-        } else if ai_sql_generation.is_none() && consume_semantic_word(parser, "AI_SQL_GENERATION") {
+        } else if ai_sql_generation.is_none() && consume_semantic_word(parser, "AI_SQL_GENERATION")
+        {
             ai_sql_generation = Some(parser.parse_literal_string()?);
         } else if ai_question_categorization.is_none()
             && consume_semantic_word(parser, "AI_QUESTION_CATEGORIZATION")
@@ -6703,20 +6947,22 @@ fn parse_create_semantic_view(
         }
     }
 
-    Ok(Statement::CreateSemanticView(Box::new(CreateSemanticView {
-        or_replace,
-        or_alter,
-        if_not_exists,
-        name,
-        clauses,
-        tags,
-        comment,
-        max_staleness,
-        ai_sql_generation,
-        ai_question_categorization,
-        ai_verified_queries,
-        copy_grants,
-    })))
+    Ok(Statement::CreateSemanticView(Box::new(
+        CreateSemanticView {
+            or_replace,
+            or_alter,
+            if_not_exists,
+            name,
+            clauses,
+            tags,
+            comment,
+            max_staleness,
+            ai_sql_generation,
+            ai_question_categorization,
+            ai_verified_queries,
+            copy_grants,
+        },
+    )))
 }
 
 /// Parse `ALTER SEMANTIC VIEW [IF EXISTS] <name>
@@ -6955,10 +7201,16 @@ fn parse_alter_maintenance_policy(parser: &mut Parser) -> Result<Statement, Pars
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     let operation = parse_metadata_policy_operation(parser)?;
-    Ok(Statement::AlterMaintenancePolicy { if_exists, name, operation })
+    Ok(Statement::AlterMaintenancePolicy {
+        if_exists,
+        name,
+        operation,
+    })
 }
 
-fn parse_metadata_policy_operation(parser: &mut Parser) -> Result<AlterMaintenancePolicyOperation, ParserError> {
+fn parse_metadata_policy_operation(
+    parser: &mut Parser,
+) -> Result<AlterMaintenancePolicyOperation, ParserError> {
     let operation = if parser.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
         AlterMaintenancePolicyOperation::RenameTo {
             new_name: parser.parse_object_name(false)?,
@@ -6966,7 +7218,9 @@ fn parse_metadata_policy_operation(parser: &mut Parser) -> Result<AlterMaintenan
     } else if parser.parse_keyword(Keyword::SET) {
         AlterMaintenancePolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
     } else if parser.parse_keyword(Keyword::UNSET) {
-        AlterMaintenancePolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+        AlterMaintenancePolicyOperation::Unset(
+            parser.parse_comma_separated(Parser::parse_identifier)?,
+        )
     } else {
         return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
     };
@@ -7008,7 +7262,11 @@ fn parse_alter_authentication_policy(parser: &mut Parser) -> Result<Statement, P
             new_name: parser.parse_object_name(false)?,
         }
     } else if parser.parse_keyword(Keyword::SET) {
-        AlterAuthenticationPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+        AlterAuthenticationPolicyOperation::Set(parser.parse_key_value_options(
+            false,
+            &[],
+            false,
+        )?)
     } else if parser.parse_keyword(Keyword::UNSET) {
         AlterAuthenticationPolicyOperation::Unset(
             parser.parse_comma_separated(Parser::parse_identifier)?,
@@ -7238,21 +7496,25 @@ fn parse_create_from_backup_set(
         })
         .ok()??;
     let (if_not_exists, name) = head;
-    let tail = parser.parse_object_name(false).and_then(|backup_set| {
-        Ok((backup_set, parse_backup_identifier(parser)?))
-    });
-    Some(tail.map(|(backup_set, backup_id)| Statement::CreateFromBackupSet {
-        kind,
-        or_replace,
-        if_not_exists,
-        name,
-        backup_set,
-        backup_id,
-    }))
+    let tail = parser
+        .parse_object_name(false)
+        .and_then(|backup_set| Ok((backup_set, parse_backup_identifier(parser)?)));
+    Some(
+        tail.map(|(backup_set, backup_id)| Statement::CreateFromBackupSet {
+            kind,
+            or_replace,
+            if_not_exists,
+            name,
+            backup_set,
+            backup_id,
+        }),
+    )
 }
 
 /// Parse `[ CREATION | EXPIRATION ] POLICY` after `{ SUSPEND | RESUME } BACKUP`.
-fn parse_backup_policy_phase(parser: &mut Parser) -> Result<Option<BackupPolicyPhase>, ParserError> {
+fn parse_backup_policy_phase(
+    parser: &mut Parser,
+) -> Result<Option<BackupPolicyPhase>, ParserError> {
     let phase = if parser.parse_keyword(Keyword::CREATION) {
         Some(BackupPolicyPhase::Creation)
     } else if parser.parse_keyword(Keyword::EXPIRATION) {
@@ -7272,7 +7534,10 @@ fn parse_drop_backup_set(parser: &mut Parser) -> Result<Statement, ParserError> 
 }
 
 /// Parse `DESC[RIBE] BACKUP SET <name>`
-fn parse_describe_backup_set(parser: &mut Parser, snapshot: bool) -> Result<Statement, ParserError> {
+fn parse_describe_backup_set(
+    parser: &mut Parser,
+    snapshot: bool,
+) -> Result<Statement, ParserError> {
     let name = parser.parse_object_name(false)?;
     Ok(Statement::DescribeBackupSet { name, snapshot })
 }
@@ -7493,7 +7758,13 @@ fn parse_execute_code_bundle(
         };
         options.push(SqlOption::KeyValue { key, value });
     }
-    Ok(Statement::ExecuteCodeBundle { execute_token, name, legacy, options, specification })
+    Ok(Statement::ExecuteCodeBundle {
+        execute_token,
+        name,
+        legacy,
+        options,
+        specification,
+    })
 }
 
 /// Parse `CREATE [OR REPLACE] STREAMLIT [IF NOT EXISTS] <name> [FROM '<source>']
@@ -8417,9 +8688,7 @@ fn parse_external_access_allowed_list(
 /// captured by name (with its value discarded) so the UDF can reproduce real
 /// Snowflake's `invalid property` reject. `UNSET` takes a comma-separated list
 /// of property names.
-fn parse_alter_external_access_integration(
-    parser: &mut Parser,
-) -> Result<Statement, ParserError> {
+fn parse_alter_external_access_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
 
@@ -8502,9 +8771,7 @@ fn parse_alter_external_access_integration(
 }
 
 /// Parse `DROP EXTERNAL ACCESS INTEGRATION [IF EXISTS] <name>`.
-fn parse_drop_external_access_integration(
-    parser: &mut Parser,
-) -> Result<Statement, ParserError> {
+fn parse_drop_external_access_integration(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     Ok(Statement::DropExternalAccessIntegration { name, if_exists })
@@ -8519,9 +8786,7 @@ fn parse_describe_external_access_integration(
 }
 
 /// Parse `SHOW EXTERNAL ACCESS INTEGRATIONS [LIKE '<pattern>']`.
-fn parse_show_external_access_integrations(
-    parser: &mut Parser,
-) -> Result<Statement, ParserError> {
+fn parse_show_external_access_integrations(parser: &mut Parser) -> Result<Statement, ParserError> {
     let filter = parser.parse_show_statement_filter()?;
     Ok(Statement::ShowExternalAccessIntegrations { filter })
 }

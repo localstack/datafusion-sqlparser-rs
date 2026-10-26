@@ -15291,7 +15291,8 @@ fn test_group_by_nothing() {
 
 #[test]
 fn test_extract_seconds_ok() {
-    let dialects = all_dialects_where(|d| d.allow_extract_custom() && !d.supports_snowflake_interval_type());
+    let dialects =
+        all_dialects_where(|d| d.allow_extract_custom() && !d.supports_snowflake_interval_type());
     let stmt = dialects.verified_expr("EXTRACT(SECONDS FROM '2 seconds'::INTERVAL)");
 
     assert_eq!(
@@ -15376,7 +15377,8 @@ fn test_extract_seconds_ok() {
 
 #[test]
 fn test_extract_seconds_single_quote_ok() {
-    let dialects = all_dialects_where(|d| d.allow_extract_custom() && !d.supports_snowflake_interval_type());
+    let dialects =
+        all_dialects_where(|d| d.allow_extract_custom() && !d.supports_snowflake_interval_type());
     let stmt = dialects.verified_expr(r#"EXTRACT('seconds' FROM '2 seconds'::INTERVAL)"#);
 
     assert_eq!(
@@ -20314,7 +20316,8 @@ fn test_parse_semantic_view_table_factor() {
                             // Clauses are kept in written order: DIMENSIONS then
                             // METRICS.
                             assert_eq!(clauses.len(), 2);
-                            let SemanticViewQueryClause::Dimensions(dimensions) = &clauses[0] else {
+                            let SemanticViewQueryClause::Dimensions(dimensions) = &clauses[0]
+                            else {
                                 panic!("Expected DIMENSIONS as the first clause");
                             };
                             assert_eq!(dimensions.len(), 2);
@@ -20490,8 +20493,18 @@ fn test_parse_alter_user() {
             assert_eq!(alter_user.if_exists, !modifier.is_empty());
         }
         for name in [
-            "SET", "UNSET", "RENAME", "RESET", "ABORT", "ADD", "REMOVE", "ENROLL", "MODIFY",
-            "WITH", "PASSWORD", "ENCRYPTED",
+            "SET",
+            "UNSET",
+            "RENAME",
+            "RESET",
+            "ABORT",
+            "ADD",
+            "REMOVE",
+            "ENROLL",
+            "MODIFY",
+            "WITH",
+            "PASSWORD",
+            "ENCRYPTED",
         ] {
             dialects.verified_stmt(&format!("ALTER USER {name}"));
             let statement = dialects.verified_stmt(&format!("ALTER USER {name} {action}"));
@@ -20589,8 +20602,9 @@ fn test_parse_alter_user() {
     // Snowflake routes `ALTER USER … SET/UNSET TAG` through its shared object-tag
     // interceptor (producing `Statement::SetTags`, covered in the Snowflake
     // suite), so exclude it from the generic `AlterUser` tag assertions here.
-    let non_snowflake =
-        || all_dialects_except(|d| d.supports_alter_user_as_alter_role() || d.is::<SnowflakeDialect>());
+    let non_snowflake = || {
+        all_dialects_except(|d| d.supports_alter_user_as_alter_role() || d.is::<SnowflakeDialect>())
+    };
     let stmt = non_snowflake().verified_stmt("ALTER USER u1 SET TAG k1='v1'");
     match stmt {
         Statement::AlterUser(alter) => {
