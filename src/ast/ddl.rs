@@ -37,14 +37,15 @@ use sqlparser_derive::{Visit, VisitMut};
 use crate::ast::helpers::key_value_options::KeyValueOptions;
 use crate::ast::value::escape_single_quote_string;
 use crate::ast::{
+    BeginEndStatements,
     display_comma_separated, display_separated, format_statement_list,
     table_constraints::{
         CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, TableConstraint,
         UniqueConstraint,
     },
-    ArgMode, AttachedToken, BeginEndStatements, CommentDef, ConditionalStatements,
-    CreateFunctionBody, CreateFunctionUsing, CreateServerOption, CreateTableLikeKind,
-    CreateTableOptions, CreateViewParams, DataType, Expr, FileFormat, FunctionBehavior,
+    ArgMode, AttachedToken, CommentDef, ConditionalStatements, CreateFunctionBody,
+    CreateFunctionUsing, CreateServerOption, CreateTableLikeKind, CreateTableOptions,
+    CreateViewParams, DataType, DynamicTableCustomRefresh, Expr, FileFormat, FunctionBehavior,
     FunctionCalledOnNull, FunctionDefinitionSetParam, FunctionDesc, FunctionDeterminismSpecifier,
     FunctionParallel, FunctionSecurity, HiveDistributionStyle, HiveFormat, HiveIOFormat,
     HiveRowFormat, HiveSetLocation, Ident, InitializeKind, MySQLColumnPosition, ObjectName,
@@ -53,7 +54,6 @@ use crate::ast::{
     StorageLifecyclePolicy, StorageSerializationPolicy, TableVersion, Tag, TriggerEvent,
     TriggerExecBody, TriggerObject, TriggerPeriod, TriggerReferencing, Value, ValueWithSpan,
     WrappedCollection,
-    DynamicTableCustomRefresh,
 };
 use crate::display_utils::{DisplayCommaSeparated, Indent, NewLine, SpaceOrNewline};
 use crate::keywords::Keyword;
@@ -927,11 +927,21 @@ pub enum AlterIndexOperation {
 impl fmt::Display for AlterTableOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlterTableOperation::TagValue { column, add, value, tag } => {
+            AlterTableOperation::TagValue {
+                column,
+                add,
+                value,
+                tag,
+            } => {
                 if let Some(column) = column {
                     write!(f, "MODIFY COLUMN {column} ")?;
                 }
-                write!(f, "{} VALUE '{}' FOR TAG {tag}", if *add { "ADD" } else { "DROP" }, value.replace('\'', "''"))
+                write!(
+                    f,
+                    "{} VALUE '{}' FOR TAG {tag}",
+                    if *add { "ADD" } else { "DROP" },
+                    value.replace('\'', "''")
+                )
             }
             AlterTableOperation::AlterConstraint {
                 modify,
@@ -1903,7 +1913,11 @@ impl fmt::Display for SemanticViewTable {
         }
         write!(f, "{}", self.name)?;
         if !self.primary_key.is_empty() {
-            write!(f, " PRIMARY KEY ({})", display_comma_separated(&self.primary_key))?;
+            write!(
+                f,
+                " PRIMARY KEY ({})",
+                display_comma_separated(&self.primary_key)
+            )?;
         }
         for unique in &self.unique {
             write!(f, " UNIQUE ({})", display_comma_separated(unique))?;
@@ -1943,7 +1957,11 @@ impl fmt::Display for SemanticViewDistinctRange {
         if let Some(name) = &self.name {
             write!(f, " {name}")?;
         }
-        write!(f, " DISTINCT RANGE BETWEEN {} AND {} EXCLUSIVE", self.start, self.end)
+        write!(
+            f,
+            " DISTINCT RANGE BETWEEN {} AND {} EXCLUSIVE",
+            self.start, self.end
+        )
     }
 }
 
@@ -2059,10 +2077,18 @@ impl fmt::Display for SemanticViewExpr {
             write!(f, " LABELS = (FILTER)")?;
         }
         if !self.using_relationships.is_empty() {
-            write!(f, " USING ({})", display_comma_separated(&self.using_relationships))?;
+            write!(
+                f,
+                " USING ({})",
+                display_comma_separated(&self.using_relationships)
+            )?;
         }
         if !self.non_additive_by.is_empty() {
-            write!(f, " NON ADDITIVE BY ({})", display_comma_separated(&self.non_additive_by))?;
+            write!(
+                f,
+                " NON ADDITIVE BY ({})",
+                display_comma_separated(&self.non_additive_by)
+            )?;
         }
         if let Some(expr) = &self.expr {
             write!(f, " AS {expr}")?;
@@ -2098,9 +2124,13 @@ pub struct SemanticViewNonAdditiveDimension {
 
 impl fmt::Display for SemanticViewNonAdditiveDimension {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} NULLS {}", self.name,
+        write!(
+            f,
+            "{} {} NULLS {}",
+            self.name,
             if self.descending { "DESC" } else { "ASC" },
-            if self.nulls_first { "FIRST" } else { "LAST" })
+            if self.nulls_first { "FIRST" } else { "LAST" }
+        )
     }
 }
 
@@ -2184,7 +2214,11 @@ impl fmt::Display for CreateSemanticView {
             "CREATE {or_replace}{or_alter}SEMANTIC VIEW {if_not_exists}{name}",
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             or_alter = if self.or_alter { "OR ALTER " } else { "" },
-            if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
+            if_not_exists = if self.if_not_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             name = self.name,
         )?;
         for clause in &self.clauses {
@@ -2197,13 +2231,25 @@ impl fmt::Display for CreateSemanticView {
             write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
         }
         if let Some(max_staleness) = &self.max_staleness {
-            write!(f, " MAX_STALENESS = '{}'", escape_single_quote_string(max_staleness))?;
+            write!(
+                f,
+                " MAX_STALENESS = '{}'",
+                escape_single_quote_string(max_staleness)
+            )?;
         }
         if let Some(instr) = &self.ai_sql_generation {
-            write!(f, " AI_SQL_GENERATION '{}'", escape_single_quote_string(instr))?;
+            write!(
+                f,
+                " AI_SQL_GENERATION '{}'",
+                escape_single_quote_string(instr)
+            )?;
         }
         if let Some(instr) = &self.ai_question_categorization {
-            write!(f, " AI_QUESTION_CATEGORIZATION '{}'", escape_single_quote_string(instr))?;
+            write!(
+                f,
+                " AI_QUESTION_CATEGORIZATION '{}'",
+                escape_single_quote_string(instr)
+            )?;
         }
         if let Some(queries) = &self.ai_verified_queries {
             write!(f, " AI_VERIFIED_QUERIES ({queries})")?;
@@ -2388,7 +2434,15 @@ pub enum AlterDataMovementPolicyOperation {
 impl fmt::Display for AlterDataMovementPolicyOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Rules { action, list, rules } => write!(formatter, "{action} {list} = ({})", display_comma_separated(rules)),
+            Self::Rules {
+                action,
+                list,
+                rules,
+            } => write!(
+                formatter,
+                "{action} {list} = ({})",
+                display_comma_separated(rules)
+            ),
             Self::Metadata(operation) => write!(formatter, "{operation}"),
         }
     }
@@ -2397,7 +2451,12 @@ impl fmt::Display for AlterDataMovementPolicyOperation {
 impl fmt::Display for AlterDataMovementRuleOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::SetMaxRows { return_type, body, .. } => write!(formatter, "SET MAX_ROWS AS () RETURNS {return_type} -> {body}"),
+            Self::SetMaxRows {
+                return_type, body, ..
+            } => write!(
+                formatter,
+                "SET MAX_ROWS AS () RETURNS {return_type} -> {body}"
+            ),
             Self::Metadata(operation) => write!(formatter, "{operation}"),
         }
     }
@@ -2806,20 +2865,48 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlterTagOperation::SetPropagation { propagate, on_conflict, multi_value, comment } => {
+            AlterTagOperation::SetPropagation {
+                propagate,
+                on_conflict,
+                multi_value,
+                comment,
+            } => {
                 write!(f, "SET")?;
                 if let Some(enabled) = multi_value {
-                    write!(f, " MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                    write!(
+                        f,
+                        " MULTI_VALUE = {}",
+                        if *enabled { "TRUE" } else { "FALSE" }
+                    )?;
                 }
-                for (name, value) in [("PROPAGATE", propagate), ("ON_CONFLICT", on_conflict), ("COMMENT", comment)] {
+                for (name, value) in [
+                    ("PROPAGATE", propagate),
+                    ("ON_CONFLICT", on_conflict),
+                    ("COMMENT", comment),
+                ] {
                     if let Some(value) = value {
-                        write!(f, " {name} = '{}'", super::value::escape_single_quote_string(value))?;
+                        write!(
+                            f,
+                            " {name} = '{}'",
+                            super::value::escape_single_quote_string(value)
+                        )?;
                     }
                 }
                 Ok(())
             }
-            AlterTagOperation::UnsetPropagation { propagate, on_conflict } => {
-                write!(f, "UNSET {}", if *propagate { "PROPAGATE" } else { "ON_CONFLICT" })?;
+            AlterTagOperation::UnsetPropagation {
+                propagate,
+                on_conflict,
+            } => {
+                write!(
+                    f,
+                    "UNSET {}",
+                    if *propagate {
+                        "PROPAGATE"
+                    } else {
+                        "ON_CONFLICT"
+                    }
+                )?;
                 if *propagate && *on_conflict {
                     write!(f, ", ON_CONFLICT")?;
                 }
@@ -2846,9 +2933,17 @@ impl fmt::Display for AlterTagOperation {
             }
             AlterTagOperation::UnsetAllowedValues => write!(f, "UNSET ALLOWED_VALUES"),
             AlterTagOperation::SetMultiValue { enabled, comment } => {
-                write!(f, "SET MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                write!(
+                    f,
+                    "SET MULTI_VALUE = {}",
+                    if *enabled { "TRUE" } else { "FALSE" }
+                )?;
                 if let Some(comment) = comment {
-                    write!(f, " COMMENT = '{}'", super::value::escape_single_quote_string(comment))?;
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        super::value::escape_single_quote_string(comment)
+                    )?;
                 }
                 Ok(())
             }
@@ -2903,7 +2998,9 @@ impl fmt::Display for AlterColumnOperation {
             AlterColumnOperation::DropDefault => {
                 write!(f, "DROP DEFAULT")
             }
-            AlterColumnOperation::SetWriteDefault { value } => write!(f, "SET WRITE DEFAULT {value}"),
+            AlterColumnOperation::SetWriteDefault { value } => {
+                write!(f, "SET WRITE DEFAULT {value}")
+            }
             AlterColumnOperation::DropWriteDefault => write!(f, "DROP WRITE DEFAULT"),
             AlterColumnOperation::SetDataType {
                 data_type,
@@ -4130,10 +4227,16 @@ pub enum UserDefinedTypeRepresentation {
 impl fmt::Display for UserDefinedTypeRepresentation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Alias { data_type, comment, .. } => {
+            Self::Alias {
+                data_type, comment, ..
+            } => {
                 write!(f, "AS {data_type}")?;
                 if let Some(comment) = comment {
-                    write!(f, " COMMENT = '{}'", crate::ast::value::escape_single_quote_string(comment))?;
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        crate::ast::value::escape_single_quote_string(comment)
+                    )?;
                 }
                 Ok(())
             }
@@ -5302,7 +5405,11 @@ impl fmt::Display for CreateTable {
         if let Some(with_aggregation_policy) = &self.with_aggregation_policy {
             write!(f, " WITH AGGREGATION POLICY {with_aggregation_policy}",)?;
             if !self.aggregation_policy_entity_key.is_empty() {
-                write!(f, " ENTITY KEY ({})", display_comma_separated(&self.aggregation_policy_entity_key))?;
+                write!(
+                    f,
+                    " ENTITY KEY ({})",
+                    display_comma_separated(&self.aggregation_policy_entity_key)
+                )?;
             }
         }
 
@@ -6037,7 +6144,12 @@ impl fmt::Display for AlterSchemaOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             AlterSchemaOperation::TagValue { add, value, tag } => {
-                write!(f, "{} VALUE '{}' FOR TAG {tag}", if *add { "ADD" } else { "DROP" }, value.replace('\'', "''"))
+                write!(
+                    f,
+                    "{} VALUE '{}' FOR TAG {tag}",
+                    if *add { "ADD" } else { "DROP" },
+                    value.replace('\'', "''")
+                )
             }
             AlterSchemaOperation::SetDefaultCollate { collate } => {
                 write!(f, "SET DEFAULT COLLATE {collate}")
