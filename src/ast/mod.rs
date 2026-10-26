@@ -127,6 +127,7 @@ pub use self::dml::{
 };
 pub use self::operator::{BinaryOperator, UnaryOperator};
 pub use self::query::{
+    TableInheritance,
     AfterMatchSkip, ConnectByKind, Cte, CteAsMaterialized, Distinct, EmptyMatchesMode,
     ExceptSelectItem, ExcludeSelectItem, ExprWithAlias, ExprWithAliasAndOrderBy, Fetch, ForClause,
     ForJson, ForXml, FormatClause, GroupByExpr, GroupByWithModifier, IdentWithAlias,
@@ -136,19 +137,17 @@ pub use self::query::{
     MatchRecognizeSymbol, Measure, NamedWindowDefinition, NamedWindowExpr, NonBlock, Offset,
     OffsetRows, OpenJsonTableColumn, OrderBy, OrderByExpr, OrderByKind, OrderByOptions,
     OrderBySort, PipeOperator, PivotValueSource, ProjectionSelect, Query, RenameSelectItem,
-    RepetitionQuantifier, ReplaceSelectElement, ReplaceSelectItem, RowsPerMatch, Select,
-    RunningFinal,
-    Resample, ResampleMetadataColumn, ResampleMetadataColumnKind,
+    RepetitionQuantifier, ReplaceSelectElement, ReplaceSelectItem, Resample,
+    ResampleMetadataColumn, ResampleMetadataColumnKind, RowsPerMatch, RunningFinal, Select,
     SelectFlavor, SelectInto, SelectItem, SelectItemQualifiedWildcardKind, SelectModifiers,
-    SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table, TableAlias,
-    TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexDirective,
-    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableInheritance,
-    TableSample, TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
+    SemanticViewQueryClause, SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table,
+    TableAlias, TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexDirective,
+    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableSample,
+    TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
     TableSampleQuantity, TableSampleSeed, TableSampleSeedModifier, TableSampleUnit, TableVersion,
     TableWithJoins, Top, TopQuantity, UpdateTableFromKind, ValueTableMode, Values,
     WildcardAdditionalOptions, With, WithFill, XmlNamespaceDefinition, XmlPassingArgument,
     XmlPassingClause, XmlTableColumn, XmlTableColumnOption,
-    SemanticViewQueryClause,
 };
 
 pub use self::trigger::{
@@ -2479,7 +2478,11 @@ impl fmt::Display for WindowSpec {
             write!(
                 f,
                 "PARTITION BY {}{}",
-                if self.partition_by_excluding { "EXCLUDING " } else { "" },
+                if self.partition_by_excluding {
+                    "EXCLUDING "
+                } else {
+                    ""
+                },
                 display_comma_separated(&self.partition_by)
             )?;
         }
@@ -13558,7 +13561,11 @@ impl fmt::Display for GrantObjects {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
             }
             GrantObjects::ApplicationPackages(objects) => {
-                write!(f, "APPLICATION PACKAGE {}", display_comma_separated(objects))
+                write!(
+                    f,
+                    "APPLICATION PACKAGE {}",
+                    display_comma_separated(objects)
+                )
             }
             GrantObjects::Connections(objects) => {
                 write!(f, "CONNECTION {}", display_comma_separated(objects))
@@ -13598,7 +13605,11 @@ impl fmt::Display for GrantObjects {
                 )
             }
             GrantObjects::SnowflakeIntelligence(objects) => {
-                write!(f, "SNOWFLAKE INTELLIGENCE {}", display_comma_separated(objects))
+                write!(
+                    f,
+                    "SNOWFLAKE INTELLIGENCE {}",
+                    display_comma_separated(objects)
+                )
             }
             GrantObjects::Tags(objects) => {
                 write!(f, "TAG {}", display_comma_separated(objects))
@@ -13967,9 +13978,12 @@ impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let [ObjectNamePart::Identifier(name)] = self.name.0.as_slice() {
             if name.value.eq_ignore_ascii_case("SEARCH")
-                && matches!(&self.parameters, FunctionArguments::List(parameters) if parameters.args.is_empty() && parameters.clauses.is_empty() && parameters.duplicate_treatment.is_none()) {
+                && matches!(&self.parameters, FunctionArguments::List(parameters) if parameters.args.is_empty() && parameters.clauses.is_empty() && parameters.duplicate_treatment.is_none())
+            {
                 if let FunctionArguments::List(arguments) = &self.args {
-                    if let [FunctionArg::Unnamed(wildcard), FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options))] = arguments.args.as_slice() {
+                    if let [FunctionArg::Unnamed(wildcard), FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options))] =
+                        arguments.args.as_slice()
+                    {
                         return write!(f, "({wildcard}{options})");
                     }
                 }
@@ -17219,10 +17233,18 @@ impl fmt::Display for ExternalVolumeStorageLocation {
             )?;
         }
         if let Some(ref tenant) = self.azure_tenant_id {
-            write!(f, " AZURE_TENANT_ID = '{}'", value::escape_single_quote_string(tenant))?;
+            write!(
+                f,
+                " AZURE_TENANT_ID = '{}'",
+                value::escape_single_quote_string(tenant)
+            )?;
         }
         if let Some(ref topic) = self.aws_sns_topic {
-            write!(f, " AWS_SNS_TOPIC = '{}'", value::escape_single_quote_string(topic))?;
+            write!(
+                f,
+                " AWS_SNS_TOPIC = '{}'",
+                value::escape_single_quote_string(topic)
+            )?;
         }
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
@@ -17318,7 +17340,9 @@ impl fmt::Display for AlterGitRepositoryOperation {
             Self::Set(options) => write!(formatter, "SET {}", display_separated(options, " ")),
             Self::Unset(names) => write!(formatter, "UNSET {}", display_comma_separated(names)),
             Self::SetTags(tags) => write!(formatter, "SET TAG {}", display_comma_separated(tags)),
-            Self::UnsetTags(tags) => write!(formatter, "UNSET TAG {}", display_comma_separated(tags)),
+            Self::UnsetTags(tags) => {
+                write!(formatter, "UNSET TAG {}", display_comma_separated(tags))
+            }
         }
     }
 }
@@ -17853,16 +17877,12 @@ impl fmt::Display for AlterTaskAction {
         match self {
             AlterTaskAction::Resume => write!(f, "RESUME"),
             AlterTaskAction::Suspend => write!(f, "SUSPEND"),
-            AlterTaskAction::AddAfter(tasks) => write!(
-                f,
-                "ADD AFTER {}",
-                display_comma_separated(tasks)
-            ),
-            AlterTaskAction::RemoveAfter(tasks) => write!(
-                f,
-                "REMOVE AFTER {}",
-                display_comma_separated(tasks)
-            ),
+            AlterTaskAction::AddAfter(tasks) => {
+                write!(f, "ADD AFTER {}", display_comma_separated(tasks))
+            }
+            AlterTaskAction::RemoveAfter(tasks) => {
+                write!(f, "REMOVE AFTER {}", display_comma_separated(tasks))
+            }
             AlterTaskAction::SetFinalize(task) => write!(f, "SET FINALIZE = {task}"),
             AlterTaskAction::UnsetFinalize => write!(f, "UNSET FINALIZE"),
             AlterTaskAction::ModifyAs(statement) => write!(f, "MODIFY AS {statement}"),
@@ -17872,10 +17892,9 @@ impl fmt::Display for AlterTaskAction {
                 write!(f, "SET WAREHOUSE = {warehouse}")
             }
             AlterTaskAction::UnsetWarehouse => write!(f, "UNSET WAREHOUSE"),
-            AlterTaskAction::SetManagedWarehouseSize(size) => write!(
-                f,
-                "SET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'"
-            ),
+            AlterTaskAction::SetManagedWarehouseSize(size) => {
+                write!(f, "SET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'")
+            }
             AlterTaskAction::UnsetManagedWarehouseSize => {
                 write!(f, "UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE")
             }
@@ -17887,7 +17906,10 @@ impl fmt::Display for AlterTaskAction {
                 write!(f, "SET")?;
                 for (name, value) in [
                     ("USER_TASK_TIMEOUT_MS", user_task_timeout_ms),
-                    ("SUSPEND_TASK_AFTER_NUM_FAILURES", suspend_task_after_num_failures),
+                    (
+                        "SUSPEND_TASK_AFTER_NUM_FAILURES",
+                        suspend_task_after_num_failures,
+                    ),
                     ("TASK_AUTO_RETRY_ATTEMPTS", task_auto_retry_attempts),
                 ] {
                     if let Some(value) = value {
@@ -18893,10 +18915,22 @@ pub enum AlterOrganizationUserGroupOperation {
 impl fmt::Display for AlterOrganizationUserGroupOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::AddUsers(users) => write!(f, "ADD ORGANIZATION USERS {}", display_comma_separated(users)),
-            Self::RemoveUsers(users) => write!(f, "REMOVE ORGANIZATION USERS {}", display_comma_separated(users)),
+            Self::AddUsers(users) => write!(
+                f,
+                "ADD ORGANIZATION USERS {}",
+                display_comma_separated(users)
+            ),
+            Self::RemoveUsers(users) => write!(
+                f,
+                "REMOVE ORGANIZATION USERS {}",
+                display_comma_separated(users)
+            ),
             Self::SetVisibilityAll => write!(f, "SET VISIBILITY = ALL"),
-            Self::SetVisibilityAccounts(accounts) => write!(f, "SET VISIBILITY = ACCOUNTS {}", display_comma_separated(accounts)),
+            Self::SetVisibilityAccounts(accounts) => write!(
+                f,
+                "SET VISIBILITY = ACCOUNTS {}",
+                display_comma_separated(accounts)
+            ),
             Self::SetVisibilityRegionGroups(groups) => {
                 write!(f, "SET VISIBILITY = REGION GROUPS ")?;
                 for (index, group) in groups.iter().enumerate() {
@@ -18907,7 +18941,11 @@ impl fmt::Display for AlterOrganizationUserGroupOperation {
                 }
                 Ok(())
             }
-            Self::SetIsGrantable(value) => write!(f, "SET IS_GRANTABLE = {}", if *value { "TRUE" } else { "FALSE" }),
+            Self::SetIsGrantable(value) => write!(
+                f,
+                "SET IS_GRANTABLE = {}",
+                if *value { "TRUE" } else { "FALSE" }
+            ),
         }
     }
 }
@@ -19020,7 +19058,11 @@ impl fmt::Display for CreateWarehouse {
             write!(f, " {}", self.options)?;
         }
         if !self.with_tags.is_empty() {
-            write!(f, " WITH TAG ({})", display_comma_separated(&self.with_tags))?;
+            write!(
+                f,
+                " WITH TAG ({})",
+                display_comma_separated(&self.with_tags)
+            )?;
         }
         Ok(())
     }
@@ -19285,7 +19327,11 @@ impl AlterUser {
             write!(f, " MODIFY WORKLOAD IDENTITY {name}")?;
         }
         if let Some(identity) = &self.add_workload_identity {
-            write!(f, " ADD WORKLOAD IDENTITY {} {}", identity.name, identity.options)?;
+            write!(
+                f,
+                " ADD WORKLOAD IDENTITY {} {}",
+                identity.name, identity.options
+            )?;
         }
         if let Some(name) = &self.remove_workload_identity {
             write!(f, " REMOVE WORKLOAD IDENTITY {name}")?;
