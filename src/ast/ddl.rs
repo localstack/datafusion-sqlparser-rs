@@ -1706,6 +1706,13 @@ pub enum AlterColumnOperation {
     },
     /// `DROP DEFAULT`
     DropDefault,
+    /// `SET WRITE DEFAULT <expr>`
+    SetWriteDefault {
+        /// The default for subsequent writes, distinct from the initial default.
+        value: Expr,
+    },
+    /// `DROP WRITE DEFAULT`
+    DropWriteDefault,
     /// `[SET DATA] TYPE <data_type> [USING <expr>]`
     SetDataType {
         /// Target data type for the column.
@@ -2975,6 +2982,8 @@ impl fmt::Display for AlterColumnOperation {
             AlterColumnOperation::DropDefault => {
                 write!(f, "DROP DEFAULT")
             }
+            AlterColumnOperation::SetWriteDefault { value } => write!(f, "SET WRITE DEFAULT {value}"),
+            AlterColumnOperation::DropWriteDefault => write!(f, "DROP WRITE DEFAULT"),
             AlterColumnOperation::SetDataType {
                 data_type,
                 using,
