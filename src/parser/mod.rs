@@ -27260,14 +27260,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_signed_option_value(&mut self) -> Result<ValueWithSpan, ParserError> {
+    pub(crate) fn parse_signed_option_value(&mut self) -> Result<ValueWithSpan, ParserError> {
         if self.peek_token_ref().token == Token::Minus
             && matches!(self.peek_nth_token(1).token, Token::Number(..))
         {
             let sign = self.next_token();
             let mut value = self.parse_value()?;
             if let Value::Number(number, _) = &mut value.value {
-                number.insert(0, '-');
+                *number = Self::parse(format!("-{number}"), sign.span.start)?;
             }
             value.span.start = sign.span.start;
             Ok(value)
