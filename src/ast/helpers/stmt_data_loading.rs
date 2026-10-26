@@ -104,7 +104,11 @@ impl fmt::Display for StageParamsObject {
             write!(f, " ENDPOINT='{endpoint}'")?;
         }
         if let Some(enabled) = self.use_privatelink_endpoint {
-            write!(f, " USE_PRIVATELINK_ENDPOINT={}", if enabled { "TRUE" } else { "FALSE" })?;
+            write!(
+                f,
+                " USE_PRIVATELINK_ENDPOINT={}",
+                if enabled { "TRUE" } else { "FALSE" }
+            )?;
         }
         if let Some(arn) = &self.aws_access_point_arn {
             write!(f, " AWS_ACCESS_POINT_ARN='{}'", arn.replace('\'', "''"))?;

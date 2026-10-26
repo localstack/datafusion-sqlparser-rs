@@ -20,7 +20,7 @@ use alloc::boxed::Box;
 
 use crate::{
     ast::{BinaryOperator, Expr, LockTable, LockTableType, Statement},
-    dialect::{Dialect, Precedence},
+    dialect::{BindPlaceholderStyle, Dialect, Precedence},
     keywords::Keyword,
     parser::{Parser, ParserError},
     tokenizer::Token,
@@ -41,6 +41,12 @@ const RESERVED_FOR_TABLE_ALIAS_MYSQL: &[Keyword] = &[
 pub struct MySqlDialect {}
 
 impl Dialect for MySqlDialect {
+    /// Only select-list aliases may use string quoting, see
+    /// <https://dev.mysql.com/doc/refman/8.4/en/problems-with-alias.html>
+    fn supports_string_literal_table_alias(&self, _explicit: bool) -> bool {
+        false
+    }
+
     fn is_identifier_start(&self, ch: char) -> bool {
         // See https://dev.mysql.com/doc/refman/8.0/en/identifiers.html.
         // Identifiers which begin with a digit are recognized while tokenizing numbers,
@@ -68,6 +74,10 @@ impl Dialect for MySqlDialect {
         Some('`')
     }
 
+    fn ordered_bind_placeholder_style(&self) -> Option<BindPlaceholderStyle> {
+        Some(BindPlaceholderStyle::QuestionMark)
+    }
+
     // See https://dev.mysql.com/doc/refman/8.0/en/string-literals.html#character-escape-sequences
     fn supports_string_literal_backslash_escape(&self) -> bool {
         true
@@ -86,7 +96,15 @@ impl Dialect for MySqlDialect {
         true
     }
 
+    fn supports_literal_prefix_in_qualified_name(&self) -> bool {
+        true
+    }
+
     fn supports_bitwise_shift_operators(&self) -> bool {
+        true
+    }
+
+    fn supports_singular_value_keyword(&self) -> bool {
         true
     }
 

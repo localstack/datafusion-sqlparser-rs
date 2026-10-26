@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! AST types specific to CREATE/ALTER variants of [`Statement`](crate::ast::Statement)
+//! AST types specific to CREATE/ALTER variants of [`Statement`]
 //! (commonly referred to as Data Definition Language, or DDL)
 
 #[cfg(not(feature = "std"))]
@@ -44,15 +44,15 @@ use crate::ast::{
     },
     ArgMode, AttachedToken, CommentDef, ConditionalStatements, CreateFunctionBody,
     CreateFunctionUsing, CreateServerOption, CreateTableLikeKind, CreateTableOptions,
-    CreateViewParams, DataType, Expr, FileFormat, FunctionBehavior, FunctionCalledOnNull,
-    FunctionDefinitionSetParam, FunctionDesc, FunctionDeterminismSpecifier, FunctionParallel,
-    FunctionSecurity, HiveDistributionStyle, HiveFormat, HiveIOFormat, HiveRowFormat,
-    HiveSetLocation, Ident, InitializeKind, MySQLColumnPosition, ObjectName, OnCommit,
-    OneOrManyWithParens, OperateFunctionArg, OrderByExpr, ProjectionSelect, Query, RefreshModeKind,
-    ResetConfig, RowAccessPolicy, SequenceOptions, Spanned, SqlOption, StorageLifecyclePolicy,
-    StorageSerializationPolicy, TableVersion, Tag, TriggerEvent, TriggerExecBody, TriggerObject,
-    TriggerPeriod, TriggerReferencing, Value, ValueWithSpan, WrappedCollection,
-    DynamicTableCustomRefresh,
+    CreateViewParams, DataType, DynamicTableCustomRefresh, Expr, FileFormat, FunctionBehavior,
+    FunctionCalledOnNull, FunctionDefinitionSetParam, FunctionDesc, FunctionDeterminismSpecifier,
+    FunctionParallel, FunctionSecurity, HiveDistributionStyle, HiveFormat, HiveIOFormat,
+    HiveRowFormat, HiveSetLocation, Ident, InitializeKind, MySQLColumnPosition, ObjectName,
+    OnCommit, OneOrManyWithParens, OperateFunctionArg, OrderByExpr, ProjectionSelect, Query,
+    RefreshModeKind, ResetConfig, RowAccessPolicy, SequenceOptions, Spanned, SqlOption, Statement,
+    StorageLifecyclePolicy, StorageSerializationPolicy, TableVersion, Tag, TriggerEvent,
+    TriggerExecBody, TriggerObject, TriggerPeriod, TriggerReferencing, Value, ValueWithSpan,
+    WrappedCollection,
 };
 use crate::display_utils::{DisplayCommaSeparated, Indent, NewLine, SpaceOrNewline};
 use crate::keywords::Keyword;
@@ -87,11 +87,11 @@ impl<'a> From<&'a str> for IndexColumn {
 
 impl fmt::Display for IndexColumn {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.column)?;
+        write!(f, "{}", self.column.expr)?;
         if let Some(operator_class) = &self.operator_class {
             write!(f, " {operator_class}")?;
         }
-        Ok(())
+        self.column.fmt_sort_modifiers(f)
     }
 }
 
@@ -751,6 +751,43 @@ impl fmt::Display for AlterPolicyOperation {
     }
 }
 
+/// An `ALTER TRIGGER` (`Statement::AlterTrigger`) operation
+///
+/// [PostgreSQL Documentation](https://www.postgresql.org/docs/current/sql-altertrigger.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterTriggerOperation {
+    /// `RENAME TO new_name`
+    Rename {
+        /// The new identifier for the trigger.
+        new_name: Ident,
+    },
+    /// `[ NO ] DEPENDS ON EXTENSION extension_name`
+    DependsOnExtension {
+        /// `true` when `NO DEPENDS ON EXTENSION`.
+        no: bool,
+        /// Extension name.
+        extension_name: ObjectName,
+    },
+}
+
+impl fmt::Display for AlterTriggerOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterTriggerOperation::Rename { new_name } => {
+                write!(f, "RENAME TO {new_name}")
+            }
+            AlterTriggerOperation::DependsOnExtension { no, extension_name } => {
+                if *no {
+                    write!(f, "NO ")?;
+                }
+                write!(f, "DEPENDS ON EXTENSION {extension_name}")
+            }
+        }
+    }
+}
+
 /// [MySQL] `ALTER TABLE` algorithm.
 ///
 /// [MySQL]: https://dev.mysql.com/doc/refman/8.4/en/alter-table.html
@@ -870,11 +907,21 @@ pub enum AlterIndexOperation {
 impl fmt::Display for AlterTableOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlterTableOperation::TagValue { column, add, value, tag } => {
+            AlterTableOperation::TagValue {
+                column,
+                add,
+                value,
+                tag,
+            } => {
                 if let Some(column) = column {
                     write!(f, "MODIFY COLUMN {column} ")?;
                 }
-                write!(f, "{} VALUE '{}' FOR TAG {tag}", if *add { "ADD" } else { "DROP" }, value.replace('\'', "''"))
+                write!(
+                    f,
+                    "{} VALUE '{}' FOR TAG {tag}",
+                    if *add { "ADD" } else { "DROP" },
+                    value.replace('\'', "''")
+                )
             }
             AlterTableOperation::AlterConstraint {
                 modify,
@@ -1837,7 +1884,11 @@ impl fmt::Display for SemanticViewTable {
         }
         write!(f, "{}", self.name)?;
         if !self.primary_key.is_empty() {
-            write!(f, " PRIMARY KEY ({})", display_comma_separated(&self.primary_key))?;
+            write!(
+                f,
+                " PRIMARY KEY ({})",
+                display_comma_separated(&self.primary_key)
+            )?;
         }
         for unique in &self.unique {
             write!(f, " UNIQUE ({})", display_comma_separated(unique))?;
@@ -1877,7 +1928,11 @@ impl fmt::Display for SemanticViewDistinctRange {
         if let Some(name) = &self.name {
             write!(f, " {name}")?;
         }
-        write!(f, " DISTINCT RANGE BETWEEN {} AND {} EXCLUSIVE", self.start, self.end)
+        write!(
+            f,
+            " DISTINCT RANGE BETWEEN {} AND {} EXCLUSIVE",
+            self.start, self.end
+        )
     }
 }
 
@@ -1993,10 +2048,18 @@ impl fmt::Display for SemanticViewExpr {
             write!(f, " LABELS = (FILTER)")?;
         }
         if !self.using_relationships.is_empty() {
-            write!(f, " USING ({})", display_comma_separated(&self.using_relationships))?;
+            write!(
+                f,
+                " USING ({})",
+                display_comma_separated(&self.using_relationships)
+            )?;
         }
         if !self.non_additive_by.is_empty() {
-            write!(f, " NON ADDITIVE BY ({})", display_comma_separated(&self.non_additive_by))?;
+            write!(
+                f,
+                " NON ADDITIVE BY ({})",
+                display_comma_separated(&self.non_additive_by)
+            )?;
         }
         if let Some(expr) = &self.expr {
             write!(f, " AS {expr}")?;
@@ -2032,9 +2095,13 @@ pub struct SemanticViewNonAdditiveDimension {
 
 impl fmt::Display for SemanticViewNonAdditiveDimension {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} NULLS {}", self.name,
+        write!(
+            f,
+            "{} {} NULLS {}",
+            self.name,
             if self.descending { "DESC" } else { "ASC" },
-            if self.nulls_first { "FIRST" } else { "LAST" })
+            if self.nulls_first { "FIRST" } else { "LAST" }
+        )
     }
 }
 
@@ -2118,7 +2185,11 @@ impl fmt::Display for CreateSemanticView {
             "CREATE {or_replace}{or_alter}SEMANTIC VIEW {if_not_exists}{name}",
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             or_alter = if self.or_alter { "OR ALTER " } else { "" },
-            if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
+            if_not_exists = if self.if_not_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
             name = self.name,
         )?;
         for clause in &self.clauses {
@@ -2131,13 +2202,25 @@ impl fmt::Display for CreateSemanticView {
             write!(f, " COMMENT = '{}'", escape_single_quote_string(comment))?;
         }
         if let Some(max_staleness) = &self.max_staleness {
-            write!(f, " MAX_STALENESS = '{}'", escape_single_quote_string(max_staleness))?;
+            write!(
+                f,
+                " MAX_STALENESS = '{}'",
+                escape_single_quote_string(max_staleness)
+            )?;
         }
         if let Some(instr) = &self.ai_sql_generation {
-            write!(f, " AI_SQL_GENERATION '{}'", escape_single_quote_string(instr))?;
+            write!(
+                f,
+                " AI_SQL_GENERATION '{}'",
+                escape_single_quote_string(instr)
+            )?;
         }
         if let Some(instr) = &self.ai_question_categorization {
-            write!(f, " AI_QUESTION_CATEGORIZATION '{}'", escape_single_quote_string(instr))?;
+            write!(
+                f,
+                " AI_QUESTION_CATEGORIZATION '{}'",
+                escape_single_quote_string(instr)
+            )?;
         }
         if let Some(queries) = &self.ai_verified_queries {
             write!(f, " AI_VERIFIED_QUERIES ({queries})")?;
@@ -2322,7 +2405,15 @@ pub enum AlterDataMovementPolicyOperation {
 impl fmt::Display for AlterDataMovementPolicyOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Rules { action, list, rules } => write!(formatter, "{action} {list} = ({})", display_comma_separated(rules)),
+            Self::Rules {
+                action,
+                list,
+                rules,
+            } => write!(
+                formatter,
+                "{action} {list} = ({})",
+                display_comma_separated(rules)
+            ),
             Self::Metadata(operation) => write!(formatter, "{operation}"),
         }
     }
@@ -2331,7 +2422,12 @@ impl fmt::Display for AlterDataMovementPolicyOperation {
 impl fmt::Display for AlterDataMovementRuleOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::SetMaxRows { return_type, body, .. } => write!(formatter, "SET MAX_ROWS AS () RETURNS {return_type} -> {body}"),
+            Self::SetMaxRows {
+                return_type, body, ..
+            } => write!(
+                formatter,
+                "SET MAX_ROWS AS () RETURNS {return_type} -> {body}"
+            ),
             Self::Metadata(operation) => write!(formatter, "{operation}"),
         }
     }
@@ -2740,20 +2836,48 @@ pub enum AlterTagOperation {
 impl fmt::Display for AlterTagOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AlterTagOperation::SetPropagation { propagate, on_conflict, multi_value, comment } => {
+            AlterTagOperation::SetPropagation {
+                propagate,
+                on_conflict,
+                multi_value,
+                comment,
+            } => {
                 write!(f, "SET")?;
                 if let Some(enabled) = multi_value {
-                    write!(f, " MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                    write!(
+                        f,
+                        " MULTI_VALUE = {}",
+                        if *enabled { "TRUE" } else { "FALSE" }
+                    )?;
                 }
-                for (name, value) in [("PROPAGATE", propagate), ("ON_CONFLICT", on_conflict), ("COMMENT", comment)] {
+                for (name, value) in [
+                    ("PROPAGATE", propagate),
+                    ("ON_CONFLICT", on_conflict),
+                    ("COMMENT", comment),
+                ] {
                     if let Some(value) = value {
-                        write!(f, " {name} = '{}'", super::value::escape_single_quote_string(value))?;
+                        write!(
+                            f,
+                            " {name} = '{}'",
+                            super::value::escape_single_quote_string(value)
+                        )?;
                     }
                 }
                 Ok(())
             }
-            AlterTagOperation::UnsetPropagation { propagate, on_conflict } => {
-                write!(f, "UNSET {}", if *propagate { "PROPAGATE" } else { "ON_CONFLICT" })?;
+            AlterTagOperation::UnsetPropagation {
+                propagate,
+                on_conflict,
+            } => {
+                write!(
+                    f,
+                    "UNSET {}",
+                    if *propagate {
+                        "PROPAGATE"
+                    } else {
+                        "ON_CONFLICT"
+                    }
+                )?;
                 if *propagate && *on_conflict {
                     write!(f, ", ON_CONFLICT")?;
                 }
@@ -2780,9 +2904,17 @@ impl fmt::Display for AlterTagOperation {
             }
             AlterTagOperation::UnsetAllowedValues => write!(f, "UNSET ALLOWED_VALUES"),
             AlterTagOperation::SetMultiValue { enabled, comment } => {
-                write!(f, "SET MULTI_VALUE = {}", if *enabled { "TRUE" } else { "FALSE" })?;
+                write!(
+                    f,
+                    "SET MULTI_VALUE = {}",
+                    if *enabled { "TRUE" } else { "FALSE" }
+                )?;
                 if let Some(comment) = comment {
-                    write!(f, " COMMENT = '{}'", super::value::escape_single_quote_string(comment))?;
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        super::value::escape_single_quote_string(comment)
+                    )?;
                 }
                 Ok(())
             }
@@ -2837,7 +2969,9 @@ impl fmt::Display for AlterColumnOperation {
             AlterColumnOperation::DropDefault => {
                 write!(f, "DROP DEFAULT")
             }
-            AlterColumnOperation::SetWriteDefault { value } => write!(f, "SET WRITE DEFAULT {value}"),
+            AlterColumnOperation::SetWriteDefault { value } => {
+                write!(f, "SET WRITE DEFAULT {value}")
+            }
             AlterColumnOperation::DropWriteDefault => write!(f, "DROP WRITE DEFAULT"),
             AlterColumnOperation::SetDataType {
                 data_type,
@@ -4051,10 +4185,16 @@ pub enum UserDefinedTypeRepresentation {
 impl fmt::Display for UserDefinedTypeRepresentation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Alias { data_type, comment, .. } => {
+            Self::Alias {
+                data_type, comment, ..
+            } => {
                 write!(f, "AS {data_type}")?;
                 if let Some(comment) = comment {
-                    write!(f, " COMMENT = '{}'", crate::ast::value::escape_single_quote_string(comment))?;
+                    write!(
+                        f,
+                        " COMMENT = '{}'",
+                        crate::ast::value::escape_single_quote_string(comment)
+                    )?;
                 }
                 Ok(())
             }
@@ -5223,7 +5363,11 @@ impl fmt::Display for CreateTable {
         if let Some(with_aggregation_policy) = &self.with_aggregation_policy {
             write!(f, " WITH AGGREGATION POLICY {with_aggregation_policy}",)?;
             if !self.aggregation_policy_entity_key.is_empty() {
-                write!(f, " ENTITY KEY ({})", display_comma_separated(&self.aggregation_policy_entity_key))?;
+                write!(
+                    f,
+                    " ENTITY KEY ({})",
+                    display_comma_separated(&self.aggregation_policy_entity_key)
+                )?;
             }
         }
 
@@ -5948,7 +6092,12 @@ impl fmt::Display for AlterSchemaOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             AlterSchemaOperation::TagValue { add, value, tag } => {
-                write!(f, "{} VALUE '{}' FOR TAG {tag}", if *add { "ADD" } else { "DROP" }, value.replace('\'', "''"))
+                write!(
+                    f,
+                    "{} VALUE '{}' FOR TAG {tag}",
+                    if *add { "ADD" } else { "DROP" },
+                    value.replace('\'', "''")
+                )
             }
             AlterSchemaOperation::SetDefaultCollate { collate } => {
                 write!(f, "SET DEFAULT COLLATE {collate}")
@@ -8159,6 +8308,185 @@ impl From<AlterPolicy> for crate::ast::Statement {
     }
 }
 
+/// ALTER TRIGGER statement.
+///
+/// Its source span covers `name`, `table_name` and `operation`.
+///
+/// ```sql
+/// ALTER TRIGGER <NAME> ON <TABLE NAME> <OPERATION>
+/// ```
+/// (Postgresql-specific)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AlterTrigger {
+    /// Trigger name to alter.
+    pub name: Ident,
+    /// Target table name the trigger is defined on.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub table_name: ObjectName,
+    /// Operation specific to the trigger alteration.
+    pub operation: AlterTriggerOperation,
+}
+
+impl fmt::Display for AlterTrigger {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ALTER TRIGGER {name} ON {table_name} {operation}",
+            name = self.name,
+            table_name = self.table_name,
+            operation = self.operation
+        )
+    }
+}
+
+impl From<AlterTrigger> for crate::ast::Statement {
+    fn from(v: AlterTrigger) -> Self {
+        crate::ast::Statement::AlterTrigger(v)
+    }
+}
+
+/// A PostgreSQL rule with source spans derived from its identifiers, condition and actions.
+///
+/// ```sql
+/// CREATE [ OR REPLACE ] RULE name AS ON event
+///     TO table_name [ WHERE condition ]
+///     DO [ ALSO | INSTEAD ] { NOTHING | command | ( command ; command ... ) }
+/// ```
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createrule.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateRule {
+    /// `true` when `OR REPLACE` was present.
+    pub or_replace: bool,
+    /// Name of the rule.
+    pub name: Ident,
+    /// Event the rule fires on (`SELECT`, `INSERT`, `UPDATE` or `DELETE`).
+    pub event: CreateRuleEvent,
+    /// Table the rule is defined on.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub table_name: ObjectName,
+    /// Optional expression for the `WHERE` clause.
+    pub condition: Option<Expr>,
+    /// Optional `ALSO` or `INSTEAD` keyword following `DO`.
+    pub do_kind: Option<CreateRuleDoKind>,
+    /// Action the rule performs.
+    pub action: CreateRuleAction,
+}
+
+impl fmt::Display for CreateRule {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "CREATE {or_replace}RULE {name} AS ON {event} TO {table_name}",
+            or_replace = if self.or_replace { "OR REPLACE " } else { "" },
+            name = self.name,
+            event = self.event,
+            table_name = self.table_name,
+        )?;
+        if let Some(condition) = &self.condition {
+            write!(f, " WHERE {condition}")?;
+        }
+        write!(f, " DO")?;
+        if let Some(do_kind) = &self.do_kind {
+            write!(f, " {do_kind}")?;
+        }
+        write!(f, " {}", self.action)
+    }
+}
+
+/// Event that fires a rule (`ON` clause).
+/// ```sql
+/// AS ON [SELECT | INSERT | UPDATE | DELETE]
+/// ```
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createrule.html)
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CreateRuleEvent {
+    /// Fires on SELECT.
+    Select,
+    /// Fires on INSERT.
+    Insert,
+    /// Fires on UPDATE.
+    Update,
+    /// Fires on DELETE.
+    Delete,
+}
+
+impl fmt::Display for CreateRuleEvent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CreateRuleEvent::Select => write!(f, "SELECT"),
+            CreateRuleEvent::Insert => write!(f, "INSERT"),
+            CreateRuleEvent::Update => write!(f, "UPDATE"),
+            CreateRuleEvent::Delete => write!(f, "DELETE"),
+        }
+    }
+}
+
+/// Keyword following `DO` in a `CREATE RULE` statement.
+/// ```sql
+/// DO [ ALSO | INSTEAD ]
+/// ```
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createrule.html)
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CreateRuleDoKind {
+    /// The action runs in addition to the original statement.
+    Also,
+    /// The action runs instead of the original statement.
+    Instead,
+}
+
+impl fmt::Display for CreateRuleDoKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CreateRuleDoKind::Also => write!(f, "ALSO"),
+            CreateRuleDoKind::Instead => write!(f, "INSTEAD"),
+        }
+    }
+}
+
+/// Action of a `CREATE RULE` statement.
+/// ```sql
+/// { NOTHING | command | ( command ; command ... ) }
+/// ```
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createrule.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CreateRuleAction {
+    /// `NOTHING`
+    Nothing,
+    /// A single command, e.g. `DO INSTEAD SELECT * FROM t`.
+    Statement(Box<Statement>),
+    /// A parenthesized, semicolon-separated list of commands.
+    Statements(Vec<Statement>),
+}
+
+impl fmt::Display for CreateRuleAction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CreateRuleAction::Nothing => write!(f, "NOTHING"),
+            CreateRuleAction::Statement(statement) => write!(f, "{statement}"),
+            CreateRuleAction::Statements(statements) => {
+                write!(f, "({})", display_separated(statements, "; "))
+            }
+        }
+    }
+}
+
+impl From<CreateRule> for crate::ast::Statement {
+    fn from(v: CreateRule) -> Self {
+        crate::ast::Statement::CreateRule(v)
+    }
+}
+
 /// A `CREATE FOREIGN TABLE` statement.
 ///
 /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigntable.html)
@@ -8208,6 +8536,62 @@ impl fmt::Display for CreateForeignTable {
     }
 }
 
+/// A handler or validator clause of a `CREATE FOREIGN DATA WRAPPER` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ForeignDataWrapperRoutineClause {
+    /// `HANDLER handler_function`
+    Handler(ObjectName),
+    /// `NO HANDLER`
+    NoHandler,
+    /// `VALIDATOR validator_function`
+    Validator(ObjectName),
+    /// `NO VALIDATOR`
+    NoValidator,
+}
+
+impl fmt::Display for ForeignDataWrapperRoutineClause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ForeignDataWrapperRoutineClause::Handler(name) => write!(f, "HANDLER {name}"),
+            ForeignDataWrapperRoutineClause::NoHandler => f.write_str("NO HANDLER"),
+            ForeignDataWrapperRoutineClause::Validator(name) => write!(f, "VALIDATOR {name}"),
+            ForeignDataWrapperRoutineClause::NoValidator => f.write_str("NO VALIDATOR"),
+        }
+    }
+}
+
+/// A `CREATE FOREIGN DATA WRAPPER` statement.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigndatawrapper.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateForeignDataWrapper {
+    /// The name of the foreign-data wrapper. Per PostgreSQL this is a bare
+    /// identifier and cannot be schema-qualified.
+    pub name: Ident,
+    /// `HANDLER` and `VALIDATOR` clauses in source order. PostgreSQL's grammar
+    /// accepts repeated clauses and rejects them only when executing the statement.
+    pub routines: Vec<ForeignDataWrapperRoutineClause>,
+    /// Optional `OPTIONS (key 'value', ...)` clause.
+    pub options: Option<Vec<CreateServerOption>>,
+}
+
+impl fmt::Display for CreateForeignDataWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "CREATE FOREIGN DATA WRAPPER {}", self.name)?;
+        for routine in &self.routines {
+            write!(f, " {routine}")?;
+        }
+        if let Some(options) = &self.options {
+            write!(f, " OPTIONS ({})", display_comma_separated(options))?;
+        }
+        Ok(())
+    }
+}
+
 impl From<CreateForeignTable> for crate::ast::Statement {
     fn from(v: CreateForeignTable) -> Self {
         crate::ast::Statement::CreateForeignTable(v)
@@ -8221,6 +8605,210 @@ impl Spanned for CreateForeignTable {
                 .chain(self.columns.iter().map(|column| column.span()))
                 .chain(self.constraints.iter().map(|constraint| constraint.span()))
                 .chain(core::iter::once(self.server_name.span))
+                .chain(
+                    self.options
+                        .iter()
+                        .flatten()
+                        .flat_map(|option| [option.key.span, option.value.span]),
+                ),
+        )
+    }
+}
+
+/// CREATE AGGREGATE statement.
+/// See <https://www.postgresql.org/docs/current/sql-createaggregate.html>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateAggregate {
+    /// True if `OR REPLACE` was specified.
+    pub or_replace: bool,
+    /// The aggregate name (can be schema-qualified).
+    pub name: ObjectName,
+    /// The input arguments, without output modes or defaults.
+    pub args: CreateAggregateArgs,
+    /// The options listed inside the required parentheses after the argument
+    /// list (e.g. `SFUNC`, `STYPE`, `FINALFUNC`, `PARALLEL`, …).
+    pub options: Vec<CreateAggregateOption>,
+}
+
+impl fmt::Display for CreateAggregate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CREATE")?;
+        if self.or_replace {
+            write!(f, " OR REPLACE")?;
+        }
+        write!(f, " AGGREGATE {}", self.name)?;
+        match &self.args {
+            CreateAggregateArgs::Legacy => {}
+            CreateAggregateArgs::Star => write!(f, " (*)")?,
+            CreateAggregateArgs::List(args) => write!(f, " ({})", display_comma_separated(args))?,
+            CreateAggregateArgs::OrderedSet { direct, aggregated } => {
+                write!(f, " (")?;
+                if !direct.is_empty() {
+                    write!(f, "{} ", display_comma_separated(direct))?;
+                }
+                write!(f, "ORDER BY {})", display_comma_separated(aggregated))?;
+            }
+        }
+        write!(f, " ({})", display_comma_separated(&self.options))
+    }
+}
+
+/// The argument list of a [`CreateAggregate`] statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CreateAggregateArgs {
+    /// No argument-list parentheses: the historical form that packs everything,
+    /// usually including a `BASETYPE` option, into a single list.
+    Legacy,
+    /// The wildcard form `(*)`, used by zero-argument aggregates such as
+    /// `count(*)`.
+    Star,
+    /// An explicit argument list: `(NUMERIC)`,
+    /// `(input INT, VARIADIC tail TEXT)`.
+    List(Vec<OperateFunctionArg>),
+    /// PostgreSQL ordered-set form: args before `ORDER BY` are direct args.
+    OrderedSet {
+        /// Arguments before `ORDER BY`.
+        direct: Vec<OperateFunctionArg>,
+        /// Arguments after `ORDER BY`.
+        aggregated: Vec<OperateFunctionArg>,
+    },
+}
+
+impl From<CreateAggregate> for crate::ast::Statement {
+    fn from(v: CreateAggregate) -> Self {
+        crate::ast::Statement::CreateAggregate(v)
+    }
+}
+
+/// A single option in a `CREATE AGGREGATE` options list.
+///
+/// See <https://www.postgresql.org/docs/current/sql-createaggregate.html>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CreateAggregateOption {
+    /// `SFUNC = state_transition_function`
+    StateTransitionFunction(ObjectName),
+    /// `STYPE = state_data_type`
+    StateDataType(DataType),
+    /// `SSPACE = state_data_size` (in bytes)
+    StateDataSize(u64),
+    /// `FINALFUNC = final_function`
+    FinalFunction(ObjectName),
+    /// `FINALFUNC_EXTRA`. Passes extra dummy arguments to the final function.
+    FinalFunctionExtra,
+    /// `FINALFUNC_MODIFY = { READ_ONLY | SHAREABLE | READ_WRITE }`
+    FinalFunctionModify(AggregateModifyKind),
+    /// `COMBINEFUNC = combine_function`
+    CombineFunction(ObjectName),
+    /// `SERIALFUNC = serial_function`
+    SerialFunction(ObjectName),
+    /// `DESERIALFUNC = deserial_function`
+    DeserialFunction(ObjectName),
+    /// `INITCOND = initial_condition` (a string literal)
+    InitialCondition(ValueWithSpan),
+    /// `MSFUNC = moving_state_transition_function`
+    MovingStateTransitionFunction(ObjectName),
+    /// `MINVFUNC = moving_inverse_transition_function`
+    MovingInverseTransitionFunction(ObjectName),
+    /// `MSTYPE = moving_state_data_type`
+    MovingStateDataType(DataType),
+    /// `MSSPACE = moving_state_data_size` (in bytes)
+    MovingStateDataSize(u64),
+    /// `MFINALFUNC = moving_final_function`
+    MovingFinalFunction(ObjectName),
+    /// `MFINALFUNC_EXTRA`
+    MovingFinalFunctionExtra,
+    /// `MFINALFUNC_MODIFY = { READ_ONLY | SHAREABLE | READ_WRITE }`
+    MovingFinalFunctionModify(AggregateModifyKind),
+    /// `MINITCOND = moving_initial_condition` (a string literal)
+    MovingInitialCondition(ValueWithSpan),
+    /// `SORTOP = sort_operator`
+    SortOperator(ObjectName),
+    /// `PARALLEL = { SAFE | RESTRICTED | UNSAFE }`
+    Parallel(FunctionParallel),
+    /// `HYPOTHETICAL`. Marks the aggregate as hypothetical-set.
+    Hypothetical,
+    /// `BASETYPE = base_type` (old aggregate syntax).
+    BaseType(DataType),
+}
+
+impl fmt::Display for CreateAggregateOption {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::StateTransitionFunction(name) => write!(f, "SFUNC = {name}"),
+            Self::StateDataType(data_type) => write!(f, "STYPE = {data_type}"),
+            Self::StateDataSize(size) => write!(f, "SSPACE = {size}"),
+            Self::FinalFunction(name) => write!(f, "FINALFUNC = {name}"),
+            Self::FinalFunctionExtra => write!(f, "FINALFUNC_EXTRA"),
+            Self::FinalFunctionModify(kind) => write!(f, "FINALFUNC_MODIFY = {kind}"),
+            Self::CombineFunction(name) => write!(f, "COMBINEFUNC = {name}"),
+            Self::SerialFunction(name) => write!(f, "SERIALFUNC = {name}"),
+            Self::DeserialFunction(name) => write!(f, "DESERIALFUNC = {name}"),
+            Self::InitialCondition(cond) => write!(f, "INITCOND = {cond}"),
+            Self::MovingStateTransitionFunction(name) => write!(f, "MSFUNC = {name}"),
+            Self::MovingInverseTransitionFunction(name) => write!(f, "MINVFUNC = {name}"),
+            Self::MovingStateDataType(data_type) => write!(f, "MSTYPE = {data_type}"),
+            Self::MovingStateDataSize(size) => write!(f, "MSSPACE = {size}"),
+            Self::MovingFinalFunction(name) => write!(f, "MFINALFUNC = {name}"),
+            Self::MovingFinalFunctionExtra => write!(f, "MFINALFUNC_EXTRA"),
+            Self::MovingFinalFunctionModify(kind) => write!(f, "MFINALFUNC_MODIFY = {kind}"),
+            Self::MovingInitialCondition(cond) => write!(f, "MINITCOND = {cond}"),
+            Self::SortOperator(name) if name.0.len() > 1 => {
+                write!(f, "SORTOP = OPERATOR({name})")
+            }
+            Self::SortOperator(name) => write!(f, "SORTOP = {name}"),
+            Self::Parallel(parallel) => write!(f, "PARALLEL = {}", parallel.as_str()),
+            Self::Hypothetical => write!(f, "HYPOTHETICAL"),
+            Self::BaseType(data_type) => write!(f, "BASETYPE = {data_type}"),
+        }
+    }
+}
+
+/// Modifier kind for `FINALFUNC_MODIFY` / `MFINALFUNC_MODIFY` in `CREATE AGGREGATE`.
+///
+/// See <https://www.postgresql.org/docs/current/sql-createaggregate.html>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AggregateModifyKind {
+    /// The final function does not modify the transition state.
+    ReadOnly,
+    /// The transition state may be shared between aggregate calls.
+    Shareable,
+    /// The final function may modify the transition state.
+    ReadWrite,
+}
+
+impl fmt::Display for AggregateModifyKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ReadOnly => write!(f, "READ_ONLY"),
+            Self::Shareable => write!(f, "SHAREABLE"),
+            Self::ReadWrite => write!(f, "READ_WRITE"),
+        }
+    }
+}
+
+impl From<CreateForeignDataWrapper> for crate::ast::Statement {
+    fn from(v: CreateForeignDataWrapper) -> Self {
+        crate::ast::Statement::CreateForeignDataWrapper(v)
+    }
+}
+
+impl Spanned for CreateForeignDataWrapper {
+    fn span(&self) -> Span {
+        Span::union_iter(
+            core::iter::once(self.name.span)
+                .chain(self.routines.iter().filter_map(|routine| match routine {
+                    ForeignDataWrapperRoutineClause::Handler(name)
+                    | ForeignDataWrapperRoutineClause::Validator(name) => Some(name.span()),
+                    _ => None,
+                }))
                 .chain(
                     self.options
                         .iter()

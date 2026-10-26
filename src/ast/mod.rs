@@ -46,68 +46,60 @@ use sqlparser_derive::{Visit, VisitMut};
 
 use crate::{
     display_utils::SpaceOrNewline,
-    tokenizer::{Span, Token},
+    tokenizer::{Span, Token, OPERATOR_CHARS},
 };
 use crate::{
-    display_utils::{Indent, NewLine},
+    display_utils::{first_char, Indent, NewLine},
     keywords::Keyword,
 };
 
 pub use self::data_type::{
     ArrayElemTypeDef, BinaryLength, CharLengthUnits, CharacterLength, DataType, EnumMember,
-    ExactNumberInfo, IntervalFields, MapBracketKind, StructBracketKind, TimezoneInfo,
+    ExactNumberInfo, IntervalFields, MapBracketKind, StructBracketKind, TimezoneInfo, TypeModifier,
 };
 pub use self::dcl::{
     AlterDatabaseRoleOperation, AlterRoleOperation, CreateRole, Grant, ResetConfig, Revoke,
     RoleOption, SecondaryRoles, SetConfigValue, Use,
 };
 pub use self::ddl::{
-    Alignment, AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
+    AggregateModifyKind, Alignment, AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation,
+    AlterBackupSetOperation, AlterCollation, AlterCollationOperation, AlterColumnOperation,
+    AlterConnectorOwner, AlterDataMovementPolicyOperation, AlterDataMovementRuleOperation,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
-    AlterMaskingPolicyOperation, AlterTagOperation,
-    AlterIndexOperation, AlterProcedure, AlterProcedureOperation,
-    AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
-    AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPolicy,
-    AlterPolicyOperation, AlterSchema, AlterSchemaOperation, AlterTable, AlterTableAlgorithm,
-    AlterTableLock, AlterTableOperation, AlterTableType, AlterTextSearch, AlterTextSearchOperation,
-    AlterTextSearchOption, AlterType, AlterTypeAddValue, AlterTypeAddValuePosition,
-    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, ClusteredBy, ColumnDef,
-    ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy, ColumnPolicyProperty,
-    ConstraintCharacteristics, CreateCollation, CreateCollationDefinition, CreateConnector,
-    CreateDomain, CreateExtension, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
-    AlterPasswordPolicyOperation,
-    AlterBackupSetOperation, BackupSetTargetKind,
-    BackupPolicyPhase,
-    ModifyBackupAction,
-    AlterRowAccessPolicyOperation,
-    AlterSessionPolicyOperation,
-    AlterMaintenancePolicyOperation, AlterDataMovementRuleOperation, AlterDataMovementPolicyOperation,
-    AlterAuthenticationPolicyOperation,
-    AlterBackupPolicyOperation,
-    AlterSemanticViewOperation,
-    ConstraintTarget,
+    AlterIndexOperation, AlterMaintenancePolicyOperation, AlterMaskingPolicyOperation,
+    AlterNetworkRuleOperation, AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
+    AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation,
+    AlterPasswordPolicyOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
+    AlterProcedureOperation, AlterRowAccessPolicyOperation, AlterSchema, AlterSchemaOperation,
+    AlterSemanticViewOperation, AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
+    AlterTable, AlterTableAlgorithm, AlterTableLock, AlterTableOperation, AlterTableType,
+    AlterTagOperation, AlterTextSearch, AlterTextSearchOperation, AlterTextSearchOption,
+    AlterTrigger, AlterTriggerOperation, AlterType, AlterTypeAddValue, AlterTypeAddValuePosition,
+    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, BackupPolicyPhase,
+    BackupSetTargetKind, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
+    ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget,
+    CreateAggregate, CreateAggregateArgs, CreateAggregateOption, CreateCollation,
+    CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension,
+    CreateForeignDataWrapper, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
+    CreateRule, CreateRuleAction, CreateRuleDoKind, CreateRuleEvent, CreateSemanticView,
     CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
     DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
-    DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger, ForValues,
+    DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger,
     ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
-    FunctionReturnType, GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
+    ExternalTablePartitionColumn, ForValues, ForeignDataWrapperRoutineClause, FunctionReturnType,
+    GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
     IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder, IndexColumn,
-    IndexOption, IndexType, KeyOrIndexDisplay, Msck, NullsDistinctOption, OperatorArgTypes,
-    OperatorClassItem, OperatorFamilyDropItem, OperatorFamilyItem, OperatorOption, OperatorPurpose,
-    Owner, Partition, PartitionBoundValue, ProcedureParam, ReferentialAction, RenameTableNameKind,
-    ReplicaIdentity, SqliteTableOption, SqliteTableOptions, TagsColumnOption, TextSearchObjectType,
-    TriggerObjectKind, Truncate, UserDefinedTypeCompositeAttributeDef,
+    IndexOption, IndexType, KeyOrIndexDisplay, ModifyBackupAction, Msck, NullsDistinctOption,
+    OperatorArgTypes, OperatorClassItem, OperatorFamilyDropItem, OperatorFamilyItem,
+    OperatorOption, OperatorPurpose, Owner, Partition, PartitionBoundValue, ProcedureExecuteAs,
+    ProcedureParam, ReferentialAction, RenameTableNameKind, ReplicaIdentity, SemanticViewClause,
+    SemanticViewColumnAccess, SemanticViewCortexSearch, SemanticViewDistinctRange,
+    SemanticViewExpr, SemanticViewNonAdditiveDimension, SemanticViewRelationship,
+    SemanticViewTable, SqliteTableOption, SqliteTableOptions, TagsColumnOption,
+    TextSearchObjectType, TriggerObjectKind, Truncate, UserDefinedTypeCompositeAttributeDef,
     UserDefinedTypeInternalLength, UserDefinedTypeRangeOption, UserDefinedTypeRepresentation,
     UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, ViewColumnDef, WithData,
-    ExternalTablePartitionColumn,
-    AlterNetworkRuleOperation,
-    AlterSnowflakeSecretOperation,
-    CreateSemanticView, SemanticViewClause, SemanticViewColumnAccess, SemanticViewExpr, SemanticViewRelationship, SemanticViewTable,
-    SemanticViewCortexSearch,
-    SemanticViewDistinctRange,
-    SemanticViewNonAdditiveDimension,
-    ProcedureExecuteAs,
 };
 pub use self::dml::{
     Delete, Insert, InsertOverriding, Merge, MergeAction, MergeClause, MergeClauseKind,
@@ -126,19 +118,17 @@ pub use self::query::{
     MatchRecognizeSymbol, Measure, NamedWindowDefinition, NamedWindowExpr, NonBlock, Offset,
     OffsetRows, OpenJsonTableColumn, OrderBy, OrderByExpr, OrderByKind, OrderByOptions,
     OrderBySort, PipeOperator, PivotValueSource, ProjectionSelect, Query, RenameSelectItem,
-    RepetitionQuantifier, ReplaceSelectElement, ReplaceSelectItem, RowsPerMatch, Select,
-    RunningFinal,
-    Resample, ResampleMetadataColumn, ResampleMetadataColumnKind,
+    RepetitionQuantifier, ReplaceSelectElement, ReplaceSelectItem, Resample,
+    ResampleMetadataColumn, ResampleMetadataColumnKind, RowsPerMatch, RunningFinal, Select,
     SelectFlavor, SelectInto, SelectItem, SelectItemQualifiedWildcardKind, SelectModifiers,
     SemanticViewQueryClause, SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table,
-    TableAlias,
-    TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexHintForClause,
-    TableIndexHintType, TableIndexHints, TableIndexType, TableSample, TableSampleBucket,
-    TableSampleKind, TableSampleMethod, TableSampleModifier, TableSampleQuantity, TableSampleSeed,
-    TableSampleSeedModifier, TableSampleUnit, TableVersion, TableWithJoins, Top, TopQuantity,
-    UpdateTableFromKind, ValueTableMode, Values, WildcardAdditionalOptions, With, WithFill,
-    XmlNamespaceDefinition, XmlPassingArgument, XmlPassingClause, XmlTableColumn,
-    XmlTableColumnOption,
+    TableAlias, TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexDirective,
+    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableSample,
+    TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
+    TableSampleQuantity, TableSampleSeed, TableSampleSeedModifier, TableSampleUnit, TableVersion,
+    TableWithJoins, Top, TopQuantity, UpdateTableFromKind, ValueTableMode, Values,
+    WildcardAdditionalOptions, With, WithFill, XmlNamespaceDefinition, XmlPassingArgument,
+    XmlPassingClause, XmlTableColumn, XmlTableColumnOption,
 };
 
 pub use self::trigger::{
@@ -913,6 +903,46 @@ impl fmt::Display for CaseWhen {
     }
 }
 
+/// The right-hand side of an `IN` predicate, see [`Expr::In`].
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum InTarget {
+    /// `(val1, val2, ...)`
+    List(Vec<Expr>),
+    /// `(SELECT ...)`
+    Subquery(Box<Query>),
+    /// `UNNEST(array_expression)`, see
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/operators#in_operators)
+    Unnest(Box<Expr>),
+    /// A table name or table-valued function, read as `(SELECT * FROM name)`, see
+    /// [SQLite](https://www.sqlite.org/lang_expr.html#in_op)
+    Table {
+        #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+        /// Table or table-valued function name, visited as a relation.
+        name: ObjectName,
+        /// Table-valued function arguments, `None` for a plain table name.
+        args: Option<Vec<FunctionArg>>,
+    },
+}
+
+impl fmt::Display for InTarget {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            InTarget::List(list) => write!(f, "({})", display_comma_separated(list)),
+            InTarget::Subquery(subquery) => write!(f, "({subquery})"),
+            InTarget::Unnest(array_expr) => write!(f, "UNNEST({array_expr})"),
+            InTarget::Table { name, args } => {
+                write!(f, "{name}")?;
+                if let Some(args) = args {
+                    write!(f, "({})", display_comma_separated(args))?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// An SQL expression of any type.
 ///
 /// # Semantics / Type Checking
@@ -1019,36 +1049,16 @@ pub enum Expr {
         /// `true` when `NOT` is present.
         negated: bool,
     },
-    /// `[ GLOBAL ] [ NOT ] IN (val1, val2, ...)`
-    InList {
+    /// `<expr> [ GLOBAL ] [ NOT ] IN <target>`
+    In {
         /// Left-hand expression to test for membership.
         expr: Box<Expr>,
-        /// Literal list of expressions to check against.
-        list: Vec<Expr>,
+        /// What `expr` is tested against.
+        target: InTarget,
         /// `true` when the `NOT` modifier is present.
         negated: bool,
         /// `true` when the ClickHouse `GLOBAL` modifier is present.
         global: bool,
-    },
-    /// `[ GLOBAL ] [ NOT ] IN (SELECT ...)`
-    InSubquery {
-        /// Left-hand expression to test for membership.
-        expr: Box<Expr>,
-        /// The subquery providing the candidate values.
-        subquery: Box<Query>,
-        /// `true` when the `NOT` modifier is present.
-        negated: bool,
-        /// `true` when the ClickHouse `GLOBAL` modifier is present.
-        global: bool,
-    },
-    /// `[ NOT ] IN UNNEST(array_expression)`
-    InUnnest {
-        /// Left-hand expression to test for membership.
-        expr: Box<Expr>,
-        /// Array expression being unnested.
-        array_expr: Box<Expr>,
-        /// `true` when the `NOT` modifier is present.
-        negated: bool,
     },
     /// `<expr> [ NOT ] BETWEEN <low> AND <high>`
     Between {
@@ -1863,42 +1873,18 @@ impl fmt::Display for Expr {
                 }
                 Ok(())
             }
-            Expr::InList {
+            Expr::In {
                 expr,
-                list,
+                target,
                 negated,
                 global,
             } => write!(
                 f,
-                "{} {}{}IN ({})",
+                "{} {}{}IN {}",
                 expr,
                 if *global { "GLOBAL " } else { "" },
                 if *negated { "NOT " } else { "" },
-                display_comma_separated(list)
-            ),
-            Expr::InSubquery {
-                expr,
-                subquery,
-                negated,
-                global,
-            } => write!(
-                f,
-                "{} {}{}IN ({})",
-                expr,
-                if *global { "GLOBAL " } else { "" },
-                if *negated { "NOT " } else { "" },
-                subquery
-            ),
-            Expr::InUnnest {
-                expr,
-                array_expr,
-                negated,
-            } => write!(
-                f,
-                "{} {}IN UNNEST({})",
-                expr,
-                if *negated { "NOT " } else { "" },
-                array_expr
+                target
             ),
             Expr::Between {
                 expr,
@@ -2086,11 +2072,13 @@ impl fmt::Display for Expr {
                 | UnaryOperator::PGSquareRoot
                 | UnaryOperator::PGCubeRoot => write!(f, "{op} {expr}"),
                 UnaryOperator::Minus | UnaryOperator::BangNot => {
+                    // Written before the check, so an enclosing
+                    // `starts_with_operator_char` stops at this operator.
+                    write!(f, "{op}")?;
                     if starts_with_operator_char(expr) {
-                        write!(f, "{op} {expr}")
-                    } else {
-                        write!(f, "{op}{expr}")
+                        f.write_str(" ")?;
                     }
+                    write!(f, "{expr}")
                 }
                 UnaryOperator::Plus | UnaryOperator::PGPrefixFactorial => write!(f, "{op}{expr}"),
             },
@@ -2461,7 +2449,11 @@ impl fmt::Display for WindowSpec {
             write!(
                 f,
                 "PARTITION BY {}{}",
-                if self.partition_by_excluding { "EXCLUDING " } else { "" },
+                if self.partition_by_excluding {
+                    "EXCLUDING "
+                } else {
+                    ""
+                },
                 display_comma_separated(&self.partition_by)
             )?;
         }
@@ -3493,6 +3485,22 @@ impl fmt::Display for DeclareType {
     }
 }
 
+/// Separator written between the declarations collected by one `DECLARE` keyword.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum DeclareSeparator {
+    /// Each declaration ends with `;`, as in a Snowflake Scripting `DECLARE` section.
+    ///
+    /// [Snowflake](https://docs.snowflake.com/en/sql-reference/snowflake-scripting/declare)
+    #[default]
+    Semicolon,
+    /// One comma-separated list, as in `DECLARE @a INT, @b INT`.
+    ///
+    /// [MsSql](https://learn.microsoft.com/en-us/sql/t-sql/language-elements/declare-local-variable-transact-sql)
+    Comma,
+}
+
 /// A `DECLARE` statement.
 /// [PostgreSQL] [Snowflake] [BigQuery]
 ///
@@ -4103,8 +4111,10 @@ pub enum Statement {
         options: Vec<CopyOption>,
         /// WITH options (before PostgreSQL version 9.0)
         legacy_options: Vec<CopyLegacyOption>,
-        /// VALUES a vector of values to be copied
-        values: Vec<Option<String>>,
+        /// The inline payload of `COPY ... FROM STDIN`, captured verbatim
+        /// from the source text. `None` when the statement carries no
+        /// inline data.
+        payload: Option<CopyPayload>,
     },
     /// ```sql
     /// COPY INTO <table> | <location>
@@ -4266,10 +4276,20 @@ pub enum Statement {
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigntable.html)
     CreateForeignTable(CreateForeignTable),
     /// ```sql
+    /// CREATE FOREIGN DATA WRAPPER
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigndatawrapper.html)
+    CreateForeignDataWrapper(CreateForeignDataWrapper),
+    /// ```sql
     /// CREATE POLICY
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createpolicy.html)
     CreatePolicy(CreatePolicy),
+    /// ```sql
+    /// CREATE RULE
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createrule.html)
+    CreateRule(CreateRule),
     /// ```sql
     /// CREATE CONNECTOR
     /// ```
@@ -4294,6 +4314,11 @@ pub enum Statement {
     ///
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/textsearch-intro.html)
     CreateTextSearch(CreateTextSearch),
+    /// ```sql
+    /// CREATE AGGREGATE
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createaggregate.html)
+    CreateAggregate(CreateAggregate),
     /// ```sql
     /// ALTER TABLE
     /// ```
@@ -4413,6 +4438,11 @@ pub enum Statement {
     /// ```
     /// (Postgresql-specific)
     AlterPolicy(AlterPolicy),
+    /// ```sql
+    /// ALTER TRIGGER <NAME> ON <TABLE NAME> <OPERATION>
+    /// ```
+    /// (Postgresql-specific)
+    AlterTrigger(AlterTrigger),
     /// ```sql
     /// ALTER CONNECTOR connector_name SET DCPROPERTIES(property_name=property_value, ...);
     /// or
@@ -4582,6 +4612,8 @@ pub enum Statement {
     Declare {
         /// Cursor declaration statements collected by `DECLARE`.
         stmts: Vec<Declare>,
+        /// Separator between `stmts` in the rendered SQL.
+        separator: DeclareSeparator,
     },
     /// ```sql
     /// CREATE EXTENSION [ IF NOT EXISTS ] extension_name
@@ -7580,12 +7612,8 @@ pub enum Statement {
         if_not_exists: bool,
         /// Sequence name.
         name: ObjectName,
-        /// Optional data type for the sequence.
-        data_type: Option<DataType>,
-        /// Sequence options (INCREMENT, MINVALUE, etc.).
+        /// Sequence options, in the order they were written.
         sequence_options: Vec<SequenceOptions>,
-        /// Optional `OWNED BY` target.
-        owned_by: Option<ObjectName>,
         /// Optional `CLONE <source>` target (Snowflake
         /// `CREATE SEQUENCE <name> CLONE <source>`).
         clone: Option<ObjectName>,
@@ -8170,9 +8198,12 @@ impl fmt::Display for Statement {
                 write!(f, "{statement}")
             }
             Statement::Query(s) => s.fmt(f),
-            Statement::Declare { stmts } => {
-                write!(f, "DECLARE ")?;
-                write!(f, "{}", display_separated(stmts, "; "))
+            Statement::Declare { stmts, separator } => {
+                let sep = match separator {
+                    DeclareSeparator::Comma => ", ",
+                    DeclareSeparator::Semicolon => "; ",
+                };
+                write!(f, "DECLARE {}", display_separated(stmts, sep))
             }
             Statement::Fetch {
                 name,
@@ -8324,7 +8355,7 @@ impl fmt::Display for Statement {
                 target,
                 options,
                 legacy_options,
-                values,
+                payload,
             } => {
                 write!(f, "COPY")?;
                 match source {
@@ -8346,19 +8377,15 @@ impl fmt::Display for Statement {
                 if !legacy_options.is_empty() {
                     write!(f, " {}", display_separated(legacy_options, " "))?;
                 }
-                if !values.is_empty() {
+                if let Some(payload) = payload {
+                    // The payload starts on the line after the command and ends
+                    // at the `\.` terminator line, which is only written when
+                    // present in the source.
                     writeln!(f, ";")?;
-                    let mut delim = "";
-                    for v in values {
-                        write!(f, "{delim}")?;
-                        delim = "\t";
-                        if let Some(v) = v {
-                            write!(f, "{v}")?;
-                        } else {
-                            write!(f, "\\N")?;
-                        }
+                    write!(f, "{}", payload.data)?;
+                    if payload.terminated {
+                        write!(f, "\\.")?;
                     }
-                    write!(f, "\n\\.")?;
                 }
                 Ok(())
             }
@@ -8731,13 +8758,16 @@ impl fmt::Display for Statement {
                 write!(f, "{stmt}")
             }
             Statement::CreateForeignTable(stmt) => write!(f, "{stmt}"),
+            Statement::CreateForeignDataWrapper(stmt) => write!(f, "{stmt}"),
             Statement::CreatePolicy(policy) => write!(f, "{policy}"),
+            Statement::CreateRule(rule) => write!(f, "{rule}"),
             Statement::CreateConnector(create_connector) => create_connector.fmt(f),
             Statement::CreateOperator(create_operator) => create_operator.fmt(f),
             Statement::CreateOperatorFamily(create_operator_family) => {
                 create_operator_family.fmt(f)
             }
             Statement::CreateOperatorClass(create_operator_class) => create_operator_class.fmt(f),
+            Statement::CreateAggregate(create_aggregate) => create_aggregate.fmt(f),
             Statement::CreateTextSearch(create_text_search) => create_text_search.fmt(f),
             Statement::AlterTable(alter_table) => write!(f, "{alter_table}"),
             Statement::AlterIndex { name, operation } => {
@@ -8805,6 +8835,7 @@ impl fmt::Display for Statement {
                     if *if_exists { "IF EXISTS " } else { "" })
             }
             Statement::AlterPolicy(alter_policy) => write!(f, "{alter_policy}"),
+            Statement::AlterTrigger(alter_trigger) => write!(f, "{alter_trigger}"),
             Statement::AlterConnector {
                 name,
                 properties,
@@ -9442,38 +9473,25 @@ impl fmt::Display for Statement {
                 or_alter,
                 if_not_exists,
                 name,
-                data_type,
                 sequence_options,
-                owned_by,
                 clone,
             } => {
-                let as_type: String = if let Some(dt) = data_type.as_ref() {
-                    //Cannot use format!(" AS {}", dt), due to format! is not available in --target thumbv6m-none-eabi
-                    // " AS ".to_owned() + &dt.to_string()
-                    [" AS ", &dt.to_string()].concat()
-                } else {
-                    "".to_string()
-                };
                 write!(
                     f,
-                    "CREATE {or_replace}{or_alter}{temporary}SEQUENCE {if_not_exists}{name}{as_type}",
+                    "CREATE {or_replace}{or_alter}{temporary}SEQUENCE {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                     temporary = if *temporary { "TEMPORARY " } else { "" },
                     name = name,
-                    as_type = as_type
                 )?;
                 for sequence_option in sequence_options {
                     write!(f, "{sequence_option}")?;
                 }
-                if let Some(ob) = owned_by.as_ref() {
-                    write!(f, " OWNED BY {ob}")?;
-                }
                 if let Some(src) = clone.as_ref() {
                     write!(f, " CLONE {src}")?;
                 }
-                write!(f, "")
+                Ok(())
             }
             Statement::CreateStage {
                 or_replace,
@@ -11810,14 +11828,21 @@ impl fmt::Display for Statement {
 
 /// Can use to describe options in create sequence or table column type identity
 /// ```sql
-/// [ INCREMENT [ BY ] increment ]
+/// [ AS data_type ] [ INCREMENT [ BY ] increment ]
 ///     [ MINVALUE minvalue | NO MINVALUE ] [ MAXVALUE maxvalue | NO MAXVALUE ]
 ///     [ START [ WITH ] start ] [ CACHE cache ] [ [ NO ] CYCLE ]
+///     [ OWNED BY { table_name.column_name | NONE } ]
 /// ```
+///
+/// The options form an unordered list, so they are stored in the order written.
+/// `AS` and `OWNED BY` are only accepted by `CREATE SEQUENCE`, not by an
+/// identity column.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum SequenceOptions {
+    /// `AS <data_type>` option.
+    DataType(DataType),
     /// `INCREMENT [BY] <expr>` option; second value indicates presence of `BY` keyword.
     IncrementBy(Expr, bool),
     /// `MINVALUE <expr>` or `NO MINVALUE`.
@@ -11830,6 +11855,8 @@ pub enum SequenceOptions {
     Cache(Expr),
     /// `CYCLE` or `NO CYCLE` option.
     Cycle(bool),
+    /// `OWNED BY <object_name>`, or `OWNED BY NONE` when no target is given.
+    OwnedBy(Option<ObjectName>),
     /// `ORDER` or `NOORDER` option (Snowflake); `true` = `ORDER`, `false` = `NOORDER`.
     Order(bool),
 }
@@ -11837,6 +11864,9 @@ pub enum SequenceOptions {
 impl fmt::Display for SequenceOptions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            SequenceOptions::DataType(data_type) => {
+                write!(f, " AS {data_type}")
+            }
             SequenceOptions::IncrementBy(increment, by) => {
                 write!(
                     f,
@@ -11870,6 +11900,12 @@ impl fmt::Display for SequenceOptions {
             }
             SequenceOptions::Cycle(no) => {
                 write!(f, " {}CYCLE", if *no { "NO " } else { "" })
+            }
+            SequenceOptions::OwnedBy(Some(object_name)) => {
+                write!(f, " OWNED BY {object_name}")
+            }
+            SequenceOptions::OwnedBy(None) => {
+                write!(f, " OWNED BY NONE")
             }
             SequenceOptions::Order(order) => {
                 write!(f, " {}", if *order { "ORDER" } else { "NOORDER" })
@@ -12158,8 +12194,18 @@ pub struct OnConflict {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// Target specification for an `ON CONFLICT` clause.
 pub enum ConflictTarget {
-    /// Target specified as a list of columns.
-    Columns(Vec<Ident>),
+    /// Target specified as a list of columns, optionally followed by
+    /// `WHERE index_predicate`, which lets a partial unique index be inferred as the arbiter:
+    /// `ON CONFLICT (a) WHERE b > 0 DO ...`. PostgreSQL and SQLite both accept the predicate.
+    ///
+    /// See <https://www.postgresql.org/docs/current/sql-insert.html>
+    /// and <https://www.sqlite.org/lang_upsert.html>
+    Columns {
+        /// The columns of the conflict target.
+        columns: Vec<Ident>,
+        /// The `WHERE index_predicate` after the columns, if any.
+        predicate: Option<Expr>,
+    },
     /// Target specified as a named constraint.
     OnConstraint(ObjectName),
 }
@@ -12209,7 +12255,13 @@ impl fmt::Display for OnConflict {
 impl fmt::Display for ConflictTarget {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ConflictTarget::Columns(cols) => write!(f, "({})", display_comma_separated(cols)),
+            ConflictTarget::Columns { columns, predicate } => {
+                write!(f, "({})", display_comma_separated(columns))?;
+                if let Some(predicate) = predicate {
+                    write!(f, " WHERE {predicate}")?;
+                }
+                Ok(())
+            }
             ConflictTarget::OnConstraint(name) => write!(f, " ON CONSTRAINT {name}"),
         }
     }
@@ -13417,7 +13469,11 @@ impl fmt::Display for GrantObjects {
                 write!(f, "COMPUTE POOL {}", display_comma_separated(objects))
             }
             GrantObjects::ApplicationPackages(objects) => {
-                write!(f, "APPLICATION PACKAGE {}", display_comma_separated(objects))
+                write!(
+                    f,
+                    "APPLICATION PACKAGE {}",
+                    display_comma_separated(objects)
+                )
             }
             GrantObjects::Connections(objects) => {
                 write!(f, "CONNECTION {}", display_comma_separated(objects))
@@ -13462,7 +13518,11 @@ impl fmt::Display for GrantObjects {
                 )
             }
             GrantObjects::SnowflakeIntelligence(objects) => {
-                write!(f, "SNOWFLAKE INTELLIGENCE {}", display_comma_separated(objects))
+                write!(
+                    f,
+                    "SNOWFLAKE INTELLIGENCE {}",
+                    display_comma_separated(objects)
+                )
             }
             GrantObjects::Tags(objects) => {
                 write!(f, "TAG {}", display_comma_separated(objects))
@@ -13674,14 +13734,8 @@ impl fmt::Display for FunctionArg {
 /// Whether `expr` renders with an operator character first. A prefix `-` or `!`
 /// must not abut one, since `--` starts a line comment and compound tokens
 /// like `!!` or `!~` alter the parsed AST or fail to parse.
-fn starts_with_operator_char(mut expr: &Expr) -> bool {
-    loop {
-        match expr {
-            Expr::UnaryOp { op, .. } => return !matches!(op, UnaryOperator::Not),
-            Expr::BinaryOp { left, .. } => expr = left,
-            _ => return false,
-        }
-    }
+fn starts_with_operator_char(expr: &Expr) -> bool {
+    first_char(expr).is_some_and(|c| OPERATOR_CHARS.contains(c))
 }
 
 /// `FunctionArgOperator::Space` has no token of its own, so the name and the
@@ -13837,9 +13891,12 @@ impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let [ObjectNamePart::Identifier(name)] = self.name.0.as_slice() {
             if name.value.eq_ignore_ascii_case("SEARCH")
-                && matches!(&self.parameters, FunctionArguments::List(parameters) if parameters.args.is_empty() && parameters.clauses.is_empty() && parameters.duplicate_treatment.is_none()) {
+                && matches!(&self.parameters, FunctionArguments::List(parameters) if parameters.args.is_empty() && parameters.clauses.is_empty() && parameters.duplicate_treatment.is_none())
+            {
                 if let FunctionArguments::List(arguments) = &self.args {
-                    if let [FunctionArg::Unnamed(wildcard), FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options))] = arguments.args.as_slice() {
+                    if let [FunctionArg::Unnamed(wildcard), FunctionArg::Unnamed(FunctionArgExpr::WildcardWithOptions(options))] =
+                        arguments.args.as_slice()
+                    {
                         return write!(f, "({wildcard}{options})");
                     }
                 }
@@ -15268,6 +15325,20 @@ impl fmt::Display for CopyTarget {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+/// The inline payload of a `COPY ... FROM STDIN` statement, captured
+/// verbatim from the source text.
+pub struct CopyPayload {
+    /// The payload as written, starting on the line after the command and
+    /// running up to the `\.` terminator line. Field separators, escapes and
+    /// the `\N` null marker are left for the caller to interpret.
+    pub data: String,
+    /// Whether the `\.` terminator line was present.
+    pub terminated: bool,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -16042,13 +16113,20 @@ pub enum FunctionParallel {
     Safe,
 }
 
+impl FunctionParallel {
+    /// Returns the bare keyword for this parallel mode, without the `PARALLEL` prefix.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FunctionParallel::Unsafe => "UNSAFE",
+            FunctionParallel::Restricted => "RESTRICTED",
+            FunctionParallel::Safe => "SAFE",
+        }
+    }
+}
+
 impl fmt::Display for FunctionParallel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            FunctionParallel::Unsafe => write!(f, "PARALLEL UNSAFE"),
-            FunctionParallel::Restricted => write!(f, "PARALLEL RESTRICTED"),
-            FunctionParallel::Safe => write!(f, "PARALLEL SAFE"),
-        }
+        write!(f, "PARALLEL {}", self.as_str())
     }
 }
 
@@ -17034,10 +17112,18 @@ impl fmt::Display for ExternalVolumeStorageLocation {
             )?;
         }
         if let Some(ref tenant) = self.azure_tenant_id {
-            write!(f, " AZURE_TENANT_ID = '{}'", value::escape_single_quote_string(tenant))?;
+            write!(
+                f,
+                " AZURE_TENANT_ID = '{}'",
+                value::escape_single_quote_string(tenant)
+            )?;
         }
         if let Some(ref topic) = self.aws_sns_topic {
-            write!(f, " AWS_SNS_TOPIC = '{}'", value::escape_single_quote_string(topic))?;
+            write!(
+                f,
+                " AWS_SNS_TOPIC = '{}'",
+                value::escape_single_quote_string(topic)
+            )?;
         }
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
@@ -17133,7 +17219,9 @@ impl fmt::Display for AlterGitRepositoryOperation {
             Self::Set(options) => write!(formatter, "SET {}", display_separated(options, " ")),
             Self::Unset(names) => write!(formatter, "UNSET {}", display_comma_separated(names)),
             Self::SetTags(tags) => write!(formatter, "SET TAG {}", display_comma_separated(tags)),
-            Self::UnsetTags(tags) => write!(formatter, "UNSET TAG {}", display_comma_separated(tags)),
+            Self::UnsetTags(tags) => {
+                write!(formatter, "UNSET TAG {}", display_comma_separated(tags))
+            }
         }
     }
 }
@@ -17668,16 +17756,12 @@ impl fmt::Display for AlterTaskAction {
         match self {
             AlterTaskAction::Resume => write!(f, "RESUME"),
             AlterTaskAction::Suspend => write!(f, "SUSPEND"),
-            AlterTaskAction::AddAfter(tasks) => write!(
-                f,
-                "ADD AFTER {}",
-                display_comma_separated(tasks)
-            ),
-            AlterTaskAction::RemoveAfter(tasks) => write!(
-                f,
-                "REMOVE AFTER {}",
-                display_comma_separated(tasks)
-            ),
+            AlterTaskAction::AddAfter(tasks) => {
+                write!(f, "ADD AFTER {}", display_comma_separated(tasks))
+            }
+            AlterTaskAction::RemoveAfter(tasks) => {
+                write!(f, "REMOVE AFTER {}", display_comma_separated(tasks))
+            }
             AlterTaskAction::SetFinalize(task) => write!(f, "SET FINALIZE = {task}"),
             AlterTaskAction::UnsetFinalize => write!(f, "UNSET FINALIZE"),
             AlterTaskAction::ModifyAs(statement) => write!(f, "MODIFY AS {statement}"),
@@ -17687,10 +17771,9 @@ impl fmt::Display for AlterTaskAction {
                 write!(f, "SET WAREHOUSE = {warehouse}")
             }
             AlterTaskAction::UnsetWarehouse => write!(f, "UNSET WAREHOUSE"),
-            AlterTaskAction::SetManagedWarehouseSize(size) => write!(
-                f,
-                "SET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'"
-            ),
+            AlterTaskAction::SetManagedWarehouseSize(size) => {
+                write!(f, "SET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = '{size}'")
+            }
             AlterTaskAction::UnsetManagedWarehouseSize => {
                 write!(f, "UNSET USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE")
             }
@@ -17702,7 +17785,10 @@ impl fmt::Display for AlterTaskAction {
                 write!(f, "SET")?;
                 for (name, value) in [
                     ("USER_TASK_TIMEOUT_MS", user_task_timeout_ms),
-                    ("SUSPEND_TASK_AFTER_NUM_FAILURES", suspend_task_after_num_failures),
+                    (
+                        "SUSPEND_TASK_AFTER_NUM_FAILURES",
+                        suspend_task_after_num_failures,
+                    ),
                     ("TASK_AUTO_RETRY_ATTEMPTS", task_auto_retry_attempts),
                 ] {
                     if let Some(value) = value {
@@ -18664,10 +18750,22 @@ pub enum AlterOrganizationUserGroupOperation {
 impl fmt::Display for AlterOrganizationUserGroupOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::AddUsers(users) => write!(f, "ADD ORGANIZATION USERS {}", display_comma_separated(users)),
-            Self::RemoveUsers(users) => write!(f, "REMOVE ORGANIZATION USERS {}", display_comma_separated(users)),
+            Self::AddUsers(users) => write!(
+                f,
+                "ADD ORGANIZATION USERS {}",
+                display_comma_separated(users)
+            ),
+            Self::RemoveUsers(users) => write!(
+                f,
+                "REMOVE ORGANIZATION USERS {}",
+                display_comma_separated(users)
+            ),
             Self::SetVisibilityAll => write!(f, "SET VISIBILITY = ALL"),
-            Self::SetVisibilityAccounts(accounts) => write!(f, "SET VISIBILITY = ACCOUNTS {}", display_comma_separated(accounts)),
+            Self::SetVisibilityAccounts(accounts) => write!(
+                f,
+                "SET VISIBILITY = ACCOUNTS {}",
+                display_comma_separated(accounts)
+            ),
             Self::SetVisibilityRegionGroups(groups) => {
                 write!(f, "SET VISIBILITY = REGION GROUPS ")?;
                 for (index, group) in groups.iter().enumerate() {
@@ -18678,7 +18776,11 @@ impl fmt::Display for AlterOrganizationUserGroupOperation {
                 }
                 Ok(())
             }
-            Self::SetIsGrantable(value) => write!(f, "SET IS_GRANTABLE = {}", if *value { "TRUE" } else { "FALSE" }),
+            Self::SetIsGrantable(value) => write!(
+                f,
+                "SET IS_GRANTABLE = {}",
+                if *value { "TRUE" } else { "FALSE" }
+            ),
         }
     }
 }
@@ -18791,7 +18893,11 @@ impl fmt::Display for CreateWarehouse {
             write!(f, " {}", self.options)?;
         }
         if !self.with_tags.is_empty() {
-            write!(f, " WITH TAG ({})", display_comma_separated(&self.with_tags))?;
+            write!(
+                f,
+                " WITH TAG ({})",
+                display_comma_separated(&self.with_tags)
+            )?;
         }
         Ok(())
     }
@@ -19056,7 +19162,11 @@ impl AlterUser {
             write!(f, " MODIFY WORKLOAD IDENTITY {name}")?;
         }
         if let Some(identity) = &self.add_workload_identity {
-            write!(f, " ADD WORKLOAD IDENTITY {} {}", identity.name, identity.options)?;
+            write!(
+                f,
+                " ADD WORKLOAD IDENTITY {} {}",
+                identity.name, identity.options
+            )?;
         }
         if let Some(name) = &self.remove_workload_identity {
             write!(f, " REMOVE WORKLOAD IDENTITY {name}")?;

@@ -75,7 +75,7 @@ fn parse_table_time_travel() {
                 with_ordinality: false,
                 json_path: None,
                 sample: None,
-                index_hints: vec![]
+                index_directives: vec![]
             },
             joins: vec![]
         },]
@@ -510,7 +510,7 @@ fn parse_mssql_openjson() {
                 partitions: vec![],
                 json_path: None,
                 sample: None,
-                index_hints: vec![]
+                index_directives: vec![]
             },
             joins: vec![Join {
                 relation: TableFactor::OpenJsonTable {
@@ -564,7 +564,7 @@ fn parse_mssql_openjson() {
                 partitions: vec![],
                 json_path: None,
                 sample: None,
-                index_hints: vec![]
+                index_directives: vec![]
             },
             joins: vec![Join {
                 relation: TableFactor::OpenJsonTable {
@@ -618,7 +618,7 @@ fn parse_mssql_openjson() {
                 partitions: vec![],
                 json_path: None,
                 sample: None,
-                index_hints: vec![]
+                index_directives: vec![]
             },
             joins: vec![Join {
                 relation: TableFactor::OpenJsonTable {
@@ -672,7 +672,7 @@ fn parse_mssql_openjson() {
                 partitions: vec![],
                 json_path: None,
                 sample: None,
-                index_hints: vec![],
+                index_directives: vec![],
             },
             joins: vec![Join {
                 relation: TableFactor::OpenJsonTable {
@@ -706,7 +706,7 @@ fn parse_mssql_openjson() {
                 partitions: vec![],
                 json_path: None,
                 sample: None,
-                index_hints: vec![],
+                index_directives: vec![],
             },
             joins: vec![Join {
                 relation: TableFactor::OpenJsonTable {
@@ -1490,7 +1490,8 @@ fn parse_mssql_declare() {
                     hold: None,
                     for_query: None
                 }
-            ]
+            ],
+            separator: DeclareSeparator::Comma,
         }],
         ast
     );
@@ -1510,7 +1511,8 @@ fn parse_mssql_declare() {
                     scroll: None,
                     hold: None,
                     for_query: None
-                }]
+                }],
+                separator: DeclareSeparator::Comma,
             },
             Statement::Set(Set::SingleAssignment {
                 scope: None,
@@ -2733,6 +2735,12 @@ fn test_sql_keywords_as_table_aliases() {
 }
 
 #[test]
+fn parse_non_reserved_keyword_table_names() {
+    ms().verified_stmt("SELECT * FROM limit");
+    ms().verified_stmt("SELECT * FROM t JOIN limit ON true");
+}
+
+#[test]
 fn test_sql_keywords_as_column_aliases() {
     // Some keywords that should not be parsed as an alias implicitly or explicitly
     for (sql, err) in [
@@ -3067,4 +3075,11 @@ fn parse_create_proc() {
         .parse_sql_statements("CREATE PROC test AS BEGIN SELECT 1; END")
         .expect_err("PROC should remain MSSQL-specific");
     ms_and_generic().verified_stmt("SELECT proc FROM jobs");
+}
+
+#[test]
+fn parse_mssql_declare_comma_list_display() {
+    ms().verified_stmt("DECLARE @a INT, @b INT");
+    ms().verified_stmt("DECLARE @a INT = 1, @b TEXT = 'x'");
+    ms().verified_stmt("DECLARE @foo CURSOR, @bar INT");
 }
