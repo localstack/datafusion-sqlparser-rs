@@ -1287,8 +1287,8 @@ impl Spanned for AlterColumnOperation {
         match self {
             AlterColumnOperation::SetNotNull => Span::empty(),
             AlterColumnOperation::DropNotNull => Span::empty(),
-            AlterColumnOperation::SetDefault { value } => value.span(),
-            AlterColumnOperation::DropDefault => Span::empty(),
+            AlterColumnOperation::SetDefault { value } | AlterColumnOperation::SetWriteDefault { value } => value.span(),
+            AlterColumnOperation::DropDefault | AlterColumnOperation::DropWriteDefault => Span::empty(),
             AlterColumnOperation::SetDataType {
                 data_type: _,
                 using,
