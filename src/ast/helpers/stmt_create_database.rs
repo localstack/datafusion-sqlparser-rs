@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::{
-    CatalogSyncNamespaceMode, ContactEntry, ObjectName, Statement, StorageSerializationPolicy,
+    CatalogSyncNamespaceMode, ContactEntry, ObjectName, SqlOption, Statement, StorageSerializationPolicy,
     TableVersion, Tag,
 };
 use crate::parser::ParserError;
@@ -84,6 +84,10 @@ pub struct CreateDatabaseBuilder {
     pub external_volume: Option<String>,
     /// Optional catalog name.
     pub catalog: Option<String>,
+    #[doc = "Catalog-linked database configuration."]
+    pub linked_catalog: Option<Vec<SqlOption>>,
+    #[doc = "Case sensitivity of the linked catalog."]
+    pub catalog_case_sensitivity: Option<String>,
     /// Whether to replace invalid characters.
     pub replace_invalid_characters: Option<bool>,
     /// Optional default DDL collation.
@@ -138,6 +142,8 @@ impl CreateDatabaseBuilder {
             max_data_extension_time_in_days: None,
             external_volume: None,
             catalog: None,
+            linked_catalog: None,
+            catalog_case_sensitivity: None,
             replace_invalid_characters: None,
             default_ddl_collation: None,
             storage_serialization_policy: None,
@@ -315,6 +321,8 @@ impl CreateDatabaseBuilder {
             max_data_extension_time_in_days: self.max_data_extension_time_in_days,
             external_volume: self.external_volume,
             catalog: self.catalog,
+            linked_catalog: self.linked_catalog,
+            catalog_case_sensitivity: self.catalog_case_sensitivity,
             replace_invalid_characters: self.replace_invalid_characters,
             default_ddl_collation: self.default_ddl_collation,
             storage_serialization_policy: self.storage_serialization_policy,
@@ -365,6 +373,8 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 with_contacts,
                 from_share,
                 from_listing,
+                linked_catalog,
+                catalog_case_sensitivity,
             } => Ok(Self {
                 db_name,
                 if_not_exists,
@@ -393,6 +403,8 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 with_contacts,
                 from_share,
                 from_listing,
+                linked_catalog,
+                catalog_case_sensitivity,
             }),
             _ => Err(ParserError::ParserError(format!(
                 "Expected create database statement, but received: {stmt}"
