@@ -7502,6 +7502,8 @@ impl<'a> Parser<'a> {
             with_contacts: None,
             from_share,
             from_listing: None,
+            linked_catalog: None,
+            catalog_case_sensitivity: None,
         })
     }
 
