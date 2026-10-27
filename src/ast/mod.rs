@@ -5165,6 +5165,10 @@ pub enum Statement {
         external_volume: Option<String>,
         /// Optional catalog name.
         catalog: Option<String>,
+        #[doc = "Catalog-linked database configuration."]
+        linked_catalog: Option<Vec<SqlOption>>,
+        #[doc = "Case sensitivity of the linked catalog."]
+        catalog_case_sensitivity: Option<String>,
         /// Whether to replace invalid characters.
         replace_invalid_characters: Option<bool>,
         /// Default DDL collation string.
@@ -8487,6 +8491,8 @@ impl fmt::Display for Statement {
                 with_contacts,
                 from_share,
                 from_listing,
+                linked_catalog,
+                catalog_case_sensitivity,
             } => {
                 write!(
                     f,
@@ -8517,6 +8523,12 @@ impl fmt::Display for Statement {
                 }
                 if let Some(share) = from_share {
                     write!(f, " FROM SHARE {share}")?;
+                }
+                if let Some(options) = linked_catalog {
+                    write!(f, " LINKED_CATALOG = ({})", display_comma_separated(options))?;
+                }
+                if let Some(sensitivity) = catalog_case_sensitivity {
+                    write!(f, " CATALOG_CASE_SENSITIVITY = {sensitivity}")?;
                 }
                 if let Some(listing) = from_listing {
                     write!(
