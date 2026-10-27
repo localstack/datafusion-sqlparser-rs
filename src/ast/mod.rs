@@ -5094,6 +5094,48 @@ pub enum Statement {
         /// `None` when absent.
         with_tags: Option<Vec<Tag>>,
     },
+    #[doc = "CREATE APPLICATION PACKAGE."]
+    CreateApplicationPackage {
+        #[doc = "View-style CREATE parameters, when specified."]
+        view_params: Option<CreateViewParams>,
+        #[doc = "Whether OR ALTER was specified."]
+        or_alter: bool,
+        #[doc = "Whether TRANSIENT was specified."]
+        transient: bool,
+        #[doc = "Whether TEMP or TEMPORARY was specified."]
+        temporary: bool,
+        #[doc = "Whether SCOPED preceded the temporary modifier."]
+        scoped: bool,
+        #[doc = "GLOBAL (true) or LOCAL (false), when specified."]
+        global: Option<bool>,
+        #[doc = "Whether VOLATILE was specified."]
+        volatile: bool,
+        #[doc = "MULTISET (true) or SET (false), when specified."]
+        multiset: Option<bool>,
+        #[doc = "Package database name."]
+        name: ObjectName,
+        #[doc = "Whether an existing package is accepted."]
+        if_not_exists: bool,
+        #[doc = "Creation properties."]
+        options: Vec<SqlOption>,
+    },
+    #[doc = "DROP APPLICATION PACKAGE."]
+    DropApplicationPackage {
+        #[doc = "Package database name."]
+        name: ObjectName,
+        #[doc = "Whether an absent package is accepted."]
+        if_exists: bool,
+    },
+    #[doc = "DESCRIBE APPLICATION PACKAGE."]
+    DescribeApplicationPackage {
+        #[doc = "Package database name."]
+        name: ObjectName,
+    },
+    #[doc = "SHOW APPLICATION PACKAGES."]
+    ShowApplicationPackages {
+        #[doc = "Listing filters and pagination."]
+        show_options: ShowStatementOptions,
+    },
     /// ```sql
     /// CREATE DATABASE
     /// ```
@@ -8401,6 +8443,27 @@ impl fmt::Display for Statement {
 
                 Ok(())
             }
+            Statement::CreateApplicationPackage { name, if_not_exists, options, or_alter, transient, temporary, scoped, global, volatile, multiset, view_params } => {
+                write!(f, "CREATE ")?;
+                if *or_alter { write!(f, "OR ALTER ")?; }
+                if let Some(multiset) = multiset { write!(f, "{} ", if *multiset { "MULTISET" } else { "SET" })?; }
+                if let Some(global) = global { write!(f, "{} ", if *global { "GLOBAL" } else { "LOCAL" })?; }
+                if *transient { write!(f, "TRANSIENT ")?; }
+                if *scoped { write!(f, "SCOPED ")?; }
+                if *temporary { write!(f, "TEMPORARY ")?; }
+                if *volatile { write!(f, "VOLATILE ")?; }
+                if let Some(params) = view_params { write!(f, "{params}")?; }
+                write!(f, "APPLICATION PACKAGE {}{name}", if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
+                for option in options {
+                    write!(f, " {option}")?;
+                }
+                Ok(())
+            }
+            Statement::DropApplicationPackage { name, if_exists } => {
+                write!(f, "DROP APPLICATION PACKAGE {}{name}", if *if_exists { "IF EXISTS " } else { "" })
+            }
+            Statement::DescribeApplicationPackage { name } => write!(f, "DESCRIBE APPLICATION PACKAGE {name}"),
+            Statement::ShowApplicationPackages { show_options } => write!(f, "SHOW APPLICATION PACKAGES{show_options}"),
             Statement::CreateDatabase {
                 db_name,
                 if_not_exists,
