@@ -1407,7 +1407,13 @@ impl SnowflakeDialect {
                 // the modifier (e.g. `CREATE TRANSIENT SCHEMA`). `LOCAL`/`GLOBAL`
                 // are deliberately left stranded so invalid combinations such as
                 // `CREATE LOCAL GLOBAL TABLE` still surface as errors.
+                let application_package = parser.peek_keyword(Keyword::APPLICATION)
+                    && matches!(&parser.peek_nth_token_ref(1).token,
+                        Token::Word(word) if word.keyword == Keyword::PACKAGE && word.quote_style.is_none());
                 let mut back = 1;
+                if global.is_some() && application_package {
+                    back += 1;
+                }
                 if or_replace {
                     back += 2
                 }

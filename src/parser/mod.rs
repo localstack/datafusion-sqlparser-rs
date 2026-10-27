@@ -6230,6 +6230,21 @@ impl<'a> Parser<'a> {
             } else {
                 self.parse_create_database()
             }
+        } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
+            let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+            let name = self.parse_object_name(false)?;
+            let mut options = Vec::new();
+            while matches!(self.peek_token_ref().token, Token::Word(_)) {
+                let key = self.parse_identifier()?;
+                self.expect_token(&Token::Eq)?;
+                let value = self.parse_expr()?;
+                options.push(SqlOption::KeyValue { key, value });
+            }
+            Ok(Statement::CreateApplicationPackage {
+                name, if_not_exists, options, or_alter, transient, temporary,
+                scoped, global, volatile, multiset,
+                view_params: create_view_params,
+            })
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::SERVICE]) {
             self.parse_create_application_service(or_alter)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
@@ -9753,6 +9768,10 @@ impl<'a> Parser<'a> {
 
     /// Parse a `DROP` statement.
     pub fn parse_drop(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
+            let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            return Ok(Statement::DropApplicationPackage { name: self.parse_object_name(false)?, if_exists });
+        }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
             let group = self.parse_keyword(Keyword::GROUP);
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -11358,7 +11377,10 @@ impl<'a> Parser<'a> {
 
     /// Parse `MULTISET` table-kind prefix on `CREATE TABLE`.
     fn maybe_parse_multiset(&mut self) -> Option<bool> {
-        if !self.dialect.supports_create_table_multiset() {
+        if !self.dialect.supports_create_table_multiset()
+            && !self.peek_keywords(&[Keyword::MULTISET, Keyword::APPLICATION, Keyword::PACKAGE])
+            && !self.peek_keywords(&[Keyword::SET, Keyword::APPLICATION, Keyword::PACKAGE])
+        {
             return None;
         }
         match self.parse_one_of_keywords(&[Keyword::SET, Keyword::MULTISET]) {
@@ -18567,6 +18589,11 @@ impl<'a> Parser<'a> {
         &mut self,
         describe_alias: DescribeAlias,
     ) -> Result<Statement, ParserError> {
+        if describe_alias != DescribeAlias::Explain
+            && self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE])
+        {
+            return Ok(Statement::DescribeApplicationPackage { name: self.parse_object_name(false)? });
+        }
         let mut analyze = false;
         let mut verbose = false;
         let mut query_plan = false;
@@ -20261,6 +20288,8 @@ impl<'a> Parser<'a> {
             .is_some()
         {
             Ok(self.parse_show_columns(extended, full)?)
+        } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGES]) {
+            Ok(Statement::ShowApplicationPackages { show_options: self.parse_show_stmt_options()? })
         } else if self.parse_keyword(Keyword::TABLES) {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
         } else if self.parse_keyword(Keyword::TASKS) {
