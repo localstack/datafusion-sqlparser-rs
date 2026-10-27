@@ -4057,6 +4057,36 @@ pub fn parse_create_database(
     loop {
         let next_token = parser.next_token();
         match &next_token.token {
+            Token::Word(word) if word.value.eq_ignore_ascii_case("LINKED_CATALOG") => {
+                parser.expect_token(&Token::Eq)?;
+                parser.expect_token(&Token::LParen)?;
+                let mut options = Vec::new();
+                while !parser.consume_token(&Token::RParen) {
+                    let name = parser.parse_identifier()?;
+                    parser.expect_token(&Token::Eq)?;
+                    let value = if name.value.eq_ignore_ascii_case("ALLOWED_NAMESPACES")
+                        || name.value.eq_ignore_ascii_case("BLOCKED_NAMESPACES")
+                    {
+                        parser.expect_token(&Token::LParen)?;
+                        let entries = if parser.peek_token().token == Token::RParen {
+                            Vec::new()
+                        } else {
+                            parser.parse_comma_separated(Parser::parse_expr)?
+                        };
+                        parser.expect_token(&Token::RParen)?;
+                        Expr::Tuple(entries)
+                    } else {
+                        parser.parse_expr()?
+                    };
+                    options.push(SqlOption::KeyValue { key: name, value });
+                    let _ = parser.consume_token(&Token::Comma);
+                }
+                builder.linked_catalog = Some(options);
+            }
+            Token::Word(word) if word.value.eq_ignore_ascii_case("CATALOG_CASE_SENSITIVITY") => {
+                parser.expect_token(&Token::Eq)?;
+                builder.catalog_case_sensitivity = Some(parser.parse_identifier()?.value);
+            }
             Token::Word(word) => match word.keyword {
                 Keyword::CLONE => {
                     builder = builder.clone_clause(Some(parser.parse_object_name(false)?));
