@@ -14247,6 +14247,49 @@ impl<'a> Parser<'a> {
 
     /// Parse an `ALTER <object>` statement and dispatch to the appropriate alter handler.
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
+            let name = self.parse_object_name(false)?;
+            let action = self.parse_identifier()?.value.to_ascii_uppercase();
+            let mut patch_number = None;
+            let mut for_version = false;
+            let (operation, version, source) = match action.as_str() {
+                "REGISTER" => {
+                    self.expect_keyword(Keyword::VERSION)?;
+                    let version = if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) };
+                    self.expect_keyword(Keyword::USING)?;
+                    (action, version, Some(self.parse_literal_string()?))
+                }
+                "ADD" => {
+                    let patch = self.parse_keyword(Keyword::PATCH);
+                    let version = if patch {
+                        if matches!(self.peek_token().token, Token::Number(_, _)) {
+                            patch_number = Some(self.parse_literal_uint()?);
+                        }
+                        if self.parse_keywords(&[Keyword::FOR, Keyword::VERSION]) {
+                            for_version = true;
+                            if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) }
+                        } else { None }
+                    } else {
+                        self.expect_keyword(Keyword::VERSION)?;
+                        if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) }
+                    };
+                    self.expect_keyword(Keyword::USING)?;
+                    (if patch { "ADD PATCH".into() } else { action }, version, Some(self.parse_literal_string()?))
+                }
+                "DROP" | "DEREGISTER" => {
+                    self.expect_keyword(Keyword::VERSION)?;
+                    (action, Some(self.parse_identifier()?), None)
+                }
+                _ => return self.expected_ref("REGISTER, ADD, DROP, or DEREGISTER", self.get_current_token()),
+            };
+            let label = if self.parse_keyword(Keyword::LABEL) {
+                self.expect_token(&Token::Eq)?;
+                Some(self.parse_literal_string()?)
+            } else { None };
+            return Ok(Statement::AlterApplicationPackageVersion {
+                name, operation: Ident::new(operation), version, source, patch: patch_number, label, for_version,
+            });
+        }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
             if self.parse_keyword(Keyword::GROUP) {
                 return self.parse_alter_organization_user_group();
@@ -20283,6 +20326,17 @@ impl<'a> Parser<'a> {
         let session = self.parse_keyword(Keyword::SESSION);
         let global = self.parse_keyword(Keyword::GLOBAL);
         let external = self.parse_keyword(Keyword::EXTERNAL);
+        if let Ok(show_options) = self.try_parse(|parser| {
+            parser.expect_keyword(Keyword::VERSIONS)?;
+            let options = parser.parse_show_stmt_options()?;
+            if options.show_in.as_ref().is_some_and(|scope| scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)) {
+                Ok(options)
+            } else {
+                parser.expected("IN APPLICATION PACKAGE", parser.peek_token())
+            }
+        }) {
+            return Ok(Statement::ShowApplicationPackageVersions { show_options });
+        }
         if self
             .parse_one_of_keywords(&[Keyword::COLUMNS, Keyword::FIELDS])
             .is_some()
