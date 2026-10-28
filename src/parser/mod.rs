@@ -22577,7 +22577,11 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::USER) {
                 GranteesType::User
             } else if self.parse_keyword(Keyword::SHARE) {
-                GranteesType::Share
+                if self.parse_keywords(&[Keyword::IN, Keyword::APPLICATION, Keyword::PACKAGE]) {
+                    GranteesType::ApplicationPackageShare
+                } else {
+                    GranteesType::Share
+                }
             } else if self.parse_keyword(Keyword::GROUP) {
                 GranteesType::Group
             } else if self.parse_keyword(Keyword::PUBLIC) {
