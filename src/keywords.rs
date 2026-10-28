@@ -914,6 +914,7 @@ define_keywords!(
     PASSWORD,
     PAST,
     PAT,
+    PATCH,
     PATH,
     PATS,
     PATTERN,
