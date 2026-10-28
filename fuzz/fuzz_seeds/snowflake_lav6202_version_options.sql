@@ -1,0 +1,3 @@
+ALTER APPLICATION PACKAGE pkg REGISTER VERSION v1 USING '@pkg.source.files' LABEL = 'Version label';
+ALTER APPLICATION PACKAGE pkg ADD VERSION USING '@pkg.source.files';
+ALTER APPLICATION PACKAGE pkg ADD PATCH 130 FOR VERSION USING '@pkg.source.files' LABEL = 'Patch label';
