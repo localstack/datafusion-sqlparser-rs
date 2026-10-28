@@ -6062,6 +6062,8 @@ impl<'a> Parser<'a> {
 
     /// Parse a SQL CREATE statement
     pub fn parse_create(&mut self) -> Result<Statement, ParserError> {
+        self.prev_token();
+        let create_token = self.next_token();
         let modifier_loc = self.peek_token_ref().span.start;
         let or_replace = self.parse_keywords(&[Keyword::OR, Keyword::REPLACE]);
         let or_alter = self.parse_keywords(&[Keyword::OR, Keyword::ALTER]);
@@ -6226,7 +6228,7 @@ impl<'a> Parser<'a> {
             self.parse_create_virtual_table()
         } else if self.parse_keyword(Keyword::DATABASE) {
             if self.parse_keyword(Keyword::ROLE) {
-                self.parse_create_database_role(or_replace)
+                self.parse_create_database_role(or_replace, create_token)
             } else {
                 self.parse_create_database()
             }
@@ -6249,6 +6251,13 @@ impl<'a> Parser<'a> {
             self.parse_create_application_service(or_alter)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
             self.parse_create_application_role(or_replace, false)
+        } else if self.parse_keyword(Keyword::APPLICATION) {
+            let name = self.parse_object_name(false)?;
+            self.expect_keywords(&[Keyword::FROM, Keyword::APPLICATION, Keyword::PACKAGE])?;
+            let package = self.parse_object_name(false)?;
+            self.expect_keyword(Keyword::USING)?;
+            let location = self.parse_literal_string()?;
+            Ok(Statement::CreateApplication { name, package, location })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
         } else if self.parse_keyword(Keyword::CONNECTOR) {
@@ -8947,6 +8956,7 @@ impl<'a> Parser<'a> {
     pub fn parse_create_database_role(
         &mut self,
         or_replace: bool,
+        create_token: TokenWithSpan,
     ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
@@ -8962,6 +8972,7 @@ impl<'a> Parser<'a> {
             None
         };
         Ok(Statement::CreateDatabaseRole {
+            create_token: AttachedToken(create_token),
             or_replace,
             if_not_exists,
             name,
@@ -9771,6 +9782,13 @@ impl<'a> Parser<'a> {
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             return Ok(Statement::DropApplicationPackage { name: self.parse_object_name(false)?, if_exists });
+        }
+        if self.peek_keyword(Keyword::APPLICATION) && !self.peek_nth_keyword(1, Keyword::ROLE) {
+            self.expect_keyword(Keyword::APPLICATION)?;
+            let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+            let name = self.parse_object_name(false)?;
+            let cascade = self.parse_keyword(Keyword::CASCADE);
+            return Ok(Statement::DropApplication { name, if_exists, cascade });
         }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
             let group = self.parse_keyword(Keyword::GROUP);
