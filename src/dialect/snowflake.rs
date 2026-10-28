@@ -954,7 +954,8 @@ impl SnowflakeDialect {
             parser.prev_token();
         }
 
-        if parser.parse_keyword(Keyword::CREATE) {
+        if parser.peek_keyword(Keyword::CREATE) {
+            let create_token = parser.next_token();
             // possibly CREATE STAGE
             //[ OR  REPLACE ] | [ OR ALTER ]
             let or_replace = parser.parse_keywords(&[Keyword::OR, Keyword::REPLACE]);
@@ -1383,7 +1384,7 @@ impl SnowflakeDialect {
                 );
             } else if parser.parse_keyword(Keyword::DATABASE) {
                 if parser.parse_keyword(Keyword::ROLE) {
-                    return Some(parser.parse_create_database_role(or_replace));
+                    return Some(parser.parse_create_database_role(or_replace, create_token));
                 }
                 if plain_create {
                     if let Some(restore) =
