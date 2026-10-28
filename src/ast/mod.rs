@@ -13107,6 +13107,7 @@ impl fmt::Display for Grantee {
         let keyword = match self.grantee_type {
             GranteesType::Role => "ROLE",
             GranteesType::Share => "SHARE",
+            GranteesType::ApplicationPackageShare => "SHARE IN APPLICATION PACKAGE",
             GranteesType::User => "USER",
             GranteesType::Group => "GROUP",
             GranteesType::Public => "PUBLIC",
@@ -13135,6 +13136,8 @@ pub enum GranteesType {
     Role,
     /// A share principal.
     Share,
+    /// The implicit share belonging to an application package.
+    ApplicationPackageShare,
     /// A user principal.
     User,
     /// A group principal.
