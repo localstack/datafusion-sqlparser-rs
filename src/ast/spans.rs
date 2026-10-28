@@ -486,8 +486,10 @@ impl Spanned for Statement {
             Statement::CreateDatabase { .. } => Span::empty(),
             Statement::CreateApplicationPackage { name, .. }
             | Statement::DropApplicationPackage { name, .. }
+            | Statement::AlterApplicationPackageVersion { name, .. }
             | Statement::DescribeApplicationPackage { name } => name.span(),
-            Statement::ShowApplicationPackages { .. } => Span::empty(),
+            Statement::ShowApplicationPackages { .. }
+            | Statement::ShowApplicationPackageVersions { .. } => Span::empty(),
             Statement::CreateFunction(create_function) => create_function.span(),
             Statement::CreateDomain { .. } => Span::empty(),
             Statement::CreateTrigger { .. } => Span::empty(),

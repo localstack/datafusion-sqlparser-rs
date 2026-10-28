@@ -5136,6 +5136,28 @@ pub enum Statement {
         #[doc = "Listing filters and pagination."]
         show_options: ShowStatementOptions,
     },
+    #[doc = "ALTER APPLICATION PACKAGE version lifecycle."]
+    AlterApplicationPackageVersion {
+        #[doc = "Package name."]
+        name: ObjectName,
+        #[doc = "Version operation."]
+        operation: Ident,
+        #[doc = "Version name, when supplied."]
+        version: Option<Ident>,
+        #[doc = "Explicit patch number."]
+        patch: Option<u64>,
+        #[doc = "Manifest label override."]
+        label: Option<String>,
+        #[doc = "Whether the FOR VERSION clause was supplied."]
+        for_version: bool,
+        #[doc = "Stage source directory."]
+        source: Option<String>,
+    },
+    #[doc = "SHOW VERSIONS IN APPLICATION PACKAGE."]
+    ShowApplicationPackageVersions {
+        #[doc = "Listing scope and filters."]
+        show_options: ShowStatementOptions,
+    },
     /// ```sql
     /// CREATE DATABASE
     /// ```
@@ -8464,6 +8486,21 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeApplicationPackage { name } => write!(f, "DESCRIBE APPLICATION PACKAGE {name}"),
             Statement::ShowApplicationPackages { show_options } => write!(f, "SHOW APPLICATION PACKAGES{show_options}"),
+            Statement::AlterApplicationPackageVersion { name, operation, version, patch, label, source, for_version } => {
+                write!(f, "ALTER APPLICATION PACKAGE {name} {operation}")?;
+                if operation.value == "ADD PATCH" {
+                    if let Some(patch) = patch { write!(f, " {patch}")?; }
+                    if *for_version { write!(f, " FOR VERSION")?; }
+                    if let Some(version) = version { write!(f, " {version}")?; }
+                } else {
+                    write!(f, " VERSION")?;
+                    if let Some(version) = version { write!(f, " {version}")?; }
+                }
+                if let Some(source) = source { write!(f, " USING '{}'", value::escape_single_quote_string(source))?; }
+                if let Some(label) = label { write!(f, " LABEL = '{}'", value::escape_single_quote_string(label))?; }
+                Ok(())
+            }
+            Statement::ShowApplicationPackageVersions { show_options } => write!(f, "SHOW VERSIONS{show_options}"),
             Statement::CreateDatabase {
                 db_name,
                 if_not_exists,
