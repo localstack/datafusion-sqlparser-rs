@@ -4223,6 +4223,8 @@ pub enum Statement {
     /// Snowflake database role (scoped to a database, distinct from an
     /// account-level role).
     CreateDatabaseRole {
+        /// Original CREATE token for scripting error locations.
+        create_token: AttachedToken,
         /// `true` when `OR REPLACE` was specified.
         or_replace: bool,
         /// `true` when `IF NOT EXISTS` was specified.
@@ -5093,6 +5095,24 @@ pub enum Statement {
         /// Snowflake inline `[ WITH ] TAG ( <t> = '<v>' [, ...] )` clause;
         /// `None` when absent.
         with_tags: Option<Vec<Tag>>,
+    },
+    #[doc = "CREATE APPLICATION from a staged package directory."]
+    CreateApplication {
+        #[doc = "Application database name."]
+        name: ObjectName,
+        #[doc = "Source package."]
+        package: ObjectName,
+        #[doc = "Source stage directory."]
+        location: String,
+    },
+    #[doc = "DROP APPLICATION."]
+    DropApplication {
+        #[doc = "Application database name."]
+        name: ObjectName,
+        #[doc = "Whether an absent application is accepted."]
+        if_exists: bool,
+        #[doc = "Whether CASCADE was specified."]
+        cascade: bool,
     },
     #[doc = "CREATE APPLICATION PACKAGE."]
     CreateApplicationPackage {
@@ -8481,6 +8501,12 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
+            Statement::CreateApplication { name, package, location } => {
+                write!(f, "CREATE APPLICATION {name} FROM APPLICATION PACKAGE {package} USING {}", Value::SingleQuotedString(location.clone()))
+            }
+            Statement::DropApplication { name, if_exists, cascade } => {
+                write!(f, "DROP APPLICATION {}{name}{}", if *if_exists { "IF EXISTS " } else { "" }, if *cascade { " CASCADE" } else { "" })
+            }
             Statement::DropApplicationPackage { name, if_exists } => {
                 write!(f, "DROP APPLICATION PACKAGE {}{name}", if *if_exists { "IF EXISTS " } else { "" })
             }
@@ -8797,6 +8823,7 @@ impl fmt::Display for Statement {
                 name,
                 comment,
                 clone,
+                ..
             } => {
                 write!(
                     f,

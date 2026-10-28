@@ -400,7 +400,7 @@ impl Spanned for Statement {
             ),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
-            Statement::CreateDatabaseRole { name, .. } => name.span(),
+            Statement::CreateDatabaseRole { create_token, name, .. } => create_token.0.span.union(&name.span()),
             Statement::CreateApplicationRole { name, .. } => name.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),
             Statement::CreateCollation(create_collation) => create_collation.span(),
@@ -485,6 +485,8 @@ impl Spanned for Statement {
             Statement::CreateSchema { .. } => Span::empty(),
             Statement::CreateDatabase { .. } => Span::empty(),
             Statement::CreateApplicationPackage { name, .. }
+            | Statement::CreateApplication { name, .. }
+            | Statement::DropApplication { name, .. }
             | Statement::DropApplicationPackage { name, .. }
             | Statement::AlterApplicationPackageVersion { name, .. }
             | Statement::DescribeApplicationPackage { name } => name.span(),
