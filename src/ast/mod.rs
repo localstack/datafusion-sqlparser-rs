@@ -6988,6 +6988,15 @@ pub enum Statement {
         /// Call arguments (never evaluated).
         args: Vec<Expr>,
     },
+    /// Execute a notebook, preserving its identity inside scripting bodies.
+    ExecuteNotebook {
+        /// The EXECUTE keyword.
+        execute_token: AttachedToken,
+        /// Notebook identifier.
+        name: ObjectName,
+        /// Positional arguments.
+        args: Vec<Expr>,
+    },
     /// Execute a code bundle or legacy notebook project.
     ExecuteCodeBundle {
         /// The EXECUTE keyword.
@@ -11159,6 +11168,9 @@ impl fmt::Display for Statement {
             }
             Statement::ExecuteStreamlit { name, args } => {
                 write!(f, "EXECUTE STREAMLIT {name}({})", display_comma_separated(args))
+            }
+            Statement::ExecuteNotebook { name, args, .. } => {
+                write!(f, "EXECUTE NOTEBOOK {name}({})", display_comma_separated(args))
             }
             Statement::ExecuteCodeBundle { name, legacy, options, specification, .. } => {
                 write!(

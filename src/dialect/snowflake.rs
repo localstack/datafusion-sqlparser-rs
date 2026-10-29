@@ -315,6 +315,21 @@ impl SnowflakeDialect {
                     return Some(parse_execute_code_bundle(parser, legacy, execute_token));
                 }
             }
+            if matches!(&first.token, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("NOTEBOOK")) {
+                let execute_token = AttachedToken(parser.next_token());
+                parser.next_token();
+                return Some((|| {
+                    let name = parser.parse_object_name(false)?;
+                    let args = if parser.consume_token(&Token::LParen) {
+                        let args = parser.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
+                        parser.expect_token(&Token::RParen)?;
+                        args
+                    } else {
+                        Vec::new()
+                    };
+                    Ok(Statement::ExecuteNotebook { execute_token, name, args })
+                })());
+            }
         }
 
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::FILE, Keyword::FORMAT]) {
