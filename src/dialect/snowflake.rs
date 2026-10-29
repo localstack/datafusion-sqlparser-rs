@@ -5684,13 +5684,18 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
         parser.expect_token(&Token::RParen)?;
         AlterExternalVolumeOperation::AddStorageLocation(loc)
     } else if parser.parse_keyword(Keyword::SET) {
-        parser.expect_keyword(Keyword::ALLOW_WRITES)?;
-        parser.expect_token(&Token::Eq)?;
-        if parser.parse_keyword(Keyword::TRUE) {
-            AlterExternalVolumeOperation::SetAllowWrites(true)
+        if parser.parse_keyword(Keyword::COMMENT) {
+            parser.expect_token(&Token::Eq)?;
+            AlterExternalVolumeOperation::SetComment(parser.parse_literal_string()?)
         } else {
-            parser.expect_keyword(Keyword::FALSE)?;
-            AlterExternalVolumeOperation::SetAllowWrites(false)
+            parser.expect_keyword(Keyword::ALLOW_WRITES)?;
+            parser.expect_token(&Token::Eq)?;
+            if parser.parse_keyword(Keyword::TRUE) {
+                AlterExternalVolumeOperation::SetAllowWrites(true)
+            } else {
+                parser.expect_keyword(Keyword::FALSE)?;
+                AlterExternalVolumeOperation::SetAllowWrites(false)
+            }
         }
     } else if parser.parse_keyword(Keyword::REMOVE) {
         parser.expect_keyword(Keyword::STORAGE_LOCATION)?;
