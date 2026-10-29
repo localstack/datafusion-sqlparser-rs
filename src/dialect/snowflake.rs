@@ -5584,6 +5584,7 @@ fn parse_external_volume_storage_location(
 
     let mut storage_base_url: Option<String> = None;
     let mut storage_aws_role_arn = None;
+    let mut storage_aws_access_point_arn = None;
     let mut storage_aws_external_id = None;
     let mut aws_sns_topic = None;
     let mut azure_tenant_id = None;
@@ -5609,6 +5610,9 @@ fn parse_external_volume_storage_location(
             }
             parser.expect_token(&Token::Eq)?;
             storage_aws_role_arn = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::STORAGE_AWS_ACCESS_POINT_ARN) {
+            parser.expect_token(&Token::Eq)?;
+            storage_aws_access_point_arn = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::STORAGE_AWS_EXTERNAL_ID) {
             if storage_aws_external_id.is_some() {
                 return Err(ParserError::ParserError(
@@ -5647,6 +5651,7 @@ fn parse_external_volume_storage_location(
         storage_provider,
         storage_base_url,
         storage_aws_role_arn,
+        storage_aws_access_point_arn,
         storage_aws_external_id,
         aws_sns_topic,
         azure_tenant_id,
