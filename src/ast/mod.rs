@@ -17232,6 +17232,8 @@ pub struct ExternalVolumeStorageLocation {
     pub storage_base_url: String,
     /// Optional `STORAGE_AWS_ROLE_ARN`.
     pub storage_aws_role_arn: Option<String>,
+    /// Optional `STORAGE_AWS_ACCESS_POINT_ARN`.
+    pub storage_aws_access_point_arn: Option<String>,
     /// Optional `STORAGE_AWS_EXTERNAL_ID`.
     pub storage_aws_external_id: Option<String>,
     /// SNS topic used for Parquet Direct file notifications.
@@ -17255,6 +17257,13 @@ impl fmt::Display for ExternalVolumeStorageLocation {
             write!(
                 f,
                 " STORAGE_AWS_ROLE_ARN = '{}'",
+                value::escape_single_quote_string(arn)
+            )?;
+        }
+        if let Some(ref arn) = self.storage_aws_access_point_arn {
+            write!(
+                f,
+                " STORAGE_AWS_ACCESS_POINT_ARN = '{}'",
                 value::escape_single_quote_string(arn)
             )?;
         }
