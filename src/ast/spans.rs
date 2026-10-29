@@ -717,6 +717,7 @@ impl Spanned for Statement {
             Statement::DescribeType { name } => name.span(),
             Statement::ShowStreamlitVersions { .. } => Span::empty(),
             Statement::ExecuteStreamlit { .. } => Span::empty(),
+            Statement::ExecuteNotebook { execute_token, .. } => execute_token.0.span,
             Statement::ExecuteCodeBundle { execute_token, .. } => execute_token.0.span,
             Statement::ShowStreamlits { .. } => Span::empty(),
             Statement::ShowAgents { .. } => Span::empty(),
