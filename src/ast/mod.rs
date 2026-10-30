@@ -17310,13 +17310,22 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
         }
-        if let (Some(key_id), Some(secret_key)) = (&self.aws_key_id, &self.aws_secret_key) {
-            write!(
-                f,
-                " CREDENTIALS = (AWS_KEY_ID = '{}' AWS_SECRET_KEY = '{}')",
-                value::escape_single_quote_string(key_id),
-                value::escape_single_quote_string(secret_key)
-            )?;
+        if self.aws_key_id.is_some() || self.aws_secret_key.is_some() {
+            write!(f, " CREDENTIALS = (")?;
+            if let Some(key_id) = &self.aws_key_id {
+                write!(f, "AWS_KEY_ID = '{}'", value::escape_single_quote_string(key_id))?;
+            }
+            if let Some(secret_key) = &self.aws_secret_key {
+                if self.aws_key_id.is_some() {
+                    write!(f, " ")?;
+                }
+                write!(
+                    f,
+                    "AWS_SECRET_KEY = '{}'",
+                    value::escape_single_quote_string(secret_key)
+                )?;
+            }
+            write!(f, ")")?;
         }
         if let Some(endpoint) = &self.storage_endpoint {
             write!(

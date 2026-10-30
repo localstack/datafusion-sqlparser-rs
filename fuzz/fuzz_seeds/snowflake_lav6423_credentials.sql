@@ -1,0 +1,2 @@
+CREATE EXTERNAL VOLUME spiral_volume STORAGE_LOCATIONS=((NAME='declared' STORAGE_PROVIDER='S3COMPAT' STORAGE_BASE_URL='s3compat://spiral-bucket/' CREDENTIALS=(AWS_SECRET_KEY='spiral_secret' AWS_KEY_ID='spiral_key') STORAGE_ENDPOINT='spiral.r2.cloudflarestorage.com'));
+CREATE EXTERNAL VOLUME spiral_volume STORAGE_LOCATIONS=((NAME='declared' STORAGE_PROVIDER='S3COMPAT' STORAGE_BASE_URL='s3compat://spiral-bucket/' CREDENTIALS=(AWS_KEY_ID='spiral_key') STORAGE_ENDPOINT='spiral.r2.cloudflarestorage.com'));
