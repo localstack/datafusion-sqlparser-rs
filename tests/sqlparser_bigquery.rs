@@ -2319,6 +2319,7 @@ fn parse_map_access_expr() {
                         clauses: vec![],
                     }),
                     filter: None,
+                    from_first: None,
                     null_treatment: None,
                     over: None,
                     within_group: vec![],

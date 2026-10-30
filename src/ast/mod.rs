@@ -14037,6 +14037,9 @@ pub struct Function {
     ///
     /// [Snowflake](https://docs.snowflake.com/en/sql-reference/functions/first_value)
     pub null_treatment: Option<NullTreatment>,
+    /// NTH_VALUE direction: `true` for `FROM FIRST`, `false` for `FROM LAST`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub from_first: Option<bool>,
     /// The `OVER` clause, indicating a window function call.
     pub over: Option<WindowType>,
 }
@@ -14072,6 +14075,14 @@ impl fmt::Display for Function {
 
         if let Some(filter_cond) = &self.filter {
             write!(f, " FILTER (WHERE {filter_cond})")?;
+        }
+
+        if let Some(from_first) = self.from_first {
+            f.write_str(if from_first {
+                " FROM FIRST"
+            } else {
+                " FROM LAST"
+            })?;
         }
 
         if let Some(null_treatment) = &self.null_treatment {
