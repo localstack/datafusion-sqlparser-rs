@@ -871,6 +871,7 @@ where
 ///               args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(old_expr))],
 ///               clauses: vec![],
 ///           }),
+///           from_first: None,
 ///           null_treatment: None,
 ///           filter: None,
 ///           over: None,
