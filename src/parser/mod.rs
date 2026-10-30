@@ -2139,6 +2139,7 @@ impl<'a> Parser<'a> {
                         uses_odbc_syntax: false,
                         parameters: FunctionArguments::None,
                         args: FunctionArguments::None,
+                        from_first: None,
                         null_treatment: None,
                         filter: None,
                         over: None,
@@ -2202,6 +2203,7 @@ impl<'a> Parser<'a> {
                         parameters: FunctionArguments::None,
                         args: FunctionArguments::Subquery(query),
                         filter: None,
+                        from_first: None,
                         null_treatment: None,
                         over: None,
                         within_group: vec![],
@@ -3210,6 +3212,7 @@ impl<'a> Parser<'a> {
                 parameters: FunctionArguments::None,
                 args: FunctionArguments::Subquery(subquery),
                 filter: None,
+                from_first: None,
                 null_treatment: None,
                 over: None,
                 within_group: vec![],
@@ -3279,6 +3282,23 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let from_first = if name
+            .0
+            .last()
+            .and_then(ObjectNamePart::as_ident)
+            .is_some_and(|ident| ident.value.eq_ignore_ascii_case("NTH_VALUE"))
+        {
+            if self.parse_keywords(&[Keyword::FROM, Keyword::FIRST]) {
+                Some(true)
+            } else if self.parse_keywords(&[Keyword::FROM, Keyword::LAST]) {
+                Some(false)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Syntax for null treatment shows up either in the args list
         // or after the function call, but not both.
         let null_treatment = if args
@@ -3323,6 +3343,7 @@ impl<'a> Parser<'a> {
             parameters,
             args: FunctionArguments::List(args),
             null_treatment,
+            from_first,
             filter,
             over,
             within_group,
@@ -3359,6 +3380,7 @@ impl<'a> Parser<'a> {
             args,
             filter: None,
             over: None,
+            from_first: None,
             null_treatment: None,
             within_group: vec![],
         }))
@@ -16374,6 +16396,7 @@ impl<'a> Parser<'a> {
                 args: FunctionArguments::None,
                 over: None,
                 filter: None,
+                from_first: None,
                 null_treatment: None,
                 within_group: vec![],
             }
@@ -22784,6 +22807,7 @@ impl<'a> Parser<'a> {
             parameters: FunctionArguments::None,
             args: FunctionArguments::List(args),
             filter: None,
+            from_first: None,
             null_treatment: None,
             over: None,
             within_group: vec![],
@@ -25209,6 +25233,7 @@ impl<'a> Parser<'a> {
                     clauses: vec![],
                 }),
                 filter: None,
+                from_first: None,
                 null_treatment: None,
                 over: None,
                 within_group: vec![],

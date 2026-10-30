@@ -809,6 +809,7 @@ fn test_snowflake_create_table_cluster_by() {
                             clauses: vec![],
                         }),
                         filter: None,
+                        from_first: None,
                         null_treatment: None,
                         over: None,
                         within_group: vec![],
@@ -2244,6 +2245,7 @@ fn test_alter_table_clustering() {
                             clauses: vec![],
                         }),
                         filter: None,
+                        from_first: None,
                         null_treatment: None,
                         over: None,
                         within_group: vec![]
