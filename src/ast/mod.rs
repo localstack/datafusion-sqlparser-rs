@@ -17251,6 +17251,12 @@ pub struct ExternalVolumeStorageLocation {
     pub aws_sns_topic: Option<String>,
     /// Optional `AZURE_TENANT_ID`.
     pub azure_tenant_id: Option<String>,
+    /// S3-compatible `CREDENTIALS` access key identifier.
+    pub aws_key_id: Option<String>,
+    /// S3-compatible `CREDENTIALS` secret access key.
+    pub aws_secret_key: Option<String>,
+    /// S3-compatible `STORAGE_ENDPOINT` declaration.
+    pub storage_endpoint: Option<String>,
     /// Optional `USE_PRIVATELINK_ENDPOINT` declaration.
     pub use_privatelink_endpoint: Option<bool>,
     /// Optional `ENCRYPTION` settings.
@@ -17303,6 +17309,21 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         }
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
+        }
+        if let (Some(key_id), Some(secret_key)) = (&self.aws_key_id, &self.aws_secret_key) {
+            write!(
+                f,
+                " CREDENTIALS = (AWS_KEY_ID = '{}' AWS_SECRET_KEY = '{}')",
+                value::escape_single_quote_string(key_id),
+                value::escape_single_quote_string(secret_key)
+            )?;
+        }
+        if let Some(endpoint) = &self.storage_endpoint {
+            write!(
+                f,
+                " STORAGE_ENDPOINT = '{}'",
+                value::escape_single_quote_string(endpoint)
+            )?;
         }
         if let Some(enabled) = self.use_privatelink_endpoint {
             write!(
