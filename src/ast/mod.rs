@@ -17378,6 +17378,15 @@ pub enum AlterExternalVolumeOperation {
     SetComment(String),
     /// `REMOVE STORAGE_LOCATION '<name>'`
     RemoveStorageLocation(String),
+    #[doc = "`UPDATE STORAGE_LOCATION = '<name>' CREDENTIALS = (...)`"]
+    UpdateStorageLocationCredentials {
+        #[doc = "The storage location to update."]
+        name: String,
+        #[doc = "The replacement access key identifier."]
+        aws_key_id: String,
+        #[doc = "The replacement secret access key."]
+        aws_secret_key: String,
+    },
 }
 
 impl fmt::Display for AlterExternalVolumeOperation {
@@ -17403,6 +17412,17 @@ impl fmt::Display for AlterExternalVolumeOperation {
                     value::escape_single_quote_string(name)
                 )
             }
+            AlterExternalVolumeOperation::UpdateStorageLocationCredentials {
+                name,
+                aws_key_id,
+                aws_secret_key,
+            } => write!(
+                f,
+                "UPDATE STORAGE_LOCATION = '{}' CREDENTIALS = (AWS_KEY_ID = '{}' AWS_SECRET_KEY = '{}')",
+                value::escape_single_quote_string(name),
+                value::escape_single_quote_string(aws_key_id),
+                value::escape_single_quote_string(aws_secret_key)
+            ),
         }
     }
 }
