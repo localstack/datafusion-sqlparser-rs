@@ -5522,15 +5522,15 @@ fn parse_create_external_volume(
     parser.expect_token(&Token::Eq)?;
     parser.expect_token(&Token::LParen)?;
 
-    let mut storage_locations = vec![];
-    loop {
-        parser.expect_token(&Token::LParen)?;
-        storage_locations.push(parse_external_volume_storage_location(parser)?);
-        parser.expect_token(&Token::RParen)?;
-        if !parser.consume_token(&Token::Comma) {
-            break;
-        }
-    }
+    let storage_locations = parser.parse_comma_separated0(
+        |parser| {
+            parser.expect_token(&Token::LParen)?;
+            let location = parse_external_volume_storage_location(parser)?;
+            parser.expect_token(&Token::RParen)?;
+            Ok(location)
+        },
+        Token::RParen,
+    )?;
     parser.expect_token(&Token::RParen)?;
 
     let mut allow_writes = None;
