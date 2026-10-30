@@ -5634,13 +5634,18 @@ fn parse_external_volume_storage_location(
         } else if parser.parse_keyword(Keyword::CREDENTIALS) {
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
-            parser.expect_keyword(Keyword::AWS_KEY_ID)?;
-            parser.expect_token(&Token::Eq)?;
-            aws_key_id = Some(parser.parse_literal_string()?);
-            parser.expect_keyword(Keyword::AWS_SECRET_KEY)?;
-            parser.expect_token(&Token::Eq)?;
-            aws_secret_key = Some(parser.parse_literal_string()?);
-            parser.expect_token(&Token::RParen)?;
+            while !parser.consume_token(&Token::RParen) {
+                let credential = if parser.parse_keyword(Keyword::AWS_KEY_ID) {
+                    &mut aws_key_id
+                } else if parser.parse_keyword(Keyword::AWS_SECRET_KEY) {
+                    &mut aws_secret_key
+                } else {
+                    return parser.expected("AWS_KEY_ID or AWS_SECRET_KEY", parser.peek_token());
+                };
+                parser.expect_token(&Token::Eq)?;
+                *credential = Some(parser.parse_literal_string()?);
+                let _ = parser.consume_token(&Token::Comma);
+            }
         } else if parser.parse_keyword(Keyword::STORAGE_ENDPOINT) {
             parser.expect_token(&Token::Eq)?;
             storage_endpoint = Some(parser.parse_literal_string()?);
