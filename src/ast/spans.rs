@@ -2333,6 +2333,7 @@ impl Spanned for Function {
             parameters,
             args,
             filter,
+            from_first: _,
             null_treatment: _, // enum
             over: _,           // todo
             within_group,

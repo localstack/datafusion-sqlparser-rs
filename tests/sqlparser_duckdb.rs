@@ -657,6 +657,7 @@ fn test_duckdb_named_argument_function_with_assignment_operator() {
                 ],
                 clauses: vec![],
             }),
+            from_first: None,
             null_treatment: None,
             filter: None,
             over: None,

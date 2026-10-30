@@ -1885,6 +1885,7 @@ fn parse_create_table_with_valid_options() {
                                 },
                             ),
                             filter: None,
+                            from_first: None,
                             null_treatment: None,
                             over: None,
                             within_group: vec![],
