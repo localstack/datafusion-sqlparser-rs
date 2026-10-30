@@ -5588,6 +5588,9 @@ fn parse_external_volume_storage_location(
     let mut storage_aws_external_id = None;
     let mut aws_sns_topic = None;
     let mut azure_tenant_id = None;
+    let mut aws_key_id = None;
+    let mut aws_secret_key = None;
+    let mut storage_endpoint = None;
     let mut use_privatelink_endpoint = None;
     let mut encryption = None;
 
@@ -5628,6 +5631,19 @@ fn parse_external_volume_storage_location(
         } else if parser.parse_keyword(Keyword::AZURE_TENANT_ID) {
             parser.expect_token(&Token::Eq)?;
             azure_tenant_id = Some(parser.parse_literal_string()?);
+        } else if parser.parse_keyword(Keyword::CREDENTIALS) {
+            parser.expect_token(&Token::Eq)?;
+            parser.expect_token(&Token::LParen)?;
+            parser.expect_keyword(Keyword::AWS_KEY_ID)?;
+            parser.expect_token(&Token::Eq)?;
+            aws_key_id = Some(parser.parse_literal_string()?);
+            parser.expect_keyword(Keyword::AWS_SECRET_KEY)?;
+            parser.expect_token(&Token::Eq)?;
+            aws_secret_key = Some(parser.parse_literal_string()?);
+            parser.expect_token(&Token::RParen)?;
+        } else if parser.parse_keyword(Keyword::STORAGE_ENDPOINT) {
+            parser.expect_token(&Token::Eq)?;
+            storage_endpoint = Some(parser.parse_literal_string()?);
         } else if parser.parse_keyword(Keyword::USE_PRIVATELINK_ENDPOINT) {
             parser.expect_token(&Token::Eq)?;
             use_privatelink_endpoint = Some(parse_bool_literal(parser)?);
@@ -5659,6 +5675,9 @@ fn parse_external_volume_storage_location(
         storage_aws_external_id,
         aws_sns_topic,
         azure_tenant_id,
+        aws_key_id,
+        aws_secret_key,
+        storage_endpoint,
         use_privatelink_endpoint,
         encryption,
     })
