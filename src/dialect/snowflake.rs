@@ -5712,6 +5712,25 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
         let loc = parse_external_volume_storage_location(parser)?;
         parser.expect_token(&Token::RParen)?;
         AlterExternalVolumeOperation::AddStorageLocation(loc)
+    } else if parser.parse_keyword(Keyword::UPDATE) {
+        parser.expect_keyword(Keyword::STORAGE_LOCATION)?;
+        parser.expect_token(&Token::Eq)?;
+        let name = parser.parse_literal_string()?;
+        parser.expect_keyword(Keyword::CREDENTIALS)?;
+        parser.expect_token(&Token::Eq)?;
+        parser.expect_token(&Token::LParen)?;
+        parser.expect_keyword(Keyword::AWS_KEY_ID)?;
+        parser.expect_token(&Token::Eq)?;
+        let aws_key_id = parser.parse_literal_string()?;
+        parser.expect_keyword(Keyword::AWS_SECRET_KEY)?;
+        parser.expect_token(&Token::Eq)?;
+        let aws_secret_key = parser.parse_literal_string()?;
+        parser.expect_token(&Token::RParen)?;
+        AlterExternalVolumeOperation::UpdateStorageLocationCredentials {
+            name,
+            aws_key_id,
+            aws_secret_key,
+        }
     } else if parser.parse_keyword(Keyword::SET) {
         if parser.parse_keyword(Keyword::COMMENT) {
             parser.expect_token(&Token::Eq)?;
@@ -5732,7 +5751,7 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
         AlterExternalVolumeOperation::RemoveStorageLocation(loc_name)
     } else {
         return parser.expected(
-            "ADD, SET, or REMOVE after ALTER EXTERNAL VOLUME <name>",
+            "ADD, UPDATE, SET, or REMOVE after ALTER EXTERNAL VOLUME <name>",
             parser.peek_token(),
         );
     };
