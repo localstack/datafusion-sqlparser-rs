@@ -17251,6 +17251,8 @@ pub struct ExternalVolumeStorageLocation {
     pub aws_sns_topic: Option<String>,
     /// Optional `AZURE_TENANT_ID`.
     pub azure_tenant_id: Option<String>,
+    /// Optional `USE_PRIVATELINK_ENDPOINT` declaration.
+    pub use_privatelink_endpoint: Option<bool>,
     /// Optional `ENCRYPTION` settings.
     pub encryption: Option<ExternalVolumeEncryption>,
 }
@@ -17301,6 +17303,13 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         }
         if let Some(ref enc) = self.encryption {
             write!(f, " ENCRYPTION = ({enc})")?;
+        }
+        if let Some(enabled) = self.use_privatelink_endpoint {
+            write!(
+                f,
+                " USE_PRIVATELINK_ENDPOINT = {}",
+                if enabled { "TRUE" } else { "FALSE" }
+            )?;
         }
         Ok(())
     }
