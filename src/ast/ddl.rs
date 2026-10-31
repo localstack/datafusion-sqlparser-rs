@@ -196,6 +196,8 @@ pub enum AlterTableOperation {
         columns: Vec<Ident>,
         /// Properties supplied by the statement.
         characteristics: Option<ConstraintCharacteristics>,
+        /// Optional constraint comment.
+        comment: Option<String>,
     },
     /// Snowflake `DROP UNIQUE (...)` / `DROP FOREIGN KEY (...)`.
     DropConstraintColumns {
@@ -948,6 +950,7 @@ impl fmt::Display for AlterTableOperation {
                 target,
                 columns,
                 characteristics,
+                comment,
             } => {
                 write!(f, "{} {target}", if *modify { "MODIFY" } else { "ALTER" })?;
                 if !columns.is_empty() {
@@ -955,6 +958,9 @@ impl fmt::Display for AlterTableOperation {
                 }
                 if let Some(characteristics) = characteristics {
                     write!(f, " {characteristics}")?;
+                }
+                if let Some(comment) = comment {
+                    write!(f, " COMMENT '{}'", escape_single_quote_string(comment))?;
                 }
                 Ok(())
             }
