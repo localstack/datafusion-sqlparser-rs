@@ -23478,6 +23478,7 @@ impl<'a> Parser<'a> {
             "MATERIALIZED_VIEW",
         ),
         ("EXTERNAL TABLES", &["EXTERNAL", "TABLES"], "EXTERNAL_TABLE"),
+        ("EVENT TABLES", &["EVENT", "TABLES"], "EVENT_TABLE"),
         ("STREAMLITS", &["STREAMLITS"], "STREAMLIT"),
         ("DATASETS", &["DATASETS"], "DATASET"),
         (
