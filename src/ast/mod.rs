@@ -10919,9 +10919,24 @@ impl fmt::Display for Statement {
                 show_options,
                 on_entity,
             } => {
-                write!(f, "SHOW AUTHENTICATION POLICIES{show_options}")?;
+                write!(f, "SHOW AUTHENTICATION POLICIES")?;
                 if let Some(entity) = on_entity {
+                    if let Some(
+                        ShowStatementFilterPosition::Infix(filter)
+                        | ShowStatementFilterPosition::Suffix(filter),
+                    ) = &show_options.filter_position
+                    {
+                        write!(f, " {filter}")?;
+                    }
                     write!(f, " ON {entity}")?;
+                    if let Some(starts_with) = &show_options.starts_with {
+                        write!(f, " STARTS WITH {starts_with}")?;
+                    }
+                    if let Some(limit) = &show_options.limit {
+                        write!(f, " LIMIT {limit}")?;
+                    }
+                } else {
+                    write!(f, "{show_options}")?;
                 }
                 Ok(())
             }
