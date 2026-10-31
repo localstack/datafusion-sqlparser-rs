@@ -27595,6 +27595,8 @@ impl<'a> Parser<'a> {
                             | "STRICT_JSON_OUTPUT"
                             | "MIN_CLUSTER_COUNT"
                             | "MAX_CLUSTER_COUNT"
+                            | "AUTHENTICATION_METHODS"
+                            | "CLIENT_TYPES"
                     )
                 {
                     return Ok(KeyValueOption {
