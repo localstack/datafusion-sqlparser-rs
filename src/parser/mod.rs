@@ -13834,11 +13834,17 @@ impl<'a> Parser<'a> {
             {
                 let (target, columns) = self.parse_snowflake_constraint_target()?;
                 let characteristics = self.parse_snowflake_constraint_mutation_characteristics()?;
+                let comment = if self.parse_keyword(Keyword::COMMENT) {
+                    Some(self.parse_literal_string()?)
+                } else {
+                    None
+                };
                 AlterTableOperation::AlterConstraint {
                     modify: true,
                     target,
                     columns,
                     characteristics,
+                    comment,
                 }
             } else {
                 let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
@@ -13924,11 +13930,17 @@ impl<'a> Parser<'a> {
             {
                 let (target, columns) = self.parse_snowflake_constraint_target()?;
                 let characteristics = self.parse_snowflake_constraint_mutation_characteristics()?;
+                let comment = if self.parse_keyword(Keyword::COMMENT) {
+                    Some(self.parse_literal_string()?)
+                } else {
+                    None
+                };
                 return Ok(AlterTableOperation::AlterConstraint {
                     modify: false,
                     target,
                     columns,
                     characteristics,
+                    comment,
                 });
             }
 
