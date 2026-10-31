@@ -7421,8 +7421,12 @@ fn parse_describe_session_policy(parser: &mut Parser) -> Result<Statement, Parse
 
 /// Parse `SHOW SESSION POLICIES [LIKE '<pattern>'] [IN <scope> | ON <entity>]`
 fn parse_show_session_policies(parser: &mut Parser) -> Result<Statement, ParserError> {
-    let show_options = parser.parse_show_stmt_options()?;
+    let mut show_options = parser.parse_show_stmt_options()?;
     let on_entity = maybe_parse_show_policy_on_entity(parser)?;
+    if on_entity.is_some() {
+        show_options.starts_with = parser.maybe_parse_show_stmt_starts_with()?;
+        show_options.limit = parser.maybe_parse_show_stmt_limit()?;
+    }
     Ok(Statement::ShowSessionPolicies {
         show_options,
         on_entity,
