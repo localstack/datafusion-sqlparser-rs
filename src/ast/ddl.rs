@@ -2345,6 +2345,16 @@ impl fmt::Display for AlterSemanticViewOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterSessionPolicyOperation {
+    /// `SET TAG <name> = '<value>' [, ...]`.
+    SetTags {
+        /// Tag assignments.
+        tags: Vec<Tag>,
+    },
+    /// `UNSET TAG <name> [, ...]`.
+    UnsetTags {
+        /// Tags to remove.
+        tags: Vec<ObjectName>,
+    },
     /// `SET <prop> = <value> [ <prop> = <value> ...]` (space-separated).
     Set(KeyValueOptions),
     /// `UNSET <prop> [, <prop> ...]` (comma-separated property names).
@@ -2486,6 +2496,12 @@ impl fmt::Display for AlterMaintenancePolicyOperation {
 impl fmt::Display for AlterSessionPolicyOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterSessionPolicyOperation::SetTags { tags } => {
+                write!(f, "SET TAG {}", display_comma_separated(tags))
+            }
+            AlterSessionPolicyOperation::UnsetTags { tags } => {
+                write!(f, "UNSET TAG {}", display_comma_separated(tags))
+            }
             AlterSessionPolicyOperation::Set(options) => write!(f, "SET {options}"),
             AlterSessionPolicyOperation::Unset(props) => {
                 write!(f, "UNSET {}", display_comma_separated(props))

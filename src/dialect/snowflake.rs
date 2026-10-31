@@ -7351,9 +7351,21 @@ fn parse_alter_session_policy(parser: &mut Parser) -> Result<Statement, ParserEr
             new_name: parser.parse_object_name(false)?,
         }
     } else if parser.parse_keyword(Keyword::SET) {
-        AlterSessionPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+        if parser.parse_keyword(Keyword::TAG) {
+            AlterSessionPolicyOperation::SetTags {
+                tags: parser.parse_comma_separated(Parser::parse_tag)?,
+            }
+        } else {
+            AlterSessionPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
+        }
     } else if parser.parse_keyword(Keyword::UNSET) {
-        AlterSessionPolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+        if parser.parse_keyword(Keyword::TAG) {
+            AlterSessionPolicyOperation::UnsetTags {
+                tags: parser.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+            }
+        } else {
+            AlterSessionPolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+        }
     } else {
         return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
     };
