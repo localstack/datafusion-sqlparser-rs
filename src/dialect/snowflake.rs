@@ -1051,7 +1051,7 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] AUTHENTICATION POLICY
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
-                return Some(parse_create_authentication_policy(or_replace, parser));
+                return Some(parse_create_authentication_policy(or_replace, or_alter, parser));
             }
 
             // CREATE [OR REPLACE | OR ALTER] BACKUP SET
@@ -7284,6 +7284,7 @@ fn parse_create_backup_policy(
 /// `parse_key_value_options` already recurses into `( ... )` groups.
 fn parse_create_authentication_policy(
     or_replace: bool,
+    or_alter: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -7291,6 +7292,7 @@ fn parse_create_authentication_policy(
     let options = parser.parse_key_value_options(false, &[], false)?;
     Ok(Statement::CreateAuthenticationPolicy {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         options,
