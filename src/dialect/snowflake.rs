@@ -7424,8 +7424,10 @@ fn parse_show_session_policies(parser: &mut Parser) -> Result<Statement, ParserE
     let mut show_options = parser.parse_show_stmt_options()?;
     let on_entity = maybe_parse_show_policy_on_entity(parser)?;
     if on_entity.is_some() {
-        show_options.starts_with = parser.maybe_parse_show_stmt_starts_with()?;
-        show_options.limit = parser.maybe_parse_show_stmt_limit()?;
+        show_options.starts_with = parser
+            .maybe_parse_show_stmt_starts_with()?
+            .or(show_options.starts_with);
+        show_options.limit = parser.maybe_parse_show_stmt_limit()?.or(show_options.limit);
     }
     Ok(Statement::ShowSessionPolicies {
         show_options,
