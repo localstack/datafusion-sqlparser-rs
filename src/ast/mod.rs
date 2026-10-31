@@ -5364,6 +5364,8 @@ pub enum Statement {
     CreateFileFormat {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// Whether file format is temporary.
         temporary: bool,
         /// Whether file format is volatile.
@@ -9697,6 +9699,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreateFileFormat {
                 or_replace,
+                or_alter,
                 temporary,
                 volatile,
                 if_not_exists,
@@ -9707,8 +9710,9 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}{temp}{volatile}FILE FORMAT {if_not_exists}{name}",
+                    "CREATE {or_replace}{or_alter}{temp}{volatile}FILE FORMAT {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_alter = if *or_alter { "OR ALTER " } else { "" },
                     temp = if *temporary { "TEMPORARY " } else { "" },
                     volatile = if *volatile { "VOLATILE " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
