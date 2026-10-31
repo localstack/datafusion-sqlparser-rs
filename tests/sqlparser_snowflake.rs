@@ -3122,6 +3122,7 @@ fn test_create_file_format() {
     match snowflake().verified_stmt(sql) {
         Statement::CreateFileFormat {
             or_replace,
+            or_alter,
             temporary,
             volatile,
             if_not_exists,
@@ -3131,6 +3132,7 @@ fn test_create_file_format() {
             comment,
         } => {
             assert!(!or_replace);
+            assert!(!or_alter);
             assert!(!temporary);
             assert!(!volatile);
             assert!(!if_not_exists);
@@ -9002,6 +9004,7 @@ fn test_create_file_format_type_csv() {
     ) {
         Statement::CreateFileFormat {
             or_replace,
+            or_alter,
             temporary,
             volatile,
             if_not_exists,
@@ -9011,6 +9014,7 @@ fn test_create_file_format_type_csv() {
             comment,
         } => {
             assert!(!or_replace);
+            assert!(!or_alter);
             assert!(!temporary);
             assert!(!volatile);
             assert!(!if_not_exists);
