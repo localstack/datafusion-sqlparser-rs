@@ -4490,7 +4490,7 @@ pub fn parse_create_file_format(
         loop {
             if parser.parse_keyword(Keyword::COMMENT) {
                 parser.expect_token(&Token::Eq)?;
-                comment = Some(parser.parse_comment_value()?);
+                comment.get_or_insert(parser.parse_comment_value()?);
                 continue;
             }
             if matches!(parser.peek_token().token, Token::EOF | Token::SemiColon) {
