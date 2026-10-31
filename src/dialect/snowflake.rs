@@ -1411,7 +1411,7 @@ impl SnowflakeDialect {
                 return Some(parse_create_database(or_replace, transient, parser));
             } else if parser.parse_keywords(&[Keyword::FILE, Keyword::FORMAT]) {
                 return Some(parse_create_file_format(
-                    or_replace, temporary, volatile, parser,
+                    or_replace, or_alter, temporary, volatile, parser,
                 ));
             } else if parser.parse_keywords(&[Keyword::APPLICATION, Keyword::ROLE]) {
                 return Some(parser.parse_create_application_role(or_replace, or_alter));
@@ -4459,6 +4459,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
 /// See <https://docs.snowflake.com/en/sql-reference/sql/create-file-format>
 pub fn parse_create_file_format(
     or_replace: bool,
+    or_alter: bool,
     temporary: bool,
     volatile: bool,
     parser: &mut Parser,
@@ -4519,6 +4520,7 @@ pub fn parse_create_file_format(
 
     Ok(Statement::CreateFileFormat {
         or_replace,
+        or_alter,
         temporary,
         volatile,
         if_not_exists,
