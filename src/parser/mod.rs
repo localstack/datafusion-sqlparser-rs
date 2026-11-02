@@ -6285,7 +6285,8 @@ impl<'a> Parser<'a> {
         {
             self.parse_create_procedure(or_alter, or_replace, temporary, false)
         } else if self.parse_keyword(Keyword::ROLE) {
-            self.parse_create_role(RoleKeyword::Role, or_replace).map(Into::into)
+            self.parse_create_role(RoleKeyword::Role, or_replace)
+                .map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(or_replace, or_alter, temporary)
         } else if self.parse_keyword(Keyword::STREAM) {
@@ -6326,7 +6327,8 @@ impl<'a> Parser<'a> {
                 self.parse_create_database()
             }
         } else if self.dialect.supports_create_group() && self.parse_keyword(Keyword::GROUP) {
-            self.parse_create_role(RoleKeyword::Group, false).map(Into::into)
+            self.parse_create_role(RoleKeyword::Group, false)
+                .map(Into::into)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
             let name = self.parse_object_name(false)?;
@@ -6335,11 +6337,22 @@ impl<'a> Parser<'a> {
                 let key = self.parse_identifier()?;
                 self.expect_token(&Token::Eq)?;
                 let value = self.parse_expr()?;
-                options.push(SqlOption::KeyValue { key: key.into(), value });
+                options.push(SqlOption::KeyValue {
+                    key: key.into(),
+                    value,
+                });
             }
             Ok(Statement::CreateApplicationPackage {
-                name, if_not_exists, options, or_alter, transient, temporary,
-                scoped, global, volatile, multiset,
+                name,
+                if_not_exists,
+                options,
+                or_alter,
+                transient,
+                temporary,
+                scoped,
+                global,
+                volatile,
+                multiset,
                 view_params: create_view_params,
             })
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::SERVICE]) {
@@ -6352,7 +6365,11 @@ impl<'a> Parser<'a> {
             let package = self.parse_object_name(false)?;
             self.expect_keyword(Keyword::USING)?;
             let location = self.parse_literal_string()?;
-            Ok(Statement::CreateApplication { name, package, location })
+            Ok(Statement::CreateApplication {
+                name,
+                package,
+                location,
+            })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
         } else if self.parse_keyword(Keyword::CONNECTOR) {
@@ -7854,7 +7871,10 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_expr()?
         };
-        Ok(SqlOption::KeyValue { key: key.into(), value })
+        Ok(SqlOption::KeyValue {
+            key: key.into(),
+            value,
+        })
     }
 
     /// Parse `CREATE FUNCTION` for [Hive]
@@ -9898,14 +9918,21 @@ impl<'a> Parser<'a> {
     pub fn parse_drop(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
-            return Ok(Statement::DropApplicationPackage { name: self.parse_object_name(false)?, if_exists });
+            return Ok(Statement::DropApplicationPackage {
+                name: self.parse_object_name(false)?,
+                if_exists,
+            });
         }
         if self.peek_keyword(Keyword::APPLICATION) && !self.peek_nth_keyword(1, Keyword::ROLE) {
             self.expect_keyword(Keyword::APPLICATION)?;
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             let name = self.parse_object_name(false)?;
             let cascade = self.parse_keyword(Keyword::CASCADE);
-            return Ok(Statement::DropApplication { name, if_exists, cascade });
+            return Ok(Statement::DropApplication {
+                name,
+                if_exists,
+                cascade,
+            });
         }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
             let group = self.parse_keyword(Keyword::GROUP);
@@ -10002,7 +10029,7 @@ impl<'a> Parser<'a> {
             };
         } else {
             return self.expected_ref(
-                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FOREIGN TABLE, FUNCTION, GROUP, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, RULE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TASK, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
+                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FOREIGN TABLE, FUNCTION, GROUP, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, RULE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
                 self.peek_token_ref(),
             );
         };
@@ -12194,7 +12221,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_column_option_defs(&mut self, first_option: Option<ColumnOption>) -> Result<Vec<ColumnOptionDef>, ParserError> {
+    fn parse_column_option_defs(
+        &mut self,
+        first_option: Option<ColumnOption>,
+    ) -> Result<Vec<ColumnOptionDef>, ParserError> {
         let mut options = first_option
             .map(|option| ColumnOptionDef { name: None, option })
             .into_iter()
@@ -14535,7 +14565,11 @@ impl<'a> Parser<'a> {
             let (operation, version, source) = match action.as_str() {
                 "REGISTER" => {
                     self.expect_keyword(Keyword::VERSION)?;
-                    let version = if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) };
+                    let version = if self.peek_keyword(Keyword::USING) {
+                        None
+                    } else {
+                        Some(self.parse_identifier()?)
+                    };
                     self.expect_keyword(Keyword::USING)?;
                     (action, version, Some(self.parse_literal_string()?))
                 }
@@ -14547,27 +14581,54 @@ impl<'a> Parser<'a> {
                         }
                         if self.parse_keywords(&[Keyword::FOR, Keyword::VERSION]) {
                             for_version = true;
-                            if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) }
-                        } else { None }
+                            if self.peek_keyword(Keyword::USING) {
+                                None
+                            } else {
+                                Some(self.parse_identifier()?)
+                            }
+                        } else {
+                            None
+                        }
                     } else {
                         self.expect_keyword(Keyword::VERSION)?;
-                        if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) }
+                        if self.peek_keyword(Keyword::USING) {
+                            None
+                        } else {
+                            Some(self.parse_identifier()?)
+                        }
                     };
                     self.expect_keyword(Keyword::USING)?;
-                    (if patch { "ADD PATCH".into() } else { action }, version, Some(self.parse_literal_string()?))
+                    (
+                        if patch { "ADD PATCH".into() } else { action },
+                        version,
+                        Some(self.parse_literal_string()?),
+                    )
                 }
                 "DROP" | "DEREGISTER" => {
                     self.expect_keyword(Keyword::VERSION)?;
                     (action, Some(self.parse_identifier()?), None)
                 }
-                _ => return self.expected_ref("REGISTER, ADD, DROP, or DEREGISTER", self.get_current_token()),
+                _ => {
+                    return self.expected_ref(
+                        "REGISTER, ADD, DROP, or DEREGISTER",
+                        self.get_current_token(),
+                    )
+                }
             };
             let label = if self.parse_keyword(Keyword::LABEL) {
                 self.expect_token(&Token::Eq)?;
                 Some(self.parse_literal_string()?)
-            } else { None };
+            } else {
+                None
+            };
             return Ok(Statement::AlterApplicationPackageVersion {
-                name, operation: Ident::new(operation), version, source, patch: patch_number, label, for_version,
+                name,
+                operation: Ident::new(operation),
+                version,
+                source,
+                patch: patch_number,
+                label,
+                for_version,
             });
         }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
@@ -15623,11 +15684,18 @@ impl<'a> Parser<'a> {
                 old_column_name,
                 new_column_name: self.parse_identifier()?,
             }
-        } else if self.parse_one_of_keywords(&[Keyword::ALTER, Keyword::MODIFY]).is_some() {
+        } else if self
+            .parse_one_of_keywords(&[Keyword::ALTER, Keyword::MODIFY])
+            .is_some()
+        {
             let _ = self.parse_keyword(Keyword::COLUMN);
             let column_name = self.parse_identifier()?;
             if let Some(op) = self.maybe_parse_column_masking_policy()? {
-                return Ok(Statement::AlterViewColumn { name, column_name, op });
+                return Ok(Statement::AlterViewColumn {
+                    name,
+                    column_name,
+                    op,
+                });
             }
             let op = if self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT]) {
                 AlterColumnOperation::SetDefault {
@@ -18984,7 +19052,9 @@ impl<'a> Parser<'a> {
         if describe_alias != DescribeAlias::Explain
             && self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE])
         {
-            return Ok(Statement::DescribeApplicationPackage { name: self.parse_object_name(false)? });
+            return Ok(Statement::DescribeApplicationPackage {
+                name: self.parse_object_name(false)?,
+            });
         }
         let mut analyze = false;
         let mut verbose = false;
@@ -20678,7 +20748,9 @@ impl<'a> Parser<'a> {
         if let Ok(show_options) = self.try_parse(|parser| {
             parser.expect_keyword(Keyword::VERSIONS)?;
             let options = parser.parse_show_stmt_options()?;
-            if options.show_in.as_ref().is_some_and(|scope| scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)) {
+            if options.show_in.as_ref().is_some_and(|scope| {
+                scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)
+            }) {
                 Ok(options)
             } else {
                 parser.expected("IN APPLICATION PACKAGE", parser.peek_token())
@@ -20692,7 +20764,9 @@ impl<'a> Parser<'a> {
         {
             Ok(self.parse_show_columns(extended, full)?)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGES]) {
-            Ok(Statement::ShowApplicationPackages { show_options: self.parse_show_stmt_options()? })
+            Ok(Statement::ShowApplicationPackages {
+                show_options: self.parse_show_stmt_options()?,
+            })
         } else if self.parse_keyword(Keyword::TABLES) {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
         } else if self.parse_keyword(Keyword::TASKS) {
@@ -21667,7 +21741,9 @@ impl<'a> Parser<'a> {
             if only_parenthesized {
                 self.expect_token(&Token::RParen)?;
             }
-            Some(TableInheritance::Only { parenthesized: only_parenthesized })
+            Some(TableInheritance::Only {
+                parenthesized: only_parenthesized,
+            })
         } else if inheritance_markers && self.consume_token(&Token::Mul) {
             Some(TableInheritance::IncludeDescendants)
         } else {

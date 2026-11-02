@@ -126,7 +126,6 @@ pub use self::dml::{
 };
 pub use self::operator::{BinaryOperator, UnaryOperator};
 pub use self::query::{
-    TableInheritance,
     AfterMatchSkip, ConnectByKind, Cte, CteAsMaterialized, Distinct, EmptyMatchesMode,
     ExceptSelectItem, ExcludeSelectItem, ExprWithAlias, ExprWithAliasAndOrderBy, Fetch, ForClause,
     ForJson, ForXml, FormatClause, GroupByExpr, GroupByWithModifier, IdentWithAlias,
@@ -141,8 +140,8 @@ pub use self::query::{
     SelectFlavor, SelectInto, SelectItem, SelectItemQualifiedWildcardKind, SelectModifiers,
     SemanticViewQueryClause, SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table,
     TableAlias, TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexDirective,
-    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableSample,
-    TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
+    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableInheritance,
+    TableSample, TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
     TableSampleQuantity, TableSampleSeed, TableSampleSeedModifier, TableSampleUnit, TableVersion,
     TableWithJoins, Top, TopQuantity, UpdateTableFromKind, ValueTableMode, Values,
     WildcardAdditionalOptions, With, WithFill, XmlNamespaceDefinition, XmlPassingArgument,
@@ -17427,7 +17426,11 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         if self.aws_key_id.is_some() || self.aws_secret_key.is_some() {
             write!(f, " CREDENTIALS = (")?;
             if let Some(key_id) = &self.aws_key_id {
-                write!(f, "AWS_KEY_ID = '{}'", value::escape_single_quote_string(key_id))?;
+                write!(
+                    f,
+                    "AWS_KEY_ID = '{}'",
+                    value::escape_single_quote_string(key_id)
+                )?;
             }
             if let Some(secret_key) = &self.aws_secret_key {
                 if self.aws_key_id.is_some() {

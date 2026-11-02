@@ -32,7 +32,6 @@ use core::iter;
 use crate::tokenizer::Span;
 
 use super::{
-    AlterView, AlterViewOperation, CreateUserMapping, DropRule, RefreshMaterializedView, UserMappingUser,
     comments, dcl::SecondaryRoles, value::ValueWithSpan, AccessExpr, AlterColumnOperation,
     AlterGenericOption, AlterIndexOperation, AlterTableOperation, AlterTrigger,
     AlterTriggerOperation, AlterView, AlterViewOperation, Analyze, Array, Assignment,
@@ -407,7 +406,9 @@ impl Spanned for Statement {
             ),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
-            Statement::CreateDatabaseRole { create_token, name, .. } => create_token.0.span.union(&name.span()),
+            Statement::CreateDatabaseRole {
+                create_token, name, ..
+            } => create_token.0.span.union(&name.span()),
             Statement::CreateApplicationRole { name, .. } => name.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),
             Statement::CreateCollation(create_collation) => create_collation.span(),
