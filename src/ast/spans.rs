@@ -406,7 +406,9 @@ impl Spanned for Statement {
             ),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
-            Statement::CreateDatabaseRole { create_token, name, .. } => create_token.0.span.union(&name.span()),
+            Statement::CreateDatabaseRole {
+                create_token, name, ..
+            } => create_token.0.span.union(&name.span()),
             Statement::CreateApplicationRole { name, .. } => name.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),
             Statement::CreateCollation(create_collation) => create_collation.span(),

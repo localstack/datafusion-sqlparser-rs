@@ -9504,9 +9504,10 @@ fn parse_create_text_search() {
     );
 
     assert_eq!(
-        all_dialects_where(|d| !d.supports_sql_option_without_value())
-            .parse_sql_statements("CREATE TEXT SEARCH DICTIONARY d (template)")
-            .unwrap_err(),
+        all_dialects_where(|dialect| dialect.supports_text_search_statements()
+            && !dialect.supports_sql_option_without_value())
+        .parse_sql_statements("CREATE TEXT SEARCH DICTIONARY d (template)")
+        .unwrap_err(),
         ParserError::ParserError("Expected: =, found: )".to_string())
     );
 }
