@@ -6642,7 +6642,7 @@ fn test_snowflake_create_function_external_access_and_secrets() {
         .find_map(|o| match o {
             SqlOption::KeyValue { key, value }
                 if key
-                    .value
+                    .to_string()
                     .eq_ignore_ascii_case("EXTERNAL_ACCESS_INTEGRATIONS") =>
             {
                 Some(value)
@@ -6658,7 +6658,9 @@ fn test_snowflake_create_function_external_access_and_secrets() {
     let secrets = options
         .iter()
         .find_map(|o| match o {
-            SqlOption::KeyValue { key, value } if key.value.eq_ignore_ascii_case("SECRETS") => {
+            SqlOption::KeyValue { key, value }
+                if key.to_string().eq_ignore_ascii_case("SECRETS") =>
+            {
                 Some(value)
             }
             _ => None,
