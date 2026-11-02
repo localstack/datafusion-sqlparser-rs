@@ -291,6 +291,12 @@ const EOF_TOKEN: TokenWithSpan = TokenWithSpan {
     },
 };
 
+struct ReferenceClauses {
+    match_kind: Option<ConstraintReferenceMatchKind>,
+    on_delete: Option<ReferentialAction>,
+    on_update: Option<ReferentialAction>,
+}
+
 /// Composite types declarations using angle brackets syntax can be arbitrary
 /// nested such that the following declaration is possible:
 ///      `ARRAY<ARRAY<INT>>`
@@ -823,12 +829,26 @@ impl<'a> Parser<'a> {
                 Keyword::UNSET if dialect_of!(self is SnowflakeDialect) => self.parse_unset(),
                 Keyword::SHOW => self.parse_show(),
                 Keyword::USE => self.parse_use(),
-                Keyword::GRANT => self.parse_grant().map(Into::into),
+                Keyword::GRANT => self.parse_privileges_or_roles(
+                    Keyword::TO,
+                    Parser::parse_grant,
+                    Parser::parse_grant_role,
+                ),
                 Keyword::DENY => {
                     self.prev_token();
                     self.parse_deny()
                 }
-                Keyword::REVOKE => self.parse_revoke().map(Into::into),
+                Keyword::REVOKE => {
+                    if self.peek_role_grant_option_for() {
+                        self.parse_revoke_role().map(Into::into)
+                    } else {
+                        self.parse_privileges_or_roles(
+                            Keyword::FROM,
+                            Parser::parse_revoke,
+                            Parser::parse_revoke_role,
+                        )
+                    }
+                }
                 Keyword::START => self.parse_start_transaction(),
                 Keyword::BEGIN => self.parse_begin(),
                 Keyword::END => self.parse_end(),
@@ -886,6 +906,7 @@ impl<'a> Parser<'a> {
                     self.parse_vacuum()
                 }
                 Keyword::RESET => self.parse_reset().map(Into::into),
+                Keyword::REFRESH => self.parse_refresh_materialized_view().map(Into::into),
                 _ => self.expected("an SQL statement", next_token),
             },
             Token::LParen => {
@@ -1430,6 +1451,10 @@ impl<'a> Parser<'a> {
             }
             Token::Word(w) if w.keyword == Keyword::EXTENSION => {
                 (CommentObject::Extension, self.parse_object_name(false)?)
+            }
+            Token::Word(w) if w.keyword == Keyword::FOREIGN => {
+                self.expect_keyword_is(Keyword::TABLE)?;
+                (CommentObject::ForeignTable, self.parse_object_name(false)?)
             }
             Token::Word(w) if w.keyword == Keyword::FUNCTION => {
                 (CommentObject::Function, self.parse_object_name(false)?)
@@ -2229,17 +2254,6 @@ impl<'a> Parser<'a> {
                     self.index = checkpoint;
                 }
                 self.parse_function(ObjectName::from(vec![ident]))
-            }
-            // string introducer https://dev.mysql.com/doc/refman/8.0/en/charset-introducer.html
-            Token::SingleQuotedString(_)
-            | Token::DoubleQuotedString(_)
-            | Token::HexStringLiteral(_)
-                if w.value.starts_with('_') =>
-            {
-                Ok(Expr::Prefixed {
-                    prefix: w.to_ident(w_span),
-                    value: self.parse_introduced_string_expr()?.into(),
-                })
             }
             // string introducer https://dev.mysql.com/doc/refman/8.0/en/charset-introducer.html
             Token::SingleQuotedString(_)
@@ -4142,47 +4156,10 @@ impl<'a> Parser<'a> {
     /// Peek at the next token and determine if it is a temporal unit
     /// like `second`.
     pub fn next_token_is_temporal_unit(&mut self) -> bool {
-        if let Token::Word(word) = &self.peek_token_ref().token {
-            matches!(
-                word.keyword,
-                Keyword::YEAR
-                    | Keyword::YEARS
-                    | Keyword::MONTH
-                    | Keyword::MONTHS
-                    | Keyword::WEEK
-                    | Keyword::WEEKS
-                    | Keyword::DAY
-                    | Keyword::DAYS
-                    | Keyword::HOUR
-                    | Keyword::HOURS
-                    | Keyword::MINUTE
-                    | Keyword::MINUTES
-                    | Keyword::SECOND
-                    | Keyword::SECONDS
-                    | Keyword::CENTURY
-                    | Keyword::DECADE
-                    | Keyword::DOW
-                    | Keyword::DOY
-                    | Keyword::EPOCH
-                    | Keyword::ISODOW
-                    | Keyword::ISOYEAR
-                    | Keyword::JULIAN
-                    | Keyword::MICROSECOND
-                    | Keyword::MICROSECONDS
-                    | Keyword::MILLENIUM
-                    | Keyword::MILLENNIUM
-                    | Keyword::MILLISECOND
-                    | Keyword::MILLISECONDS
-                    | Keyword::NANOSECOND
-                    | Keyword::NANOSECONDS
-                    | Keyword::QUARTER
-                    | Keyword::TIMEZONE
-                    | Keyword::TIMEZONE_HOUR
-                    | Keyword::TIMEZONE_MINUTE
-            )
-        } else {
-            false
-        }
+        matches!(
+            &self.peek_token_ref().token,
+            Token::Word(word) if self.dialect.is_interval_qualifier(word.keyword)
+        )
     }
 
     /// Syntax
@@ -4770,10 +4747,6 @@ impl<'a> Parser<'a> {
                         Ok(Expr::IsFalse(Box::new(expr)))
                     } else if self.parse_keywords(&[Keyword::NOT, Keyword::FALSE]) {
                         Ok(Expr::IsNotFalse(Box::new(expr)))
-                    } else if self.parse_keywords(&[Keyword::UNKNOWN]) {
-                        Ok(Expr::IsUnknown(Box::new(expr)))
-                    } else if self.parse_keywords(&[Keyword::NOT, Keyword::UNKNOWN]) {
-                        Ok(Expr::IsNotUnknown(Box::new(expr)))
                     } else if self.parse_keywords(&[Keyword::DISTINCT, Keyword::FROM]) {
                         // The right operand binds no more loosely than `IS`
                         // itself, so that e.g. `a IS DISTINCT FROM b AND c`
@@ -4784,6 +4757,24 @@ impl<'a> Parser<'a> {
                     {
                         let expr2 = self.parse_subexpr(precedence)?;
                         Ok(Expr::IsNotDistinctFrom(Box::new(expr), Box::new(expr2)))
+                    } else if self.dialect.supports_is_operator() {
+                        let op = if self.parse_keyword(Keyword::NOT) {
+                            BinaryOperator::IsNot
+                        } else {
+                            BinaryOperator::Is
+                        };
+                        // SQLite gives `IS` the same precedence as `=` (https://www.sqlite.org/lang_expr.html).
+                        Ok(Expr::BinaryOp {
+                            left: Box::new(expr),
+                            op,
+                            right: Box::new(
+                                self.parse_subexpr(self.dialect.prec_value(Precedence::Eq))?,
+                            ),
+                        })
+                    } else if self.parse_keywords(&[Keyword::UNKNOWN]) {
+                        Ok(Expr::IsUnknown(Box::new(expr)))
+                    } else if self.parse_keywords(&[Keyword::NOT, Keyword::UNKNOWN]) {
+                        Ok(Expr::IsNotUnknown(Box::new(expr)))
                     } else if self.dialect.supports_is_json_predicate()
                         && self.parse_keyword(Keyword::JSON)
                     {
@@ -5750,6 +5741,30 @@ impl<'a> Parser<'a> {
         })
     }
 
+    #[cfg(not(feature = "bigdecimal"))]
+    fn parse_number_literal(s: String, _loc: Location) -> Result<String, ParserError> {
+        Ok(s)
+    }
+
+    #[cfg(feature = "bigdecimal")]
+    fn parse_number_literal(
+        s: String,
+        loc: Location,
+    ) -> Result<bigdecimal::BigDecimal, ParserError> {
+        let radix = match s.get(..2) {
+            Some("0x" | "0X") => 16,
+            Some("0o" | "0O") => 8,
+            Some("0b" | "0B") => 2,
+            _ => return Self::parse(s, loc),
+        };
+        let digits = s[2..].strip_prefix('_').unwrap_or(&s[2..]);
+        bigdecimal::num_bigint::BigInt::parse_bytes(digits.as_bytes(), radix)
+            .map(bigdecimal::BigDecimal::from)
+            .ok_or_else(|| {
+                ParserError::ParserError(format!("Could not parse '{s}' as an integer{loc}"))
+            })
+    }
+
     /// Parse a comma-separated list of 1+ SelectItem
     pub fn parse_projection(&mut self) -> Result<Vec<SelectItem>, ParserError> {
         // BigQuery and Snowflake allow trailing commas, but only in project lists
@@ -6170,6 +6185,24 @@ impl<'a> Parser<'a> {
             self.parse_create_macro(or_replace, temporary)
         } else if self.parse_keyword(Keyword::SECRET) {
             self.parse_create_secret(or_replace, temporary, persistent)
+        } else if self.peek_keywords(&[Keyword::USER, Keyword::MAPPING, Keyword::FOR])
+            || self.peek_keywords(&[
+                Keyword::USER,
+                Keyword::MAPPING,
+                Keyword::IF,
+                Keyword::NOT,
+                Keyword::EXISTS,
+            ])
+        {
+            if has_modifier {
+                return parser_err!(
+                    "CREATE USER MAPPING does not accept this modifier",
+                    modifier_loc
+                );
+            }
+            self.advance_token(); // USER
+            self.advance_token(); // MAPPING
+            self.parse_create_user_mapping().map(Into::into)
         } else if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
             if self.parse_keyword(Keyword::GROUP) {
                 let if_not_exists =
@@ -6214,7 +6247,8 @@ impl<'a> Parser<'a> {
         {
             self.parse_create_procedure(or_alter, or_replace, temporary, false)
         } else if self.parse_keyword(Keyword::ROLE) {
-            self.parse_create_role(or_replace).map(Into::into)
+            self.parse_create_role(RoleKeyword::Role, or_replace)
+                .map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(or_replace, or_alter, temporary)
         } else if self.parse_keyword(Keyword::STREAM) {
@@ -6254,6 +6288,9 @@ impl<'a> Parser<'a> {
             } else {
                 self.parse_create_database()
             }
+        } else if self.dialect.supports_create_group() && self.parse_keyword(Keyword::GROUP) {
+            self.parse_create_role(RoleKeyword::Group, false)
+                .map(Into::into)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
             let name = self.parse_object_name(false)?;
@@ -6262,11 +6299,22 @@ impl<'a> Parser<'a> {
                 let key = self.parse_identifier()?;
                 self.expect_token(&Token::Eq)?;
                 let value = self.parse_expr()?;
-                options.push(SqlOption::KeyValue { key, value });
+                options.push(SqlOption::KeyValue {
+                    key: key.into(),
+                    value,
+                });
             }
             Ok(Statement::CreateApplicationPackage {
-                name, if_not_exists, options, or_alter, transient, temporary,
-                scoped, global, volatile, multiset,
+                name,
+                if_not_exists,
+                options,
+                or_alter,
+                transient,
+                temporary,
+                scoped,
+                global,
+                volatile,
+                multiset,
                 view_params: create_view_params,
             })
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::SERVICE]) {
@@ -6279,7 +6327,11 @@ impl<'a> Parser<'a> {
             let package = self.parse_object_name(false)?;
             self.expect_keyword(Keyword::USING)?;
             let location = self.parse_literal_string()?;
-            Ok(Statement::CreateApplication { name, package, location })
+            Ok(Statement::CreateApplication {
+                name,
+                package,
+                location,
+            })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
         } else if self.parse_keyword(Keyword::CONNECTOR) {
@@ -7185,78 +7237,35 @@ impl<'a> Parser<'a> {
 
     /// Parse a CACHE TABLE statement
     pub fn parse_cache_table(&mut self) -> Result<Statement, ParserError> {
-        let (mut table_flag, mut options, mut has_as, mut query) = (None, vec![], false, None);
-        if self.parse_keyword(Keyword::TABLE) {
-            let table_name = self.parse_object_name(false)?;
-            if self.peek_token_ref().token != Token::EOF {
-                if let Token::Word(word) = &self.peek_token_ref().token {
-                    if word.keyword == Keyword::OPTIONS {
-                        options = self.parse_options(Keyword::OPTIONS)?
-                    }
-                };
-
-                if self.peek_token_ref().token != Token::EOF {
-                    let (a, q) = self.parse_as_query()?;
-                    has_as = a;
-                    query = Some(q);
-                }
-
-                Ok(Statement::Cache {
-                    table_flag,
-                    table_name,
-                    has_as,
-                    options,
-                    query,
-                })
-            } else {
-                Ok(Statement::Cache {
-                    table_flag,
-                    table_name,
-                    has_as,
-                    options,
-                    query,
-                })
-            }
+        let table_flag = if self.parse_keyword(Keyword::TABLE) {
+            None
         } else {
-            table_flag = Some(self.parse_object_name(false)?);
-            if self.parse_keyword(Keyword::TABLE) {
-                let table_name = self.parse_object_name(false)?;
-                if self.peek_token_ref().token != Token::EOF {
-                    if let Token::Word(word) = &self.peek_token_ref().token {
-                        if word.keyword == Keyword::OPTIONS {
-                            options = self.parse_options(Keyword::OPTIONS)?
-                        }
-                    };
-
-                    if self.peek_token_ref().token != Token::EOF {
-                        let (a, q) = self.parse_as_query()?;
-                        has_as = a;
-                        query = Some(q);
-                    }
-
-                    Ok(Statement::Cache {
-                        table_flag,
-                        table_name,
-                        has_as,
-                        options,
-                        query,
-                    })
-                } else {
-                    Ok(Statement::Cache {
-                        table_flag,
-                        table_name,
-                        has_as,
-                        options,
-                        query,
-                    })
-                }
-            } else {
+            let flag = self.parse_object_name(false)?;
+            if !self.parse_keyword(Keyword::TABLE) {
                 if self.peek_token_ref().token == Token::EOF {
                     self.prev_token();
                 }
-                self.expected_ref("a `TABLE` keyword", self.peek_token_ref())
+                return self.expected_ref("a `TABLE` keyword", self.peek_token_ref());
             }
-        }
+            Some(flag)
+        };
+
+        let table_name = self.parse_object_name(false)?;
+        let options = self.parse_options(Keyword::OPTIONS)?;
+        let (has_as, query) = if self.peek_token_ref().token == Token::EOF {
+            (false, None)
+        } else {
+            let (has_as, query) = self.parse_as_query()?;
+            (has_as, Some(query))
+        };
+
+        Ok(Statement::Cache {
+            table_flag,
+            table_name,
+            has_as,
+            options,
+            query,
+        })
     }
 
     /// Parse 'AS' before as query,such as `WITH XXX AS SELECT XXX` oer `CACHE TABLE AS SELECT XXX`
@@ -7717,6 +7726,17 @@ impl<'a> Parser<'a> {
             } else if self.parse_keyword(Keyword::RETURN) {
                 ensure_not_set(&body.function_body, "RETURN")?;
                 body.function_body = Some(CreateFunctionBody::Return(self.parse_expr()?));
+            } else if self.peek_keywords(&[Keyword::BEGIN, Keyword::ATOMIC]) {
+                ensure_not_set(&body.function_body, "BEGIN ATOMIC")?;
+                let begin_token = self.next_token();
+                self.advance_token();
+                let statements = self.parse_statement_list(&[Keyword::END])?;
+                let end_token = self.expect_keyword(Keyword::END)?;
+                body.function_body = Some(CreateFunctionBody::BeginAtomic(BeginEndStatements {
+                    begin_token: AttachedToken(begin_token),
+                    statements,
+                    end_token: AttachedToken(end_token),
+                }));
             } else if dialect_of!(self is SnowflakeDialect | GenericDialect)
                 && self.peek_snowflake_function_property()
             {
@@ -7793,7 +7813,10 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_expr()?
         };
-        Ok(SqlOption::KeyValue { key, value })
+        Ok(SqlOption::KeyValue {
+            key: key.into(),
+            value,
+        })
     }
 
     /// Parse `CREATE FUNCTION` for [Hive]
@@ -8721,9 +8744,24 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a `CREATE ROLE` statement.
-    pub fn parse_create_role(&mut self, or_replace: bool) -> Result<CreateRole, ParserError> {
-        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+    /// Parse a `CREATE ROLE` or `CREATE GROUP` statement, after the keyword has been consumed.
+    pub fn parse_create_role(
+        &mut self,
+        role_keyword: RoleKeyword,
+        or_replace: bool,
+    ) -> Result<CreateRole, ParserError> {
+        let supports_if_not_exists = matches!(role_keyword, RoleKeyword::Role)
+            && self.dialect.supports_create_role_if_not_exists();
+        if !supports_if_not_exists
+            && self.peek_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS])
+        {
+            return parser_err!(
+                format!("IF NOT EXISTS is not supported for CREATE {role_keyword}"),
+                self.peek_token_ref().span.start
+            );
+        }
+        let if_not_exists = supports_if_not_exists
+            && self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let names = self.parse_comma_separated(|p| p.parse_object_name(false))?;
 
         // Snowflake: trailing `COMMENT = '<string>'` and `WITH TAG ( <t> = '<v>'
@@ -8888,7 +8926,7 @@ impl<'a> Parser<'a> {
                     if connection_limit.is_some() {
                         parser_err!("Found multiple CONNECTION LIMIT", loc)
                     } else {
-                        connection_limit = Some(Expr::Value(self.parse_number_value()?));
+                        connection_limit = Some(self.parse_number()?);
                         Ok(())
                     }
                 }
@@ -8949,6 +8987,7 @@ impl<'a> Parser<'a> {
         }
 
         Ok(CreateRole {
+            keyword: role_keyword,
             names,
             or_replace,
             if_not_exists,
@@ -9709,20 +9748,7 @@ impl<'a> Parser<'a> {
                     None
                 };
 
-                // Optional purpose
-                let purpose = if self.parse_keyword(Keyword::FOR) {
-                    if self.parse_keyword(Keyword::SEARCH) {
-                        Some(OperatorPurpose::ForSearch)
-                    } else if self.parse_keywords(&[Keyword::ORDER, Keyword::BY]) {
-                        let sort_family = self.parse_object_name(false)?;
-                        Some(OperatorPurpose::ForOrderBy { sort_family })
-                    } else {
-                        return self
-                            .expected_ref("SEARCH or ORDER BY after FOR", self.peek_token_ref());
-                    }
-                } else {
-                    None
-                };
+                let purpose = self.parse_operator_purpose()?;
 
                 items.push(OperatorClassItem::Operator {
                     strategy_number,
@@ -9803,14 +9829,21 @@ impl<'a> Parser<'a> {
     pub fn parse_drop(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
-            return Ok(Statement::DropApplicationPackage { name: self.parse_object_name(false)?, if_exists });
+            return Ok(Statement::DropApplicationPackage {
+                name: self.parse_object_name(false)?,
+                if_exists,
+            });
         }
         if self.peek_keyword(Keyword::APPLICATION) && !self.peek_nth_keyword(1, Keyword::ROLE) {
             self.expect_keyword(Keyword::APPLICATION)?;
             let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
             let name = self.parse_object_name(false)?;
             let cascade = self.parse_keyword(Keyword::CASCADE);
-            return Ok(Statement::DropApplication { name, if_exists, cascade });
+            return Ok(Statement::DropApplication {
+                name,
+                if_exists,
+                cascade,
+            });
         }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
             let group = self.parse_keyword(Keyword::GROUP);
@@ -9834,6 +9867,8 @@ impl<'a> Parser<'a> {
             || self.parse_keywords(&[Keyword::HYBRID, Keyword::TABLE])
         {
             ObjectType::Table
+        } else if self.parse_keywords(&[Keyword::FOREIGN, Keyword::TABLE]) {
+            ObjectType::ForeignTable
         } else if self.parse_keyword(Keyword::COLLATION) {
             ObjectType::Collation
         } else if self.parse_keyword(Keyword::VIEW) {
@@ -9844,6 +9879,8 @@ impl<'a> Parser<'a> {
             ObjectType::Index
         } else if self.parse_keyword(Keyword::ROLE) {
             ObjectType::Role
+        } else if self.dialect.supports_drop_group() && self.parse_keyword(Keyword::GROUP) {
+            ObjectType::Group
         } else if self.parse_keyword(Keyword::SCHEMA) {
             ObjectType::Schema
         } else if self.parse_keyword(Keyword::DATABASE) {
@@ -9878,6 +9915,8 @@ impl<'a> Parser<'a> {
             return self.parse_drop_function().map(Into::into);
         } else if self.parse_keyword(Keyword::POLICY) {
             return self.parse_drop_policy().map(Into::into);
+        } else if self.parse_keyword(Keyword::RULE) {
+            return self.parse_drop_rule().map(Into::into);
         } else if self.parse_keyword(Keyword::CONNECTOR) {
             return self.parse_drop_connector();
         } else if self.parse_keyword(Keyword::DOMAIN) {
@@ -9901,7 +9940,7 @@ impl<'a> Parser<'a> {
             };
         } else {
             return self.expected_ref(
-                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FUNCTION, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TASK, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
+                "COLLATION, CONNECTOR, DATABASE, EXTENSION, FOREIGN TABLE, FUNCTION, GROUP, INDEX, OPERATOR, POLICY, PROCEDURE, ROLE, RULE, SCHEMA, SECRET, SEQUENCE, STAGE, TABLE, TRIGGER, TYPE, VIEW, MATERIALIZED VIEW, USER or WAREHOUSE after DROP",
                 self.peek_token_ref(),
             );
         };
@@ -9917,9 +9956,11 @@ impl<'a> Parser<'a> {
         if cascade && restrict {
             return parser_err!("Cannot specify both CASCADE and RESTRICT in DROP", loc);
         }
-        if object_type == ObjectType::Role && (cascade || restrict || purge) {
+        if matches!(object_type, ObjectType::Role | ObjectType::Group)
+            && (cascade || restrict || purge)
+        {
             return parser_err!(
-                "Cannot specify CASCADE, RESTRICT, or PURGE in DROP ROLE",
+                format_args!("Cannot specify CASCADE, RESTRICT, or PURGE in DROP {object_type}"),
                 loc
             );
         }
@@ -9928,6 +9969,12 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        if object_type == ObjectType::ForeignTable && (temporary || purge || table.is_some()) {
+            return parser_err!(
+                "Cannot specify TEMPORARY, PURGE, or ON in DROP FOREIGN TABLE",
+                loc
+            );
+        }
         Ok(Statement::Drop {
             object_type,
             if_exists,
@@ -10028,6 +10075,26 @@ impl<'a> Parser<'a> {
             drop_behavior,
         })
     }
+
+    /// ```sql
+    /// DROP RULE [ IF EXISTS ] name ON table_name [ CASCADE | RESTRICT ]
+    /// ```
+    ///
+    /// [PostgreSQL Documentation](https://www.postgresql.org/docs/current/sql-droprule.html)
+    fn parse_drop_rule(&mut self) -> Result<DropRule, ParserError> {
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+        let name = self.parse_identifier()?;
+        self.expect_keyword_is(Keyword::ON)?;
+        let table_name = self.parse_object_name(false)?;
+        let drop_behavior = self.parse_optional_drop_behavior();
+        Ok(DropRule {
+            if_exists,
+            name,
+            table_name,
+            drop_behavior,
+        })
+    }
+
     /// ```sql
     /// DROP CONNECTOR [IF EXISTS] name
     /// ```
@@ -10810,29 +10877,31 @@ impl<'a> Parser<'a> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let name = self.parse_identifier()?;
 
-        let (schema, version, cascade) = if self.parse_keyword(Keyword::WITH) {
-            let schema = if self.parse_keyword(Keyword::SCHEMA) {
-                Some(self.parse_identifier()?)
-            } else {
-                None
+        let with_keyword = self.parse_keyword(Keyword::WITH);
+        let mut schema = None;
+        let mut version = None;
+        let mut cascade = false;
+        loop {
+            let loc = self.peek_token_ref().span.start;
+            let Some(keyword) =
+                self.parse_one_of_keywords(&[Keyword::SCHEMA, Keyword::VERSION, Keyword::CASCADE])
+            else {
+                break;
             };
-
-            let version = if self.parse_keyword(Keyword::VERSION) {
-                Some(self.parse_identifier()?)
-            } else {
-                None
+            let already_set = match keyword {
+                Keyword::SCHEMA => schema.replace(self.parse_identifier()?).is_some(),
+                Keyword::VERSION => version.replace(self.parse_identifier()?).is_some(),
+                _ => core::mem::replace(&mut cascade, true),
             };
-
-            let cascade = self.parse_keyword(Keyword::CASCADE);
-
-            (schema, version, cascade)
-        } else {
-            (None, None, false)
-        };
+            if already_set {
+                return parser_err!(format!("{keyword:?} specified more than once"), loc);
+            }
+        }
 
         Ok(CreateExtension {
             name,
             if_not_exists,
+            with_keyword,
             schema,
             version,
             cascade,
@@ -11211,7 +11280,11 @@ impl<'a> Parser<'a> {
         };
 
         // parse optional column list (schema)
-        let (columns, constraints) = self.parse_columns()?;
+        let (columns, constraints) = if partition_of.is_some() {
+            self.parse_partition_of_columns()?
+        } else {
+            self.parse_columns()?
+        };
         let comment_after_column_def =
             if dialect_of!(self is HiveDialect) && self.parse_keyword(Keyword::COMMENT) {
                 let next_token = self.next_token();
@@ -11647,7 +11720,9 @@ impl<'a> Parser<'a> {
         // Single parameter option
         // <https://dev.mysql.com/doc/refman/8.4/en/create-table.html>
         if self.parse_keywords(&[Keyword::START, Keyword::TRANSACTION]) {
-            return Ok(Some(SqlOption::Ident(Ident::new("START TRANSACTION"))));
+            return Ok(Some(SqlOption::Ident(
+                Ident::new("START TRANSACTION").into(),
+            )));
         }
 
         // Custom option
@@ -11833,7 +11908,10 @@ impl<'a> Parser<'a> {
             None => Expr::Identifier(self.parse_identifier()?),
         };
 
-        Ok(Some(SqlOption::KeyValue { key, value }))
+        Ok(Some(SqlOption::KeyValue {
+            key: key.into(),
+            value,
+        }))
     }
 
     /// Parse plain options.
@@ -11881,8 +11959,11 @@ impl<'a> Parser<'a> {
     pub fn parse_optional_procedure_parameters(
         &mut self,
     ) -> Result<Option<Vec<ProcedureParam>>, ParserError> {
+        if !self.consume_token(&Token::LParen) {
+            return Ok(None);
+        }
         let mut params = vec![];
-        if !self.consume_token(&Token::LParen) || self.consume_token(&Token::RParen) {
+        if self.consume_token(&Token::RParen) {
             return Ok(Some(params));
         }
         loop {
@@ -11905,6 +11986,31 @@ impl<'a> Parser<'a> {
 
     /// Parse columns and constraints.
     pub fn parse_columns(&mut self) -> Result<(Vec<ColumnDef>, Vec<TableConstraint>), ParserError> {
+        self.parse_table_elements(Parser::parse_column_def)
+    }
+
+    /// Parse the columns and constraints of a `PARTITION OF` table, whose column entries
+    /// carry no data type.
+    ///
+    /// See <https://www.postgresql.org/docs/current/sql-createtable.html>
+    fn parse_partition_of_columns(
+        &mut self,
+    ) -> Result<(Vec<ColumnDef>, Vec<TableConstraint>), ParserError> {
+        self.parse_table_elements(|parser| {
+            let name = parser.parse_identifier()?;
+            let _ = parser.parse_keywords(&[Keyword::WITH, Keyword::OPTIONS]); // [ WITH OPTIONS ]
+            Ok(ColumnDef {
+                name,
+                data_type: DataType::Unspecified,
+                options: parser.parse_column_option_defs(None)?,
+            })
+        })
+    }
+
+    fn parse_table_elements(
+        &mut self,
+        mut parse_column: impl FnMut(&mut Self) -> Result<ColumnDef, ParserError>,
+    ) -> Result<(Vec<ColumnDef>, Vec<TableConstraint>), ParserError> {
         let mut columns = vec![];
         let mut constraints = vec![];
         if !self.consume_token(&Token::LParen) || self.consume_token(&Token::RParen) {
@@ -11918,12 +12024,12 @@ impl<'a> Parser<'a> {
                 if self.dialect.supports_create_table_optional_column_type() {
                     columns.push(self.parse_column_def_inner(true)?);
                 } else {
-                    columns.push(self.parse_column_def()?);
+                    columns.push(parse_column(self)?);
                 }
             } else if matches!(&self.peek_token_ref().token, Token::SingleQuotedString(_))
                 && self.dialect.supports_string_literal_column_names()
             {
-                columns.push(self.parse_column_def()?);
+                columns.push(parse_column(self)?);
             } else {
                 return self.expected_ref(
                     "column name or constraint definition",
@@ -12019,6 +12125,17 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_data_type()?
         };
+        Ok(ColumnDef {
+            name: col_name,
+            data_type,
+            options: self.parse_column_option_defs(first_option)?,
+        })
+    }
+
+    fn parse_column_option_defs(
+        &mut self,
+        first_option: Option<ColumnOption>,
+    ) -> Result<Vec<ColumnOptionDef>, ParserError> {
         let mut options = first_option
             .map(|option| ColumnOptionDef { name: None, option })
             .into_iter()
@@ -12026,25 +12143,20 @@ impl<'a> Parser<'a> {
         loop {
             if self.parse_keyword(Keyword::CONSTRAINT) {
                 let name = Some(self.parse_identifier()?);
-                if let Some(option) = self.parse_optional_column_option()? {
-                    options.push(ColumnOptionDef { name, option });
-                } else {
+                let Some(option) = self.parse_optional_column_option()? else {
                     return self.expected_ref(
                         "constraint details after CONSTRAINT <name>",
                         self.peek_token_ref(),
                     );
-                }
+                };
+                options.push(ColumnOptionDef { name, option });
             } else if let Some(option) = self.parse_optional_column_option()? {
                 options.push(ColumnOptionDef { name: None, option });
             } else {
                 break;
             };
         }
-        Ok(ColumnDef {
-            name: col_name,
-            data_type,
-            options,
-        })
+        Ok(options)
     }
 
     fn is_column_type_sqlite_unspecified(&mut self) -> bool {
@@ -12119,21 +12231,6 @@ impl<'a> Parser<'a> {
             } else {
                 Ok(Some(ColumnOption::Ephemeral(Some(self.parse_expr()?))))
             }
-        } else if self.parse_keywords(&[Keyword::PRIMARY, Keyword::KEY]) {
-            let characteristics = self.parse_constraint_characteristics()?;
-            Ok(Some(
-                PrimaryKeyConstraint {
-                    name: None,
-                    index_name: None,
-                    index_type: None,
-                    columns: vec![],
-                    include: vec![],
-                    index_options: vec![],
-                    characteristics,
-                    comment: None,
-                }
-                .into(),
-            ))
         } else if self.parse_keyword(Keyword::UNIQUE) {
             let index_type_display =
                 if self.dialect.supports_key_column_option() && self.parse_keyword(Keyword::KEY) {
@@ -12141,6 +12238,7 @@ impl<'a> Parser<'a> {
                 } else {
                     KeyOrIndexDisplay::None
                 };
+            let nulls_distinct = self.parse_optional_nulls_distinct()?;
             let characteristics = self.parse_constraint_characteristics()?;
             Ok(Some(
                 UniqueConstraint {
@@ -12152,14 +12250,14 @@ impl<'a> Parser<'a> {
                     include: vec![],
                     index_options: vec![],
                     characteristics,
-                    nulls_distinct: NullsDistinctOption::None,
+                    nulls_distinct,
                     comment: None,
                 }
                 .into(),
             ))
-        } else if self.dialect.supports_key_column_option() && self.parse_keyword(Keyword::KEY) {
-            // In MySQL, `KEY` in a column definition is shorthand for `PRIMARY KEY`.
-            // See: https://dev.mysql.com/doc/refman/8.4/en/create-table.html
+        } else if self.parse_keywords(&[Keyword::PRIMARY, Keyword::KEY])
+            || (self.dialect.supports_key_column_option() && self.parse_keyword(Keyword::KEY))
+        {
             let characteristics = self.parse_constraint_characteristics()?;
             Ok(Some(
                 PrimaryKeyConstraint {
@@ -12182,24 +12280,11 @@ impl<'a> Parser<'a> {
             // PostgreSQL allows omitting the column list and
             // uses the primary key column of the foreign table by default
             let referred_columns = self.parse_parenthesized_column_list(Optional, false)?;
-            let mut match_kind = None;
-            let mut on_delete = None;
-            let mut on_update = None;
-            loop {
-                if match_kind.is_none() && self.parse_keyword(Keyword::MATCH) {
-                    match_kind = Some(self.parse_match_kind()?);
-                } else if on_delete.is_none()
-                    && self.parse_keywords(&[Keyword::ON, Keyword::DELETE])
-                {
-                    on_delete = Some(self.parse_referential_action()?);
-                } else if on_update.is_none()
-                    && self.parse_keywords(&[Keyword::ON, Keyword::UPDATE])
-                {
-                    on_update = Some(self.parse_referential_action()?);
-                } else {
-                    break;
-                }
-            }
+            let ReferenceClauses {
+                match_kind,
+                on_delete,
+                on_update,
+            } = self.parse_reference_clauses()?;
             let characteristics = self.parse_constraint_characteristics()?;
 
             Ok(Some(
@@ -12286,6 +12371,12 @@ impl<'a> Parser<'a> {
             Ok(Some(ColumnOption::OnUpdate(expr)))
         } else if self.parse_keyword(Keyword::GENERATED) {
             self.parse_optional_column_option_generated()
+        } else if self.dialect.supports_column_generic_options()
+            && self.peek_keyword(Keyword::OPTIONS)
+        {
+            Ok(self
+                .parse_pg_options_clause()?
+                .map(ColumnOption::GenericOptions))
         } else if dialect_of!(self is BigQueryDialect | GenericDialect)
             && self.parse_keyword(Keyword::OPTIONS)
         {
@@ -12471,6 +12562,29 @@ impl<'a> Parser<'a> {
             None
         };
         Ok(clustered_by)
+    }
+
+    /// Parse optional `MATCH`, `ON DELETE`, and `ON UPDATE` reference clauses.
+    fn parse_reference_clauses(&mut self) -> Result<ReferenceClauses, ParserError> {
+        let mut match_kind = None;
+        let mut on_delete = None;
+        let mut on_update = None;
+        loop {
+            if match_kind.is_none() && self.parse_keyword(Keyword::MATCH) {
+                match_kind = Some(self.parse_match_kind()?);
+            } else if on_delete.is_none() && self.parse_keywords(&[Keyword::ON, Keyword::DELETE]) {
+                on_delete = Some(self.parse_referential_action()?);
+            } else if on_update.is_none() && self.parse_keywords(&[Keyword::ON, Keyword::UPDATE]) {
+                on_update = Some(self.parse_referential_action()?);
+            } else {
+                break;
+            }
+        }
+        Ok(ReferenceClauses {
+            match_kind,
+            on_delete,
+            on_update,
+        })
     }
 
     /// Parse a referential action used in foreign key clauses.
@@ -12681,7 +12795,7 @@ impl<'a> Parser<'a> {
                 let nulls_distinct = self.parse_optional_nulls_distinct()?;
 
                 // optional index name
-                let index_name = self.parse_optional_ident()?;
+                let index_name = self.parse_optional_index_name()?;
                 let index_type = self.parse_optional_using_then_index_type()?;
 
                 let columns = self.parse_parenthesized_index_column_list()?;
@@ -12718,7 +12832,7 @@ impl<'a> Parser<'a> {
                 }
 
                 // optional index name
-                let index_name = self.parse_optional_ident()?;
+                let index_name = self.parse_optional_index_name()?;
                 let index_type = self.parse_optional_using_then_index_type()?;
 
                 let columns = self.parse_parenthesized_index_column_list()?;
@@ -12747,24 +12861,11 @@ impl<'a> Parser<'a> {
                 self.expect_keyword_is(Keyword::REFERENCES)?;
                 let foreign_table = self.parse_object_name(false)?;
                 let referred_columns = self.parse_parenthesized_column_list(Optional, false)?;
-                let mut match_kind = None;
-                let mut on_delete = None;
-                let mut on_update = None;
-                loop {
-                    if match_kind.is_none() && self.parse_keyword(Keyword::MATCH) {
-                        match_kind = Some(self.parse_match_kind()?);
-                    } else if on_delete.is_none()
-                        && self.parse_keywords(&[Keyword::ON, Keyword::DELETE])
-                    {
-                        on_delete = Some(self.parse_referential_action()?);
-                    } else if on_update.is_none()
-                        && self.parse_keywords(&[Keyword::ON, Keyword::UPDATE])
-                    {
-                        on_update = Some(self.parse_referential_action()?);
-                    } else {
-                        break;
-                    }
-                }
+                let ReferenceClauses {
+                    match_kind,
+                    on_delete,
+                    on_update,
+                } = self.parse_reference_clauses()?;
 
                 let characteristics = self.parse_constraint_characteristics()?;
                 let comment = self.parse_optional_constraint_comment()?;
@@ -12827,10 +12928,7 @@ impl<'a> Parser<'a> {
             {
                 let display_as_key = w.keyword == Keyword::KEY;
 
-                let name = match &self.peek_token_ref().token {
-                    Token::Word(word) if word.keyword == Keyword::USING => None,
-                    _ => self.parse_optional_ident()?,
-                };
+                let name = self.parse_optional_index_name()?;
 
                 let index_type = self.parse_optional_using_then_index_type()?;
                 let columns = self.parse_parenthesized_index_column_list()?;
@@ -13138,6 +13236,15 @@ impl<'a> Parser<'a> {
         self.maybe_parse(|parser| parser.parse_identifier())
     }
 
+    /// Parse an optional index name, leaving a `USING` index type for the caller.
+    fn parse_optional_index_name(&mut self) -> Result<Option<Ident>, ParserError> {
+        if self.peek_keyword(Keyword::USING) {
+            Ok(None)
+        } else {
+            self.parse_optional_ident()
+        }
+    }
+
     #[must_use]
     /// Parse optional `KEY` or `INDEX` display tokens used in index/constraint declarations.
     pub fn parse_index_type_display(&mut self) -> KeyOrIndexDisplay {
@@ -13194,7 +13301,7 @@ impl<'a> Parser<'a> {
 
         match &self.peek_token_ref().token {
             Token::Word(w) if w.keyword == Keyword::HEAP && is_mssql => {
-                Ok(SqlOption::Ident(self.parse_identifier()?))
+                Ok(SqlOption::Ident(ObjectName::from(self.parse_identifier()?)))
             }
             Token::Word(w) if w.keyword == Keyword::PARTITION && is_mssql => {
                 self.parse_option_partition()
@@ -13203,7 +13310,12 @@ impl<'a> Parser<'a> {
                 self.parse_option_clustered()
             }
             _ => {
-                let name = self.parse_identifier()?;
+                let name = ObjectName::from(self.parse_period_separated(|p| p.parse_identifier())?);
+                if self.dialect.supports_sql_option_without_value()
+                    && matches!(self.peek_token_ref().token, Token::Comma | Token::RParen)
+                {
+                    return Ok(SqlOption::Ident(name));
+                }
                 self.expect_token(&Token::Eq)?;
                 let value = self.parse_expr()?;
 
@@ -14018,6 +14130,13 @@ impl<'a> Parser<'a> {
         {
             let new_owner = self.parse_owner()?;
             AlterTableOperation::OwnerTo { new_owner }
+        } else if self.dialect.supports_attach_partition_of()
+            && self.parse_keywords(&[Keyword::ATTACH, Keyword::PARTITION])
+        {
+            AlterTableOperation::AttachPartitionOf {
+                partition: self.parse_object_name(false)?,
+                for_values: self.parse_partition_for_values()?,
+            }
         } else if dialect_of!(self is ClickHouseDialect|GenericDialect)
             && self.parse_keyword(Keyword::ATTACH)
         {
@@ -14135,6 +14254,11 @@ impl<'a> Parser<'a> {
             && self.parse_keywords(&[Keyword::SET, Keyword::UNLOGGED])
         {
             AlterTableOperation::SetUnlogged
+        } else if self.parse_keyword(Keyword::RESET) {
+            self.expect_token(&Token::LParen)?;
+            let options = self.parse_comma_separated(|p| p.parse_object_name(false))?;
+            self.expect_token(&Token::RParen)?;
+            AlterTableOperation::ResetOptions { options }
         } else {
             let mut options =
                 self.parse_options_with_keywords(&[Keyword::SET, Keyword::TBLPROPERTIES])?;
@@ -14307,7 +14431,11 @@ impl<'a> Parser<'a> {
             let (operation, version, source) = match action.as_str() {
                 "REGISTER" => {
                     self.expect_keyword(Keyword::VERSION)?;
-                    let version = if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) };
+                    let version = if self.peek_keyword(Keyword::USING) {
+                        None
+                    } else {
+                        Some(self.parse_identifier()?)
+                    };
                     self.expect_keyword(Keyword::USING)?;
                     (action, version, Some(self.parse_literal_string()?))
                 }
@@ -14319,27 +14447,54 @@ impl<'a> Parser<'a> {
                         }
                         if self.parse_keywords(&[Keyword::FOR, Keyword::VERSION]) {
                             for_version = true;
-                            if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) }
-                        } else { None }
+                            if self.peek_keyword(Keyword::USING) {
+                                None
+                            } else {
+                                Some(self.parse_identifier()?)
+                            }
+                        } else {
+                            None
+                        }
                     } else {
                         self.expect_keyword(Keyword::VERSION)?;
-                        if self.peek_keyword(Keyword::USING) { None } else { Some(self.parse_identifier()?) }
+                        if self.peek_keyword(Keyword::USING) {
+                            None
+                        } else {
+                            Some(self.parse_identifier()?)
+                        }
                     };
                     self.expect_keyword(Keyword::USING)?;
-                    (if patch { "ADD PATCH".into() } else { action }, version, Some(self.parse_literal_string()?))
+                    (
+                        if patch { "ADD PATCH".into() } else { action },
+                        version,
+                        Some(self.parse_literal_string()?),
+                    )
                 }
                 "DROP" | "DEREGISTER" => {
                     self.expect_keyword(Keyword::VERSION)?;
                     (action, Some(self.parse_identifier()?), None)
                 }
-                _ => return self.expected_ref("REGISTER, ADD, DROP, or DEREGISTER", self.get_current_token()),
+                _ => {
+                    return self.expected_ref(
+                        "REGISTER, ADD, DROP, or DEREGISTER",
+                        self.get_current_token(),
+                    )
+                }
             };
             let label = if self.parse_keyword(Keyword::LABEL) {
                 self.expect_token(&Token::Eq)?;
                 Some(self.parse_literal_string()?)
-            } else { None };
+            } else {
+                None
+            };
             return Ok(Statement::AlterApplicationPackageVersion {
-                name, operation: Ident::new(operation), version, source, patch: patch_number, label, for_version,
+                name,
+                operation: Ident::new(operation),
+                version,
+                source,
+                patch: patch_number,
+                label,
+                for_version,
             });
         }
         if self.parse_keywords(&[Keyword::ORGANIZATION, Keyword::USER]) {
@@ -15328,45 +15483,90 @@ impl<'a> Parser<'a> {
                 return Ok(statement);
             }
         }
+        let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
         let name = self.parse_object_name(false)?;
 
-        // Snowflake: `ALTER VIEW v { MODIFY | ALTER } COLUMN c
-        //   { SET MASKING POLICY p [USING (...)] [FORCE] | UNSET MASKING POLICY }`
-        if self
-            .parse_one_of_keywords(&[Keyword::MODIFY, Keyword::ALTER])
+        let operation = if self.parse_keywords(&[Keyword::OWNER, Keyword::TO]) {
+            AlterViewOperation::OwnerTo(self.parse_owner()?)
+        } else if self.parse_keywords(&[Keyword::SET, Keyword::SCHEMA]) {
+            AlterViewOperation::SetSchema {
+                schema_name: self.parse_object_name(false)?,
+            }
+        } else if self.parse_keyword(Keyword::SET) {
+            self.expect_token(&Token::LParen)?;
+            let options = self.parse_comma_separated(|parser| {
+                let key = ObjectName::from(parser.parse_identifier()?);
+                Ok(if parser.consume_token(&Token::Eq) {
+                    SqlOption::KeyValue {
+                        key,
+                        value: parser.parse_expr()?,
+                    }
+                } else {
+                    SqlOption::Ident(key)
+                })
+            })?;
+            self.expect_token(&Token::RParen)?;
+            AlterViewOperation::SetOptions { options }
+        } else if self.parse_keyword(Keyword::RESET) {
+            self.expect_token(&Token::LParen)?;
+            let options = self.parse_comma_separated(Parser::parse_identifier)?;
+            self.expect_token(&Token::RParen)?;
+            AlterViewOperation::ResetOptions { options }
+        } else if self.parse_keywords(&[Keyword::RENAME, Keyword::TO]) {
+            AlterViewOperation::RenameTo {
+                new_name: self.parse_object_name(false)?,
+            }
+        } else if self.parse_keyword(Keyword::RENAME) {
+            let _ = self.parse_keyword(Keyword::COLUMN);
+            let old_column_name = self.parse_identifier()?;
+            self.expect_keyword_is(Keyword::TO)?;
+            AlterViewOperation::RenameColumn {
+                old_column_name,
+                new_column_name: self.parse_identifier()?,
+            }
+        } else if self
+            .parse_one_of_keywords(&[Keyword::ALTER, Keyword::MODIFY])
             .is_some()
         {
-            let _ = self.parse_keyword(Keyword::COLUMN); // [ COLUMN ]
+            let _ = self.parse_keyword(Keyword::COLUMN);
             let column_name = self.parse_identifier()?;
-            let op = match self.maybe_parse_column_masking_policy()? {
-                Some(op) => op,
-                None => {
-                    return self.expected_ref(
-                        "SET MASKING POLICY or UNSET MASKING POLICY",
-                        self.peek_token_ref(),
-                    )
+            if let Some(op) = self.maybe_parse_column_masking_policy()? {
+                return Ok(Statement::AlterViewColumn {
+                    name,
+                    column_name,
+                    op,
+                });
+            }
+            let op = if self.parse_keywords(&[Keyword::SET, Keyword::DEFAULT]) {
+                AlterColumnOperation::SetDefault {
+                    value: self.parse_expr()?,
                 }
+            } else if self.parse_keywords(&[Keyword::DROP, Keyword::DEFAULT]) {
+                AlterColumnOperation::DropDefault
+            } else {
+                return self.expected_ref(
+                    "SET DEFAULT or DROP DEFAULT after ALTER COLUMN",
+                    self.peek_token_ref(),
+                );
             };
-            return Ok(Statement::AlterViewColumn {
-                name,
-                column_name,
-                op,
-            });
-        }
+            AlterViewOperation::AlterColumn { column_name, op }
+        } else {
+            let columns = self.parse_parenthesized_column_list(Optional, false)?;
+            let with_options = self.parse_options(Keyword::WITH)?;
+            self.expect_keyword_is(Keyword::AS)?;
+            AlterViewOperation::As {
+                columns,
+                query: self.parse_query()?,
+                with_options,
+            }
+        };
 
-        let columns = self.parse_parenthesized_column_list(Optional, false)?;
-
-        let with_options = self.parse_options(Keyword::WITH)?;
-
-        self.expect_keyword_is(Keyword::AS)?;
-        let query = self.parse_query()?;
-
-        Ok(Statement::AlterView {
+        Ok(AlterView {
             name,
-            columns,
-            query,
-            with_options,
-        })
+            if_exists,
+            operation,
+        }
+        .into())
     }
 
     /// Parse a [Statement::AlterType]
@@ -15573,6 +15773,21 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_operator_purpose(&mut self) -> Result<Option<OperatorPurpose>, ParserError> {
+        if !self.parse_keyword(Keyword::FOR) {
+            return Ok(None);
+        }
+
+        if self.parse_keyword(Keyword::SEARCH) {
+            Ok(Some(OperatorPurpose::ForSearch))
+        } else if self.parse_keywords(&[Keyword::ORDER, Keyword::BY]) {
+            let sort_family = self.parse_object_name(false)?;
+            Ok(Some(OperatorPurpose::ForOrderBy { sort_family }))
+        } else {
+            self.expected_ref("SEARCH or ORDER BY after FOR", self.peek_token_ref())
+        }
+    }
+
     /// Parse an operator item for ALTER OPERATOR FAMILY ADD operations
     fn parse_operator_family_add_operator(&mut self) -> Result<OperatorFamilyItem, ParserError> {
         let strategy_number = self.parse_literal_uint()?;
@@ -15583,19 +15798,7 @@ impl<'a> Parser<'a> {
         let op_types = self.parse_comma_separated(Parser::parse_data_type)?;
         self.expect_token(&Token::RParen)?;
 
-        // Optional purpose
-        let purpose = if self.parse_keyword(Keyword::FOR) {
-            if self.parse_keyword(Keyword::SEARCH) {
-                Some(OperatorPurpose::ForSearch)
-            } else if self.parse_keywords(&[Keyword::ORDER, Keyword::BY]) {
-                let sort_family = self.parse_object_name(false)?;
-                Some(OperatorPurpose::ForOrderBy { sort_family })
-            } else {
-                return self.expected_ref("SEARCH or ORDER BY after FOR", self.peek_token_ref());
-            }
-        } else {
-            None
-        };
+        let purpose = self.parse_operator_purpose()?;
 
         Ok(OperatorFamilyItem::Operator {
             strategy_number,
@@ -16323,10 +16526,10 @@ impl<'a> Parser<'a> {
                     },
                 ),
             },
-            // The call to n.parse() returns a bigdecimal when the
-            // bigdecimal feature is enabled, and is otherwise a no-op
-            // (i.e., it returns the input string).
-            Token::Number(n, l) => ok_value(Value::Number(Self::parse(n, span.start)?, l)),
+            // A BigDecimal with the bigdecimal feature, the literal as written otherwise.
+            Token::Number(n, l) => {
+                ok_value(Value::Number(Self::parse_number_literal(n, span.start)?, l))
+            }
             Token::SingleQuotedString(ref s) => ok_value(Value::SingleQuotedString(
                 self.maybe_concat_string_literal(s.to_string()),
             )),
@@ -18688,7 +18891,9 @@ impl<'a> Parser<'a> {
         if describe_alias != DescribeAlias::Explain
             && self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE])
         {
-            return Ok(Statement::DescribeApplicationPackage { name: self.parse_object_name(false)? });
+            return Ok(Statement::DescribeApplicationPackage {
+                name: self.parse_object_name(false)?,
+            });
         }
         let mut analyze = false;
         let mut verbose = false;
@@ -20382,7 +20587,9 @@ impl<'a> Parser<'a> {
         if let Ok(show_options) = self.try_parse(|parser| {
             parser.expect_keyword(Keyword::VERSIONS)?;
             let options = parser.parse_show_stmt_options()?;
-            if options.show_in.as_ref().is_some_and(|scope| scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)) {
+            if options.show_in.as_ref().is_some_and(|scope| {
+                scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)
+            }) {
                 Ok(options)
             } else {
                 parser.expected("IN APPLICATION PACKAGE", parser.peek_token())
@@ -20396,7 +20603,9 @@ impl<'a> Parser<'a> {
         {
             Ok(self.parse_show_columns(extended, full)?)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGES]) {
-            Ok(Statement::ShowApplicationPackages { show_options: self.parse_show_stmt_options()? })
+            Ok(Statement::ShowApplicationPackages {
+                show_options: self.parse_show_stmt_options()?,
+            })
         } else if self.parse_keyword(Keyword::TABLES) {
             Ok(self.parse_show_tables(terse, extended, full, external)?)
         } else if self.parse_keyword(Keyword::TASKS) {
@@ -21348,6 +21557,9 @@ impl<'a> Parser<'a> {
     /// slot, and each level of `((...))` nesting pays for the whole frame,
     /// which must fit in the `recursive` crate's 128 KiB red zone.
     fn parse_named_table_factor(&mut self) -> Result<TableFactor, ParserError> {
+        let inheritance_markers = self.dialect.supports_table_inheritance_markers();
+        let only = inheritance_markers && self.parse_keyword(Keyword::ONLY);
+        let only_parenthesized = only && self.consume_token(&Token::LParen);
         // Unquoted reserved keywords, e.g. `ON`, are not table names. The
         // keyword is consumed first so that `is_table_factor` peeks past it,
         // as it does at the trailing comma check.
@@ -21363,6 +21575,19 @@ impl<'a> Parser<'a> {
         }
 
         let name = self.parse_object_name(true)?;
+
+        let inheritance = if only {
+            if only_parenthesized {
+                self.expect_token(&Token::RParen)?;
+            }
+            Some(TableInheritance::Only {
+                parenthesized: only_parenthesized,
+            })
+        } else if inheritance_markers && self.consume_token(&Token::Mul) {
+            Some(TableInheritance::IncludeDescendants)
+        } else {
+            None
+        };
 
         let json_path = match &self.peek_token_ref().token {
             Token::LBracket if self.dialect.supports_partiql() => Some(self.parse_json_path()?),
@@ -21471,6 +21696,7 @@ impl<'a> Parser<'a> {
             json_path,
             sample,
             index_directives,
+            inheritance,
         };
 
         table = self.parse_pivot_unpivot(table)?;
@@ -21527,6 +21753,7 @@ impl<'a> Parser<'a> {
             json_path: None,
             sample: None,
             index_directives: vec![],
+            inheritance: None,
         })
     }
 
@@ -22604,6 +22831,65 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a `GRANT` of role membership, after the `GRANT` keyword.
+    pub fn parse_grant_role(&mut self) -> Result<GrantRole, ParserError> {
+        let roles = self.parse_comma_separated(Parser::parse_identifier)?;
+        self.expect_keyword_is(Keyword::TO)?;
+        let grantees = self.parse_grantees()?;
+        let options = if self.parse_keyword(Keyword::WITH) {
+            self.parse_comma_separated(Parser::parse_role_grant_option)?
+        } else {
+            vec![]
+        };
+        let granted_by = if self.parse_keywords(&[Keyword::GRANTED, Keyword::BY]) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        Ok(GrantRole {
+            roles,
+            grantees,
+            options,
+            granted_by,
+        })
+    }
+
+    fn parse_role_grant_option(&mut self) -> Result<RoleGrantOption, ParserError> {
+        let name = self.parse_identifier()?;
+        let value =
+            match self.parse_one_of_keywords(&[Keyword::OPTION, Keyword::TRUE, Keyword::FALSE]) {
+                Some(Keyword::OPTION) => RoleGrantOptionValue::Option,
+                Some(Keyword::TRUE) => RoleGrantOptionValue::True,
+                Some(Keyword::FALSE) => RoleGrantOptionValue::False,
+                _ => return self.expected_ref("OPTION, TRUE or FALSE", self.peek_token_ref()),
+            };
+        Ok(RoleGrantOption { name, value })
+    }
+
+    /// Parses a statement body with `privileges`, and with `roles` instead when that fails and
+    /// the body opens with a role list followed by `keyword`.
+    fn parse_privileges_or_roles<P: Into<Statement>, R: Into<Statement>>(
+        &mut self,
+        keyword: Keyword,
+        privileges: fn(&mut Self) -> Result<P, ParserError>,
+        roles: fn(&mut Self) -> Result<R, ParserError>,
+    ) -> Result<Statement, ParserError> {
+        let index = self.index;
+        let privileges_err = match privileges(self) {
+            Ok(statement) => return Ok(statement.into()),
+            Err(err) => err,
+        };
+        self.index = index;
+        let is_role_list = self.parse_comma_separated(Parser::parse_identifier).is_ok()
+            && self.parse_keyword(keyword);
+        self.index = index;
+        if is_role_list {
+            roles(self).map(Into::into)
+        } else {
+            Err(privileges_err)
+        }
+    }
+
     fn parse_grantees(&mut self) -> Result<Vec<Grantee>, ParserError> {
         let mut values = vec![];
         let mut grantee_type = GranteesType::None;
@@ -22628,6 +22914,9 @@ impl<'a> Parser<'a> {
                 GranteesType::ApplicationRole
             } else if self.parse_keyword(Keyword::APPLICATION) {
                 GranteesType::Application
+            } else if grantee_type == GranteesType::Public {
+                // PUBLIC does not carry over to the next grantee.
+                GranteesType::None
             } else {
                 grantee_type.clone() // keep from previous iteraton, if not specified
             };
@@ -22674,6 +22963,20 @@ impl<'a> Parser<'a> {
         }
 
         Ok(values)
+    }
+
+    /// Whether the keyword at the next token introduces a grant object type. A table named after
+    /// the keyword is followed by `TO`, `FROM`, `,` or `.`, as in `GRANT SELECT ON function TO r`.
+    fn peek_grant_object_type(&self) -> bool {
+        !matches!(
+            &self.peek_nth_token_ref(1).token,
+            Token::Comma
+                | Token::Period
+                | Token::Word(Word {
+                    keyword: Keyword::TO | Keyword::FROM,
+                    ..
+                })
+        )
     }
 
     /// Parse privileges and optional target objects for GRANT/DENY/REVOKE statements.
@@ -22732,6 +23035,24 @@ impl<'a> Parser<'a> {
                 Keyword::SCHEMA,
             ]) {
                 Some(GrantObjects::AllFunctionsInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::PROCEDURES,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::AllProceduresInSchema {
+                    schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
+                })
+            } else if self.parse_keywords(&[
+                Keyword::ALL,
+                Keyword::ROUTINES,
+                Keyword::IN,
+                Keyword::SCHEMA,
+            ]) {
+                Some(GrantObjects::AllRoutinesInSchema {
                     schemas: self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 })
             } else if self.parse_keywords(&[
@@ -22932,6 +23253,18 @@ impl<'a> Parser<'a> {
                 Some(GrantObjects::ExternalVolumes(
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
+            } else if self.peek_grant_object_type() && self.parse_keyword(Keyword::FUNCTION) {
+                Some(GrantObjects::Functions(
+                    self.parse_comma_separated(Parser::parse_function_desc)?,
+                ))
+            } else if self.peek_grant_object_type() && self.parse_keyword(Keyword::PROCEDURE) {
+                Some(GrantObjects::Procedures(
+                    self.parse_comma_separated(Parser::parse_function_desc)?,
+                ))
+            } else if self.peek_grant_object_type() && self.parse_keyword(Keyword::ROUTINE) {
+                Some(GrantObjects::Routines(
+                    self.parse_comma_separated(Parser::parse_function_desc)?,
+                ))
             } else if self.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE])
                 || self.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE])
             {
@@ -22971,22 +23304,24 @@ impl<'a> Parser<'a> {
                     self.parse_comma_separated(|p| p.parse_object_name(false))?,
                 ))
             } else {
-                let object_type = self.parse_one_of_keywords(&[
-                    Keyword::SEQUENCE,
-                    Keyword::DATABASE,
-                    Keyword::SCHEMA,
-                    Keyword::TABLE,
-                    Keyword::VIEW,
-                    Keyword::WAREHOUSE,
-                    Keyword::INTEGRATION,
-                    Keyword::VIEW,
-                    Keyword::WAREHOUSE,
-                    Keyword::INTEGRATION,
-                    Keyword::USER,
-                    Keyword::CONNECTION,
-                    Keyword::PROCEDURE,
-                    Keyword::FUNCTION,
-                ]);
+                let object_type = if self.peek_grant_object_type() {
+                    self.parse_one_of_keywords(&[
+                        Keyword::SEQUENCE,
+                        Keyword::DATABASE,
+                        Keyword::SCHEMA,
+                        Keyword::TABLE,
+                        Keyword::VIEW,
+                        Keyword::WAREHOUSE,
+                        Keyword::INTEGRATION,
+                        Keyword::VIEW,
+                        Keyword::WAREHOUSE,
+                        Keyword::INTEGRATION,
+                        Keyword::USER,
+                        Keyword::CONNECTION,
+                    ])
+                } else {
+                    None
+                };
                 let objects =
                     self.parse_comma_separated(|p| p.parse_object_name_inner(false, true));
                 match object_type {
@@ -22998,13 +23333,6 @@ impl<'a> Parser<'a> {
                     Some(Keyword::VIEW) => Some(GrantObjects::Views(objects?)),
                     Some(Keyword::USER) => Some(GrantObjects::Users(objects?)),
                     Some(Keyword::CONNECTION) => Some(GrantObjects::Connections(objects?)),
-                    kw @ (Some(Keyword::PROCEDURE) | Some(Keyword::FUNCTION)) => {
-                        if let Some(name) = objects?.first() {
-                            self.parse_grant_procedure_or_function(name, &kw)?
-                        } else {
-                            self.expected_ref("procedure or function name", self.peek_token_ref())?
-                        }
-                    }
                     Some(Keyword::TABLE) | None => Some(GrantObjects::Tables(objects?)),
                     Some(unexpected_keyword) => return Err(ParserError::ParserError(
                         format!("Internal parser error: unexpected keyword `{unexpected_keyword}` in grant objects"),
@@ -23186,31 +23514,6 @@ impl<'a> Parser<'a> {
     /// True when the nth token after the current one resolves to `kw`.
     fn peek_nth_keyword(&self, n: usize, kw: Keyword) -> bool {
         matches!(&self.peek_nth_token_ref(n).token, Token::Word(w) if w.keyword == kw)
-    }
-
-    fn parse_grant_procedure_or_function(
-        &mut self,
-        name: &ObjectName,
-        kw: &Option<Keyword>,
-    ) -> Result<Option<GrantObjects>, ParserError> {
-        let arg_types = if self.consume_token(&Token::LParen) {
-            let list = self.parse_comma_separated0(Self::parse_data_type, Token::RParen)?;
-            self.expect_token(&Token::RParen)?;
-            list
-        } else {
-            vec![]
-        };
-        match kw {
-            Some(Keyword::PROCEDURE) => Ok(Some(GrantObjects::Procedure {
-                name: name.clone(),
-                arg_types,
-            })),
-            Some(Keyword::FUNCTION) => Ok(Some(GrantObjects::Function {
-                name: name.clone(),
-                arg_types,
-            })),
-            _ => self.expected_ref("procedure or function keywords", self.peek_token_ref())?,
-        }
     }
 
     /// Parse a single grantable permission/action (used within GRANT statements).
@@ -23755,6 +24058,48 @@ impl<'a> Parser<'a> {
             granted_by,
             cascade,
         })
+    }
+
+    /// Parse a `REVOKE` of role membership, after the `REVOKE` keyword.
+    pub fn parse_revoke_role(&mut self) -> Result<RevokeRole, ParserError> {
+        let option_for = self.parse_role_grant_option_for();
+        let roles = self.parse_comma_separated(Parser::parse_identifier)?;
+        self.expect_keyword_is(Keyword::FROM)?;
+        let grantees = self.parse_grantees()?;
+        let granted_by = if self.parse_keywords(&[Keyword::GRANTED, Keyword::BY]) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+        let cascade = self.parse_cascade_option();
+        Ok(RevokeRole {
+            option_for,
+            roles,
+            grantees,
+            granted_by,
+            cascade,
+        })
+    }
+
+    /// Parses `name OPTION FOR`, leaving `GRANT OPTION FOR` to the privilege form.
+    fn parse_role_grant_option_for(&mut self) -> Option<Ident> {
+        let index = self.index;
+        if !self.peek_keyword(Keyword::GRANT) {
+            if let Ok(name) = self.parse_identifier() {
+                if self.parse_keywords(&[Keyword::OPTION, Keyword::FOR]) {
+                    return Some(name);
+                }
+            }
+        }
+        self.index = index;
+        None
+    }
+
+    fn peek_role_grant_option_for(&mut self) -> bool {
+        let index = self.index;
+        let matched = self.parse_role_grant_option_for().is_some();
+        self.index = index;
+        matched
     }
 
     /// Parse an REPLACE statement
@@ -26227,8 +26572,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a `CREATE FOREIGN TABLE` statement.
     ///
-    /// Per-column `OPTIONS ( ... )`, `INHERITS`, and the `PARTITION OF` form are
-    /// not parsed yet.
+    /// The `PARTITION OF` form is not parsed yet.
     ///
     /// See <https://www.postgresql.org/docs/current/sql-createforeigntable.html>
     pub fn parse_create_foreign_table(&mut self) -> Result<CreateForeignTable, ParserError> {
@@ -26241,6 +26585,11 @@ impl<'a> Parser<'a> {
             );
         }
         let (columns, constraints) = self.parse_columns()?;
+        let inherits = if self.parse_keyword(Keyword::INHERITS) {
+            Some(self.parse_parenthesized_qualified_column_list(IsOptional::Mandatory, false)?)
+        } else {
+            None
+        };
         self.expect_keyword_is(Keyword::SERVER)?;
         let server_name = self.parse_identifier()?;
         let options = self.parse_pg_options_clause()?;
@@ -26250,6 +26599,7 @@ impl<'a> Parser<'a> {
             if_not_exists,
             columns,
             constraints,
+            inherits,
             server_name,
             options,
         })
@@ -26284,6 +26634,38 @@ impl<'a> Parser<'a> {
         Ok(CreateForeignDataWrapper {
             name,
             routines,
+            options,
+        })
+    }
+
+    /// Parse a `CREATE USER MAPPING` statement, after `CREATE USER MAPPING`.
+    ///
+    /// See <https://www.postgresql.org/docs/current/sql-createusermapping.html>
+    pub fn parse_create_user_mapping(&mut self) -> Result<CreateUserMapping, ParserError> {
+        let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
+        self.expect_keyword_is(Keyword::FOR)?;
+        let user = match self.parse_one_of_keywords(&[
+            Keyword::USER,
+            Keyword::CURRENT_ROLE,
+            Keyword::CURRENT_USER,
+            Keyword::SESSION_USER,
+            Keyword::PUBLIC,
+        ]) {
+            Some(Keyword::USER) => UserMappingUser::User,
+            Some(Keyword::CURRENT_ROLE) => UserMappingUser::CurrentRole,
+            Some(Keyword::CURRENT_USER) => UserMappingUser::CurrentUser,
+            Some(Keyword::SESSION_USER) => UserMappingUser::SessionUser,
+            Some(Keyword::PUBLIC) => UserMappingUser::Public,
+            _ => UserMappingUser::Name(self.parse_identifier()?),
+        };
+        self.expect_keyword_is(Keyword::SERVER)?;
+        let server_name = self.parse_identifier()?;
+        let options = self.parse_pg_options_clause()?;
+
+        Ok(CreateUserMapping {
+            if_not_exists,
+            user,
+            server_name,
             options,
         })
     }
@@ -27450,6 +27832,25 @@ impl<'a> Parser<'a> {
         let obj = self.parse_object_name(false)?;
         Ok(ResetStatement {
             reset: Reset::ConfigurationParameter(obj),
+        })
+    }
+
+    /// Parse a `REFRESH MATERIALIZED VIEW` statement, after the `REFRESH` keyword.
+    fn parse_refresh_materialized_view(&mut self) -> Result<RefreshMaterializedView, ParserError> {
+        self.expect_keywords(&[Keyword::MATERIALIZED, Keyword::VIEW])?;
+        let concurrently = self.parse_keyword(Keyword::CONCURRENTLY);
+        let name = self.parse_object_name(false)?;
+        let with_data = if self.parse_keywords(&[Keyword::WITH, Keyword::DATA]) {
+            Some(true)
+        } else if self.parse_keywords(&[Keyword::WITH, Keyword::NO, Keyword::DATA]) {
+            Some(false)
+        } else {
+            None
+        };
+        Ok(RefreshMaterializedView {
+            concurrently,
+            name,
+            with_data,
         })
     }
 }

@@ -37,22 +37,22 @@ use sqlparser_derive::{Visit, VisitMut};
 use crate::ast::helpers::key_value_options::KeyValueOptions;
 use crate::ast::value::escape_single_quote_string;
 use crate::ast::{
-    display_comma_separated, display_separated,
+    display_comma_separated, display_separated, format_statement_list,
     table_constraints::{
         CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, TableConstraint,
         UniqueConstraint,
     },
-    ArgMode, AttachedToken, CommentDef, ConditionalStatements, CreateFunctionBody,
-    CreateFunctionUsing, CreateServerOption, CreateTableLikeKind, CreateTableOptions,
-    CreateViewParams, DataType, DynamicTableCustomRefresh, Expr, FileFormat, FunctionBehavior,
-    FunctionCalledOnNull, FunctionDefinitionSetParam, FunctionDesc, FunctionDeterminismSpecifier,
-    FunctionParallel, FunctionSecurity, HiveDistributionStyle, HiveFormat, HiveIOFormat,
-    HiveRowFormat, HiveSetLocation, Ident, InitializeKind, MySQLColumnPosition, ObjectName,
-    OnCommit, OneOrManyWithParens, OperateFunctionArg, OrderByExpr, ProjectionSelect, Query,
-    RefreshModeKind, ResetConfig, RowAccessPolicy, SequenceOptions, Spanned, SqlOption, Statement,
-    StorageLifecyclePolicy, StorageSerializationPolicy, TableVersion, Tag, TriggerEvent,
-    TriggerExecBody, TriggerObject, TriggerPeriod, TriggerReferencing, Value, ValueWithSpan,
-    WrappedCollection,
+    ArgMode, AttachedToken, BeginEndStatements, CommentDef, ConditionalStatements,
+    CreateFunctionBody, CreateFunctionUsing, CreateServerOption, CreateTableLikeKind,
+    CreateTableOptions, CreateViewParams, DataType, DynamicTableCustomRefresh, Expr, FileFormat,
+    FunctionBehavior, FunctionCalledOnNull, FunctionDefinitionSetParam, FunctionDesc,
+    FunctionDeterminismSpecifier, FunctionParallel, FunctionSecurity, HiveDistributionStyle,
+    HiveFormat, HiveIOFormat, HiveRowFormat, HiveSetLocation, Ident, InitializeKind,
+    MySQLColumnPosition, ObjectName, OnCommit, OneOrManyWithParens, OperateFunctionArg,
+    OrderByExpr, ProjectionSelect, Query, RefreshModeKind, ResetConfig, RowAccessPolicy,
+    SequenceOptions, Spanned, SqlOption, Statement, StorageLifecyclePolicy,
+    StorageSerializationPolicy, TableVersion, Tag, TriggerEvent, TriggerExecBody, TriggerObject,
+    TriggerPeriod, TriggerReferencing, Value, ValueWithSpan, WrappedCollection,
 };
 use crate::display_utils::{DisplayCommaSeparated, Indent, NewLine, SpaceOrNewline};
 use crate::keywords::Keyword;
@@ -330,6 +330,15 @@ pub enum AlterTableOperation {
         // which represents a physical file on disk and partition is a logical entity.
         /// Partition expression to attach.
         partition: Partition,
+    },
+    /// `ATTACH PARTITION partition_name { FOR VALUES partition_bound_spec | DEFAULT }`
+    ///
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-altertable.html)
+    AttachPartitionOf {
+        /// The table to attach as a partition.
+        partition: ObjectName,
+        /// The partition bound.
+        for_values: ForValues,
     },
     /// `DETACH PART|PARTITION <partition_expr>`
     /// Note: this is a ClickHouse-specific operation, please refer to
@@ -701,6 +710,16 @@ pub enum AlterTableOperation {
     SetOptionsParens {
         /// Parenthesized options supplied to `SET (...)`.
         options: Vec<SqlOption>,
+    },
+    /// Parenthesized `RESET` of storage parameters.
+    ///
+    /// ```sql
+    /// RESET ( storage_parameter [, ... ] )
+    /// ```
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-altertable.html)
+    ResetOptions {
+        /// Parameters to reset, optionally namespaced as in `toast.autovacuum_enabled`.
+        options: Vec<ObjectName>,
     },
 }
 
@@ -1142,6 +1161,12 @@ impl fmt::Display for AlterTableOperation {
             AlterTableOperation::AttachPartition { partition } => {
                 write!(f, "ATTACH {partition}")
             }
+            AlterTableOperation::AttachPartitionOf {
+                partition,
+                for_values,
+            } => {
+                write!(f, "ATTACH PARTITION {partition} {for_values}")
+            }
             AlterTableOperation::DetachPartition { partition } => {
                 write!(f, "DETACH {partition}")
             }
@@ -1385,6 +1410,9 @@ impl fmt::Display for AlterTableOperation {
             }
             AlterTableOperation::SetOptionsParens { options } => {
                 write!(f, "SET ({})", display_comma_separated(options))
+            }
+            AlterTableOperation::ResetOptions { options } => {
+                write!(f, "RESET ({})", display_comma_separated(options))
             }
         }
     }
@@ -3315,7 +3343,8 @@ impl ColumnDef {
                 | ColumnOption::Policy(_)
                 | ColumnOption::Tags(_)
                 | ColumnOption::Srid(_)
-                | ColumnOption::Invisible => {}
+                | ColumnOption::Invisible
+                | ColumnOption::GenericOptions(_) => {}
             }
         }
     }
@@ -3697,7 +3726,7 @@ pub enum ColumnOption {
 
     /// `PRIMARY KEY [<constraint_characteristics>]`
     PrimaryKey(PrimaryKeyConstraint),
-    /// `UNIQUE [<constraint_characteristics>]`
+    /// `UNIQUE [NULLS [NOT] DISTINCT] [<constraint_characteristics>]`
     Unique(UniqueConstraint),
     /// A referential integrity constraint (`REFERENCES <foreign_table> (<referred_columns>)
     /// [ MATCH { FULL | PARTIAL | SIMPLE } ]
@@ -3743,6 +3772,11 @@ pub enum ColumnOption {
     /// [1]: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#view_column_option_list
     /// [2]: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#column_option_list
     Options(Vec<SqlOption>),
+    /// PostgreSQL `OPTIONS ( option 'value' [, ...] )` of a column, passed to the
+    /// foreign-data wrapper of a foreign table.
+    ///
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigntable.html)
+    GenericOptions(Vec<CreateServerOption>),
     /// Creates an identity or an autoincrement column in a table.
     /// Syntax
     /// ```sql
@@ -3832,7 +3866,11 @@ impl fmt::Display for ColumnOption {
                 Ok(())
             }
             Unique(constraint) => {
-                write!(f, "UNIQUE{:>}", constraint.index_type_display)?;
+                write!(
+                    f,
+                    "UNIQUE{:>}{}",
+                    constraint.index_type_display, constraint.nulls_distinct
+                )?;
                 if let Some(characteristics) = &constraint.characteristics {
                     write!(f, " {characteristics}")?;
                 }
@@ -3911,6 +3949,9 @@ impl fmt::Display for ColumnOption {
             }
             Options(options) => {
                 write!(f, "OPTIONS({})", display_comma_separated(options))
+            }
+            GenericOptions(options) => {
+                write!(f, "OPTIONS ({})", display_comma_separated(options))
             }
             Identity(parameters) => {
                 write!(f, "{parameters}")
@@ -5964,6 +6005,16 @@ impl fmt::Display for CreateFunction {
         if let Some(CreateFunctionBody::Return(function_body)) = &self.function_body {
             write!(f, " RETURN {function_body}")?;
         }
+        if let Some(CreateFunctionBody::BeginAtomic(BeginEndStatements { statements, .. })) =
+            &self.function_body
+        {
+            write!(f, " BEGIN ATOMIC")?;
+            if !statements.is_empty() {
+                write!(f, " ")?;
+                format_statement_list(f, statements)?;
+            }
+            write!(f, " END")?;
+        }
         if let Some(CreateFunctionBody::AsReturnExpr(function_body)) = &self.function_body {
             write!(f, " AS RETURN {function_body}")?;
         }
@@ -6720,6 +6771,8 @@ pub struct CreateExtension {
     pub name: Ident,
     /// Whether `IF NOT EXISTS` was specified for the CREATE EXTENSION.
     pub if_not_exists: bool,
+    /// Whether the optional `WITH` keyword preceded the options.
+    pub with_keyword: bool,
     /// Whether `CASCADE` was specified for the CREATE EXTENSION.
     pub cascade: bool,
     /// Optional schema name for the extension.
@@ -6740,18 +6793,17 @@ impl fmt::Display for CreateExtension {
             },
             name = self.name
         )?;
-        if self.cascade || self.schema.is_some() || self.version.is_some() {
+        if self.with_keyword {
             write!(f, " WITH")?;
-
-            if let Some(name) = &self.schema {
-                write!(f, " SCHEMA {name}")?;
-            }
-            if let Some(version) = &self.version {
-                write!(f, " VERSION {version}")?;
-            }
-            if self.cascade {
-                write!(f, " CASCADE")?;
-            }
+        }
+        if let Some(name) = &self.schema {
+            write!(f, " SCHEMA {name}")?;
+        }
+        if let Some(version) = &self.version {
+            write!(f, " VERSION {version}")?;
+        }
+        if self.cascade {
+            write!(f, " CASCADE")?;
         }
 
         Ok(())
@@ -6936,6 +6988,142 @@ impl fmt::Display for AlterCollation {
 impl Spanned for AlterCollation {
     fn span(&self) -> Span {
         Span::empty()
+    }
+}
+
+/// `ALTER VIEW` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct AlterView {
+    /// View name being altered.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub name: ObjectName,
+    /// Whether `IF EXISTS` was specified.
+    pub if_exists: bool,
+    /// The operation to perform on the view.
+    pub operation: AlterViewOperation,
+}
+
+/// Operations supported by `ALTER VIEW`.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-alterview.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AlterViewOperation {
+    /// Replace the view definition.
+    ///
+    /// ```sql
+    /// ALTER VIEW name [ (columns) ] [ WITH (options) ] AS query
+    /// ```
+    ///
+    /// See [MySQL](https://dev.mysql.com/doc/refman/8.4/en/alter-view.html)
+    As {
+        /// Optional new column list for the view.
+        columns: Vec<Ident>,
+        /// Replacement query for the view definition.
+        query: Box<Query>,
+        /// Additional `WITH` options for the view.
+        with_options: Vec<SqlOption>,
+    },
+    /// ```sql
+    /// ALTER VIEW name ALTER [ COLUMN ] column_name { SET DEFAULT expression | DROP DEFAULT }
+    /// ```
+    AlterColumn {
+        /// The column to alter.
+        column_name: Ident,
+        /// Either [`AlterColumnOperation::SetDefault`] or [`AlterColumnOperation::DropDefault`].
+        op: AlterColumnOperation,
+    },
+    /// ```sql
+    /// ALTER VIEW name OWNER TO { new_owner | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
+    /// ```
+    OwnerTo(Owner),
+    /// ```sql
+    /// ALTER VIEW name RENAME [ COLUMN ] column_name TO new_column_name
+    /// ```
+    RenameColumn {
+        /// Existing column name.
+        old_column_name: Ident,
+        /// New column name.
+        new_column_name: Ident,
+    },
+    /// ```sql
+    /// ALTER VIEW name RENAME TO new_name
+    /// ```
+    RenameTo {
+        /// New view name.
+        new_name: ObjectName,
+    },
+    /// ```sql
+    /// ALTER VIEW name SET SCHEMA new_schema
+    /// ```
+    SetSchema {
+        /// Target schema name.
+        schema_name: ObjectName,
+    },
+    /// ```sql
+    /// ALTER VIEW name SET ( view_option_name [ = view_option_value ] [, ... ] )
+    /// ```
+    SetOptions {
+        /// Options to set, [`SqlOption::Ident`] when no value is given.
+        options: Vec<SqlOption>,
+    },
+    /// ```sql
+    /// ALTER VIEW name RESET ( view_option_name [, ... ] )
+    /// ```
+    ResetOptions {
+        /// Options to reset.
+        options: Vec<Ident>,
+    },
+}
+
+impl fmt::Display for AlterViewOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AlterViewOperation::As {
+                columns,
+                query,
+                with_options,
+            } => {
+                if !columns.is_empty() {
+                    write!(f, "({}) ", display_comma_separated(columns))?;
+                }
+                if !with_options.is_empty() {
+                    write!(f, "WITH ({}) ", display_comma_separated(with_options))?;
+                }
+                write!(f, "AS {query}")
+            }
+            AlterViewOperation::AlterColumn { column_name, op } => {
+                write!(f, "ALTER COLUMN {column_name} {op}")
+            }
+            AlterViewOperation::OwnerTo(owner) => write!(f, "OWNER TO {owner}"),
+            AlterViewOperation::RenameColumn {
+                old_column_name,
+                new_column_name,
+            } => write!(f, "RENAME COLUMN {old_column_name} TO {new_column_name}"),
+            AlterViewOperation::RenameTo { new_name } => write!(f, "RENAME TO {new_name}"),
+            AlterViewOperation::SetSchema { schema_name } => {
+                write!(f, "SET SCHEMA {schema_name}")
+            }
+            AlterViewOperation::SetOptions { options } => {
+                write!(f, "SET ({})", display_comma_separated(options))
+            }
+            AlterViewOperation::ResetOptions { options } => {
+                write!(f, "RESET ({})", display_comma_separated(options))
+            }
+        }
+    }
+}
+
+impl fmt::Display for AlterView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ALTER VIEW ")?;
+        if self.if_exists {
+            write!(f, "IF EXISTS ")?;
+        }
+        write!(f, "{} {}", self.name, self.operation)
     }
 }
 
@@ -7249,17 +7437,13 @@ impl fmt::Display for OperatorClassItem {
                 op_types,
                 function_name,
                 argument_types,
-            } => {
-                write!(f, "FUNCTION {support_number}")?;
-                if let Some(types) = op_types {
-                    write!(f, " ({})", display_comma_separated(types))?;
-                }
-                write!(f, " {function_name}")?;
-                if !argument_types.is_empty() {
-                    write!(f, "({})", display_comma_separated(argument_types))?;
-                }
-                Ok(())
-            }
+            } => fmt_operator_function(
+                f,
+                *support_number,
+                op_types.as_deref(),
+                function_name,
+                argument_types,
+            ),
             OperatorClassItem::Storage { storage_type } => {
                 write!(f, "STORAGE {storage_type}")
             }
@@ -7485,19 +7669,33 @@ impl fmt::Display for OperatorFamilyItem {
                 op_types,
                 function_name,
                 argument_types,
-            } => {
-                write!(f, "FUNCTION {support_number}")?;
-                if let Some(types) = op_types {
-                    write!(f, " ({})", display_comma_separated(types))?;
-                }
-                write!(f, " {function_name}")?;
-                if !argument_types.is_empty() {
-                    write!(f, "({})", display_comma_separated(argument_types))?;
-                }
-                Ok(())
-            }
+            } => fmt_operator_function(
+                f,
+                *support_number,
+                op_types.as_deref(),
+                function_name,
+                argument_types,
+            ),
         }
     }
+}
+
+fn fmt_operator_function(
+    f: &mut fmt::Formatter,
+    support_number: u64,
+    op_types: Option<&[DataType]>,
+    function_name: &ObjectName,
+    argument_types: &[DataType],
+) -> fmt::Result {
+    write!(f, "FUNCTION {support_number}")?;
+    if let Some(types) = op_types {
+        write!(f, " ({})", display_comma_separated(types))?;
+    }
+    write!(f, " {function_name}")?;
+    if !argument_types.is_empty() {
+        write!(f, "({})", display_comma_separated(argument_types))?;
+    }
+    Ok(())
 }
 
 impl fmt::Display for OperatorFamilyDropItem {
@@ -8509,6 +8707,46 @@ impl From<CreateRule> for crate::ast::Statement {
     }
 }
 
+/// DROP RULE statement.
+///
+/// Its source span covers `name` and `table_name`.
+///
+/// ```sql
+/// DROP RULE [ IF EXISTS ] name ON table_name [ CASCADE | RESTRICT ]
+/// ```
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-droprule.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct DropRule {
+    /// `true` when `IF EXISTS` was present.
+    pub if_exists: bool,
+    /// Name of the rule to drop.
+    pub name: Ident,
+    /// Name of the table the rule applies to.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub table_name: ObjectName,
+    /// Optional drop behavior (`CASCADE` or `RESTRICT`).
+    pub drop_behavior: Option<DropBehavior>,
+}
+
+impl fmt::Display for DropRule {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "DROP RULE {if_exists}{name} ON {table_name}",
+            if_exists = if self.if_exists { "IF EXISTS " } else { "" },
+            name = self.name,
+            table_name = self.table_name
+        )?;
+        if let Some(behavior) = &self.drop_behavior {
+            write!(f, " {behavior}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A `CREATE FOREIGN TABLE` statement.
 ///
 /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigntable.html)
@@ -8527,6 +8765,8 @@ pub struct CreateForeignTable {
     /// PostgreSQL's grammar accepts these here, but rejects primary key, unique,
     /// foreign key and exclusion constraints on a foreign table at execution.
     pub constraints: Vec<TableConstraint>,
+    /// `INHERITS ( parent_table [, ...] )`
+    pub inherits: Option<Vec<ObjectName>>,
     /// The `SERVER server_name` clause.
     pub server_name: Ident,
     /// Optional `OPTIONS (key 'value', ...)` clause at the table level.
@@ -8550,7 +8790,11 @@ impl fmt::Display for CreateForeignTable {
             write!(f, ", ")?;
         }
         write!(f, "{}", display_comma_separated(&self.constraints))?;
-        write!(f, ") SERVER {}", self.server_name)?;
+        f.write_str(")")?;
+        if let Some(inherits) = &self.inherits {
+            write!(f, " INHERITS ({})", display_comma_separated(inherits))?;
+        }
+        write!(f, " SERVER {}", self.server_name)?;
         if let Some(options) = &self.options {
             write!(f, " OPTIONS ({})", display_comma_separated(options))?;
         }
@@ -8614,6 +8858,12 @@ impl fmt::Display for CreateForeignDataWrapper {
     }
 }
 
+impl From<DropRule> for crate::ast::Statement {
+    fn from(v: DropRule) -> Self {
+        crate::ast::Statement::DropRule(v)
+    }
+}
+
 impl From<CreateForeignTable> for crate::ast::Statement {
     fn from(v: CreateForeignTable) -> Self {
         crate::ast::Statement::CreateForeignTable(v)
@@ -8626,6 +8876,7 @@ impl Spanned for CreateForeignTable {
             core::iter::once(self.name.span())
                 .chain(self.columns.iter().map(|column| column.span()))
                 .chain(self.constraints.iter().map(|constraint| constraint.span()))
+                .chain(self.inherits.iter().flatten().map(|parent| parent.span()))
                 .chain(core::iter::once(self.server_name.span))
                 .chain(
                     self.options
@@ -8838,5 +9089,80 @@ impl Spanned for CreateForeignDataWrapper {
                         .flat_map(|option| [option.key.span, option.value.span]),
                 ),
         )
+    }
+}
+
+/// The user of a `CREATE USER MAPPING` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum UserMappingUser {
+    /// A role name.
+    Name(Ident),
+    /// `USER`, the current user.
+    User,
+    /// `CURRENT_ROLE`
+    CurrentRole,
+    /// `CURRENT_USER`
+    CurrentUser,
+    /// `SESSION_USER`
+    SessionUser,
+    /// `PUBLIC`, every role without a mapping of its own.
+    Public,
+}
+
+impl fmt::Display for UserMappingUser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UserMappingUser::Name(name) => write!(f, "{name}"),
+            UserMappingUser::User => f.write_str("USER"),
+            UserMappingUser::CurrentRole => f.write_str("CURRENT_ROLE"),
+            UserMappingUser::CurrentUser => f.write_str("CURRENT_USER"),
+            UserMappingUser::SessionUser => f.write_str("SESSION_USER"),
+            UserMappingUser::Public => f.write_str("PUBLIC"),
+        }
+    }
+}
+
+/// A `CREATE USER MAPPING` statement.
+///
+/// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createusermapping.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct CreateUserMapping {
+    /// Whether `IF NOT EXISTS` was specified.
+    pub if_not_exists: bool,
+    /// The user the mapping is for.
+    pub user: UserMappingUser,
+    /// The `SERVER server_name` clause.
+    pub server_name: Ident,
+    /// Optional `OPTIONS (key 'value', ...)` clause.
+    pub options: Option<Vec<CreateServerOption>>,
+}
+
+impl fmt::Display for CreateUserMapping {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CREATE USER MAPPING {if_not_exists}FOR {user} SERVER {server_name}",
+            if_not_exists = if self.if_not_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            },
+            user = self.user,
+            server_name = self.server_name,
+        )?;
+        if let Some(options) = &self.options {
+            write!(f, " OPTIONS ({})", display_comma_separated(options))?;
+        }
+        Ok(())
+    }
+}
+
+impl From<CreateUserMapping> for crate::ast::Statement {
+    fn from(v: CreateUserMapping) -> Self {
+        crate::ast::Statement::CreateUserMapping(v)
     }
 }

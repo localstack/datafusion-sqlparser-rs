@@ -151,7 +151,9 @@ pub use self::teradata::TeradataDialect;
 #[cfg(feature = "derive-dialect")]
 pub use sqlparser_derive::derive_dialect;
 
-use crate::ast::{ColumnOption, DataType, Expr, GranteesType, Ident, ObjectNamePart, Statement};
+use crate::ast::{
+    BinaryOperator, ColumnOption, DataType, Expr, GranteesType, Ident, ObjectNamePart, Statement,
+};
 pub use crate::keywords;
 use crate::keywords::Keyword;
 use crate::parser::{Parser, ParserError};
@@ -433,6 +435,13 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports `DROP GROUP`.
+    ///
+    /// <https://www.postgresql.org/docs/current/sql-dropgroup.html>
+    fn supports_drop_group(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect treats `ALTER USER` as a synonym for `ALTER ROLE`.
     ///
     /// In PostgreSQL, `ALTER USER` and `ALTER ROLE` are synonyms that accept the same
@@ -453,6 +462,18 @@ pub trait Dialect: Debug + Any {
     /// ```
     fn supports_cte_materialization(&self) -> bool {
         false
+    }
+
+    /// Returns true if the dialect supports `CREATE GROUP`.
+    ///
+    /// <https://www.postgresql.org/docs/current/sql-creategroup.html>
+    fn supports_create_group(&self) -> bool {
+        false
+    }
+
+    /// Returns true if `CREATE ROLE` accepts `IF NOT EXISTS`.
+    fn supports_create_role_if_not_exists(&self) -> bool {
+        true
     }
 
     /// Returns true if the dialects supports `group sets, roll up, or cube` expressions.
@@ -625,6 +646,13 @@ pub trait Dialect: Debug + Any {
 
     /// Returns true if the dialect supports numbers containing underscores, e.g. `10_000_000`
     fn supports_numeric_literal_underscores(&self) -> bool {
+        false
+    }
+
+    /// Returns true if the dialect supports integer literals in hexadecimal,
+    /// octal and binary, e.g. `0x1F`, `0o17` and `0b101`, which then parse as
+    /// numbers instead of `0x` hexadecimal strings.
+    fn supports_non_decimal_integer_literals(&self) -> bool {
         false
     }
 
@@ -1368,6 +1396,14 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Does the dialect accept an option named without a value,
+    /// e.g. `CREATE VIEW v WITH (security_barrier) AS SELECT 1`?
+    ///
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-STORAGE-PARAMETERS)
+    fn supports_sql_option_without_value(&self) -> bool {
+        false
+    }
+
     /// Whether `INTERVAL` expressions require units (called "qualifiers" in the ANSI SQL spec) to be specified,
     /// e.g. `INTERVAL 1 DAY` vs `INTERVAL 1`.
     ///
@@ -1387,6 +1423,47 @@ pub trait Dialect: Debug + Any {
     /// * `INTERVAL 1 + 1 DAY` is INVALID
     fn require_interval_qualifier(&self) -> bool {
         false
+    }
+
+    /// Returns true if `kw` can start the qualifier of an `INTERVAL` value, e.g. `DAY` in `INTERVAL '1' DAY`.
+    fn is_interval_qualifier(&self, kw: Keyword) -> bool {
+        matches!(
+            kw,
+            Keyword::YEAR
+                | Keyword::YEARS
+                | Keyword::MONTH
+                | Keyword::MONTHS
+                | Keyword::WEEK
+                | Keyword::WEEKS
+                | Keyword::DAY
+                | Keyword::DAYS
+                | Keyword::HOUR
+                | Keyword::HOURS
+                | Keyword::MINUTE
+                | Keyword::MINUTES
+                | Keyword::SECOND
+                | Keyword::SECONDS
+                | Keyword::CENTURY
+                | Keyword::DECADE
+                | Keyword::DOW
+                | Keyword::DOY
+                | Keyword::EPOCH
+                | Keyword::ISODOW
+                | Keyword::ISOYEAR
+                | Keyword::JULIAN
+                | Keyword::MICROSECOND
+                | Keyword::MICROSECONDS
+                | Keyword::MILLENIUM
+                | Keyword::MILLENNIUM
+                | Keyword::MILLISECOND
+                | Keyword::MILLISECONDS
+                | Keyword::NANOSECOND
+                | Keyword::NANOSECONDS
+                | Keyword::QUARTER
+                | Keyword::TIMEZONE
+                | Keyword::TIMEZONE_HOUR
+                | Keyword::TIMEZONE_MINUTE
+        )
     }
 
     /// Returns true if the dialect supports `EXPLAIN` statements with utility options
@@ -1608,6 +1685,21 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports attaching a table as a partition with
+    /// `ALTER TABLE ... ATTACH PARTITION name { FOR VALUES ... | DEFAULT }`.
+    ///
+    /// <https://www.postgresql.org/docs/current/sql-altertable.html>
+    fn supports_attach_partition_of(&self) -> bool {
+        false
+    }
+
+    /// Returns true if the dialect supports `OPTIONS ( option 'value' [, ...] )`
+    /// in a column definition.
+    ///
+    /// <https://www.postgresql.org/docs/current/sql-createforeigntable.html>
+    fn supports_column_generic_options(&self) -> bool {
+        false
+    }
     /// Returns true if the specified keyword is reserved and cannot be
     /// used as an identifier without special handling like quoting.
     fn is_reserved_for_identifier(&self, kw: Keyword) -> bool {
@@ -1994,6 +2086,14 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports binary `IS` and `IS NOT` operators.
+    ///
+    /// Their right operand is any expression, so `IS UNKNOWN`, `IS JSON` and
+    /// `IS NORMALIZED` are not parsed as predicates.
+    fn supports_is_operator(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect allows an optional `SIGNED` suffix after integer data types.
     ///
     /// Example:
@@ -2291,6 +2391,20 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if this dialect supports the `ONLY` and `*` table
+    /// inheritance markers on a table factor.
+    ///
+    /// Example:
+    /// ```sql
+    /// SELECT * FROM ONLY parent;
+    /// SELECT * FROM parent *;
+    /// ```
+    ///
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-select.html#SQL-FROM)
+    fn supports_table_inheritance_markers(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports the `FORMAT` clause in `SELECT` statements.
     ///
     /// Example:
@@ -2495,6 +2609,26 @@ pub fn dialect_from_str(dialect_name: impl AsRef<str>) -> Option<Box<dyn Dialect
         "teradata" => Some(Box::new(TeradataDialect {})),
         _ => None,
     }
+}
+
+/// Parse `DIV` using the caller's infix precedence.
+fn parse_div_infix(
+    parser: &mut Parser,
+    expr: &Expr,
+    precedence: u8,
+) -> Option<Result<Expr, ParserError>> {
+    if !parser.parse_keyword(Keyword::DIV) {
+        return None;
+    }
+    Some(
+        parser
+            .parse_subexpr(precedence)
+            .map(|right| Expr::BinaryOp {
+                left: Box::new(expr.clone()),
+                op: BinaryOperator::MyIntegerDivide,
+                right: Box::new(right),
+            }),
+    )
 }
 
 #[cfg(test)]

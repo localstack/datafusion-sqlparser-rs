@@ -58,8 +58,9 @@ pub use self::data_type::{
     ExactNumberInfo, IntervalFields, MapBracketKind, StructBracketKind, TimezoneInfo, TypeModifier,
 };
 pub use self::dcl::{
-    AlterDatabaseRoleOperation, AlterRoleOperation, CreateRole, Grant, ResetConfig, Revoke,
-    RoleOption, SecondaryRoles, SetConfigValue, Use,
+    AlterDatabaseRoleOperation, AlterRoleOperation, CreateRole, Grant, GrantRole, ResetConfig,
+    Revoke, RevokeRole, RoleGrantOption, RoleGrantOptionValue, RoleKeyword, RoleOption,
+    SecondaryRoles, SetConfigValue, Use,
 };
 pub use self::ddl::{
     AggregateModifyKind, Alignment, AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation,
@@ -75,18 +76,18 @@ pub use self::ddl::{
     AlterTable, AlterTableAlgorithm, AlterTableLock, AlterTableOperation, AlterTableType,
     AlterTagOperation, AlterTextSearch, AlterTextSearchOperation, AlterTextSearchOption,
     AlterTrigger, AlterTriggerOperation, AlterType, AlterTypeAddValue, AlterTypeAddValuePosition,
-    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, BackupPolicyPhase,
-    BackupSetTargetKind, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
-    ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget,
+    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, AlterView, AlterViewOperation,
+    BackupPolicyPhase, BackupSetTargetKind, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef,
+    ColumnOptions, ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget,
     CreateAggregate, CreateAggregateArgs, CreateAggregateOption, CreateCollation,
     CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension,
     CreateForeignDataWrapper, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateRule, CreateRuleAction, CreateRuleDoKind, CreateRuleEvent, CreateSemanticView,
-    CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
-    DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
-    DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger,
-    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
+    CreateTable, CreateTextSearch, CreateTrigger, CreateUserMapping, CreateView, Deduplicate,
+    DeferrableInitial, DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator,
+    DropOperatorClass, DropOperatorFamily, DropOperatorSignature, DropPolicy, DropRule,
+    DropTrigger, ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     ExternalTablePartitionColumn, ForValues, ForeignDataWrapperRoutineClause, FunctionReturnType,
     GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
     IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder, IndexColumn,
@@ -99,7 +100,8 @@ pub use self::ddl::{
     SemanticViewTable, SqliteTableOption, SqliteTableOptions, TagsColumnOption,
     TextSearchObjectType, TriggerObjectKind, Truncate, UserDefinedTypeCompositeAttributeDef,
     UserDefinedTypeInternalLength, UserDefinedTypeRangeOption, UserDefinedTypeRepresentation,
-    UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, ViewColumnDef, WithData,
+    UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, UserMappingUser, ViewColumnDef,
+    WithData,
 };
 pub use self::dml::{
     Delete, Insert, InsertOverriding, Merge, MergeAction, MergeClause, MergeClauseKind,
@@ -123,8 +125,8 @@ pub use self::query::{
     SelectFlavor, SelectInto, SelectItem, SelectItemQualifiedWildcardKind, SelectModifiers,
     SemanticViewQueryClause, SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table,
     TableAlias, TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexDirective,
-    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableSample,
-    TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
+    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableInheritance,
+    TableSample, TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
     TableSampleQuantity, TableSampleSeed, TableSampleSeedModifier, TableSampleUnit, TableVersion,
     TableWithJoins, Top, TopQuantity, UpdateTableFromKind, ValueTableMode, Values,
     WildcardAdditionalOptions, With, WithFill, XmlNamespaceDefinition, XmlPassingArgument,
@@ -2684,6 +2686,8 @@ pub enum CommentObject {
     Domain,
     /// An extension.
     Extension,
+    /// A foreign table.
+    ForeignTable,
     /// A function.
     Function,
     /// An index.
@@ -2717,6 +2721,7 @@ impl fmt::Display for CommentObject {
             CommentObject::Database => f.write_str("DATABASE"),
             CommentObject::Domain => f.write_str("DOMAIN"),
             CommentObject::Extension => f.write_str("EXTENSION"),
+            CommentObject::ForeignTable => f.write_str("FOREIGN TABLE"),
             CommentObject::Function => f.write_str("FUNCTION"),
             CommentObject::Index => f.write_str("INDEX"),
             CommentObject::MaterializedView => f.write_str("MATERIALIZED VIEW"),
@@ -4283,6 +4288,11 @@ pub enum Statement {
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createforeigndatawrapper.html)
     CreateForeignDataWrapper(CreateForeignDataWrapper),
     /// ```sql
+    /// CREATE USER MAPPING
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createusermapping.html)
+    CreateUserMapping(CreateUserMapping),
+    /// ```sql
     /// CREATE POLICY
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-createpolicy.html)
@@ -4342,17 +4352,7 @@ pub enum Statement {
     /// ```sql
     /// ALTER VIEW
     /// ```
-    AlterView {
-        /// View name being altered.
-        #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
-        name: ObjectName,
-        /// Optional new column list for the view.
-        columns: Vec<Ident>,
-        /// Replacement query for the view definition.
-        query: Box<Query>,
-        /// Additional WITH options for the view.
-        with_options: Vec<SqlOption>,
-    },
+    AlterView(AlterView),
     /// ```sql
     /// ALTER VIEW <name> { MODIFY | ALTER } COLUMN <col>
     ///   { SET MASKING POLICY <p> [USING (<c>, ...)] [FORCE] | UNSET MASKING POLICY }
@@ -4594,6 +4594,11 @@ pub enum Statement {
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-droppolicy.html)
     DropPolicy(DropPolicy),
+    /// ```sql
+    /// DROP RULE
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-droprule.html)
+    DropRule(DropRule),
     /// ```sql
     /// DROP CONNECTOR
     /// ```
@@ -5271,7 +5276,7 @@ pub enum Statement {
         secure: bool,
         /// Procedure name.
         name: ObjectName,
-        /// Optional procedure parameters.
+        /// Parenthesized parameter list, `None` when absent.
         params: Option<Vec<ProcedureParam>>,
         /// `COPY GRANTS` replacement flag (Snowflake).
         copy_grants: bool,
@@ -7482,6 +7487,10 @@ pub enum Statement {
     /// ```
     Grant(Grant),
     /// ```sql
+    /// GRANT roles TO grantees
+    /// ```
+    GrantRole(GrantRole),
+    /// ```sql
     /// DENY privileges ON object TO grantees
     /// ```
     Deny(DenyStatement),
@@ -7489,6 +7498,10 @@ pub enum Statement {
     /// REVOKE privileges ON objects FROM grantees
     /// ```
     Revoke(Revoke),
+    /// ```sql
+    /// REVOKE roles FROM grantees
+    /// ```
+    RevokeRole(RevokeRole),
     /// ```sql
     /// DEALLOCATE [ PREPARE ] { name | ALL }
     /// ```
@@ -8012,6 +8025,13 @@ pub enum Statement {
     /// ```
     /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-reset.html)
     Reset(ResetStatement),
+    /// Replace the contents of a materialized view.
+    ///
+    /// ```sql
+    /// REFRESH MATERIALIZED VIEW [ CONCURRENTLY ] name [ WITH [ NO ] DATA ]
+    /// ```
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-refreshmaterializedview.html)
+    RefreshMaterializedView(RefreshMaterializedView),
     /// Bare assignment statement inside a Snowflake Scripting `BEGIN...END` block.
     ///
     /// ```sql
@@ -8710,9 +8730,7 @@ impl fmt::Display for Statement {
                 write!(f, "CREATE {modifier}{temporary}{secure}PROCEDURE {name}")?;
 
                 if let Some(p) = params {
-                    if !p.is_empty() {
-                        write!(f, " ({})", display_comma_separated(p))?;
-                    }
+                    write!(f, " ({})", display_comma_separated(p))?;
                 }
 
                 if *copy_grants {
@@ -8911,6 +8929,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreateForeignTable(stmt) => write!(f, "{stmt}"),
             Statement::CreateForeignDataWrapper(stmt) => write!(f, "{stmt}"),
+            Statement::CreateUserMapping(stmt) => write!(f, "{stmt}"),
             Statement::CreatePolicy(policy) => write!(f, "{policy}"),
             Statement::CreateRule(rule) => write!(f, "{rule}"),
             Statement::CreateConnector(create_connector) => create_connector.fmt(f),
@@ -8925,21 +8944,7 @@ impl fmt::Display for Statement {
             Statement::AlterIndex { name, operation } => {
                 write!(f, "ALTER INDEX {name} {operation}")
             }
-            Statement::AlterView {
-                name,
-                columns,
-                query,
-                with_options,
-            } => {
-                write!(f, "ALTER VIEW {name}")?;
-                if !with_options.is_empty() {
-                    write!(f, " WITH ({})", display_comma_separated(with_options))?;
-                }
-                if !columns.is_empty() {
-                    write!(f, " ({})", display_comma_separated(columns))?;
-                }
-                write!(f, " AS {query}")
-            }
+            Statement::AlterView(alter_view) => write!(f, "{alter_view}"),
             Statement::AlterViewColumn {
                 name,
                 column_name,
@@ -9115,6 +9120,7 @@ impl fmt::Display for Statement {
                 Ok(())
             }
             Statement::DropPolicy(policy) => write!(f, "{policy}"),
+            Statement::DropRule(rule) => write!(f, "{rule}"),
             Statement::DropConnector { if_exists, name } => {
                 write!(
                     f,
@@ -9479,6 +9485,8 @@ impl fmt::Display for Statement {
             Statement::Grant(grant) => write!(f, "{grant}"),
             Statement::Deny(s) => write!(f, "{s}"),
             Statement::Revoke(revoke) => write!(f, "{revoke}"),
+            Statement::GrantRole(grant) => write!(f, "{grant}"),
+            Statement::RevokeRole(revoke) => write!(f, "{revoke}"),
             Statement::Deallocate { name, prepare } => write!(
                 f,
                 "DEALLOCATE {prepare}{name}",
@@ -11978,6 +11986,7 @@ impl fmt::Display for Statement {
             Statement::Vacuum(s) => write!(f, "{s}"),
             Statement::AlterUser(s) => write!(f, "{s}"),
             Statement::Reset(s) => write!(f, "{s}"),
+            Statement::RefreshMaterializedView(s) => write!(f, "{s}"),
             Statement::Assignment { target, value } => write!(f, "{target} := {value}"),
             Statement::Let {
                 name,
@@ -13250,6 +13259,16 @@ pub enum GrantObjects {
         /// The target schema names.
         schemas: Vec<ObjectName>,
     },
+    /// Grant privileges on `ALL PROCEDURES IN SCHEMA <schema_name> [, ...]`
+    AllProceduresInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
+    /// Grant privileges on `ALL ROUTINES IN SCHEMA <schema_name> [, ...]`
+    AllRoutinesInSchema {
+        /// The target schema names.
+        schemas: Vec<ObjectName>,
+    },
     /// Grant privileges on `FUTURE SCHEMAS IN DATABASE <database_name> [, ...]`
     FutureSchemasInDatabase {
         /// The target database names.
@@ -13375,30 +13394,23 @@ pub enum GrantObjects {
     ReplicationGroup(Vec<ObjectName>),
     /// Grant privileges on external volumes
     ExternalVolumes(Vec<ObjectName>),
-    /// Grant privileges on a procedure. In dialects that
-    /// support overloading, the argument types must be specified.
+    /// Grant privileges on procedures, each with an optional argument list.
     ///
     /// For example:
     /// `GRANT USAGE ON PROCEDURE foo(varchar) TO ROLE role1`
-    Procedure {
-        /// The procedure name.
-        name: ObjectName,
-        /// Optional argument types for overloaded procedures.
-        arg_types: Vec<DataType>,
-    },
-
-    /// Grant privileges on a function. In dialects that
-    /// support overloading, the argument types must be specified.
+    Procedures(Vec<FunctionDesc>),
+    /// Grant privileges on functions, each with an optional argument list.
     ///
     /// For example:
-    /// `GRANT USAGE ON FUNCTION foo(varchar) TO ROLE role1`
-    Function {
-        /// The function name.
-        name: ObjectName,
-        /// Optional argument types for overloaded functions.
-        arg_types: Vec<DataType>,
-    },
-
+    /// `GRANT EXECUTE ON FUNCTION foo(p_id uuid), bar() TO role1`
+    Functions(Vec<FunctionDesc>),
+    /// Grant privileges on routines, which name functions and procedures alike.
+    ///
+    /// For example:
+    /// `GRANT EXECUTE ON ROUTINE foo(p_id uuid), bar() TO role1`
+    ///
+    /// [PostgreSQL](https://www.postgresql.org/docs/current/sql-grant.html)
+    Routines(Vec<FunctionDesc>),
     /// `GRANT … ON {ALL|FUTURE} <plural-kind> IN {SCHEMA|DATABASE} <name>[, …]`
     /// for the schema-extensible object kinds the per-variant enumeration can't
     /// scale to (STREAMLITS, DATASETS, IMAGE REPOSITORIES, MODEL MONITORS,
@@ -13501,6 +13513,20 @@ impl fmt::Display for GrantObjects {
                 write!(
                     f,
                     "ALL FUNCTIONS IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::AllProceduresInSchema { schemas } => {
+                write!(
+                    f,
+                    "ALL PROCEDURES IN SCHEMA {}",
+                    display_comma_separated(schemas)
+                )
+            }
+            GrantObjects::AllRoutinesInSchema { schemas } => {
+                write!(
+                    f,
+                    "ALL ROUTINES IN SCHEMA {}",
                     display_comma_separated(schemas)
                 )
             }
@@ -13663,19 +13689,14 @@ impl fmt::Display for GrantObjects {
             GrantObjects::ExternalVolumes(objects) => {
                 write!(f, "EXTERNAL VOLUME {}", display_comma_separated(objects))
             }
-            GrantObjects::Procedure { name, arg_types } => {
-                write!(f, "PROCEDURE {name}")?;
-                if !arg_types.is_empty() {
-                    write!(f, "({})", display_comma_separated(arg_types))?;
-                }
-                Ok(())
+            GrantObjects::Procedures(procedures) => {
+                write!(f, "PROCEDURE {}", display_comma_separated(procedures))
             }
-            GrantObjects::Function { name, arg_types } => {
-                write!(f, "FUNCTION {name}")?;
-                if !arg_types.is_empty() {
-                    write!(f, "({})", display_comma_separated(arg_types))?;
-                }
-                Ok(())
+            GrantObjects::Functions(functions) => {
+                write!(f, "FUNCTION {}", display_comma_separated(functions))
+            }
+            GrantObjects::Routines(routines) => {
+                write!(f, "ROUTINE {}", display_comma_separated(routines))
             }
             GrantObjects::AllOrFutureKind {
                 is_future,
@@ -14510,6 +14531,8 @@ pub enum ObjectType {
     Collation,
     /// A table.
     Table,
+    /// A foreign table.
+    ForeignTable,
     /// A view.
     View,
     /// A materialized view.
@@ -14532,6 +14555,8 @@ pub enum ObjectType {
     Database,
     /// A role.
     Role,
+    /// A user group.
+    Group,
     /// A database role (Snowflake).
     DatabaseRole,
     /// An application role (Snowflake).
@@ -14570,6 +14595,7 @@ impl fmt::Display for ObjectType {
         f.write_str(match self {
             ObjectType::Collation => "COLLATION",
             ObjectType::Table => "TABLE",
+            ObjectType::ForeignTable => "FOREIGN TABLE",
             ObjectType::View => "VIEW",
             ObjectType::MaterializedView => "MATERIALIZED VIEW",
             ObjectType::DynamicTable => "DYNAMIC TABLE",
@@ -14580,6 +14606,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Schema => "SCHEMA",
             ObjectType::Database => "DATABASE",
             ObjectType::Role => "ROLE",
+            ObjectType::Group => "GROUP",
             ObjectType::DatabaseRole => "DATABASE ROLE",
             ObjectType::ApplicationRole => "APPLICATION ROLE",
             ObjectType::Sequence => "SEQUENCE",
@@ -15009,16 +15036,18 @@ pub enum SqlOption {
     ///
     /// <https://learn.microsoft.com/en-us/sql/t-sql/statements/create-table-azure-sql-data-warehouse?view=aps-pdw-2016-au7#TableOptions>
     Clustered(TableOptionsClustered),
-    /// Single identifier options, e.g. `HEAP` for MSSQL.
+    /// Option name without a value, e.g. `HEAP` for MSSQL or a PostgreSQL storage
+    /// parameter. The name may be namespaced, e.g. `toast.autovacuum_enabled`.
     ///
     /// <https://learn.microsoft.com/en-us/sql/t-sql/statements/create-table-azure-sql-data-warehouse?view=aps-pdw-2016-au7#TableOptions>
-    Ident(Ident),
+    Ident(ObjectName),
     /// Any option that consists of a key value pair where the value is an expression. e.g.
     ///
     ///   WITH(DISTRIBUTION = ROUND_ROBIN)
+    ///   WITH (toast.autovacuum_enabled = false)
     KeyValue {
-        /// The option key identifier.
-        key: Ident,
+        /// The option key.
+        key: ObjectName,
         /// The expression value for the option.
         value: Expr,
     },
@@ -16417,6 +16446,10 @@ pub enum CreateFunctionBody {
     ///
     /// [PostgreSQL]: https://www.postgresql.org/docs/current/sql-createfunction.html
     Return(Expr),
+    /// SQL-standard function body enclosed by `BEGIN ATOMIC` and `END`.
+    ///
+    /// [PostgreSQL]: https://www.postgresql.org/docs/current/sql-createfunction.html
+    BeginAtomic(BeginEndStatements),
 
     /// Function body expression using the 'AS RETURN' keywords
     ///
@@ -17335,7 +17368,11 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         if self.aws_key_id.is_some() || self.aws_secret_key.is_some() {
             write!(f, " CREDENTIALS = (")?;
             if let Some(key_id) = &self.aws_key_id {
-                write!(f, "AWS_KEY_ID = '{}'", value::escape_single_quote_string(key_id))?;
+                write!(
+                    f,
+                    "AWS_KEY_ID = '{}'",
+                    value::escape_single_quote_string(key_id)
+                )?;
             }
             if let Some(secret_key) = &self.aws_secret_key {
                 if self.aws_key_id.is_some() {
@@ -19841,6 +19878,37 @@ pub struct ResetStatement {
     pub reset: Reset,
 }
 
+/// `REFRESH MATERIALIZED VIEW [ CONCURRENTLY ] name [ WITH [ NO ] DATA ]`
+///
+/// [PostgreSQL](https://www.postgresql.org/docs/current/sql-refreshmaterializedview.html)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct RefreshMaterializedView {
+    /// Whether `CONCURRENTLY` was specified.
+    pub concurrently: bool,
+    /// Name of the materialized view.
+    #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
+    pub name: ObjectName,
+    /// `Some(true)` for `WITH DATA`, `Some(false)` for `WITH NO DATA`.
+    pub with_data: Option<bool>,
+}
+
+impl fmt::Display for RefreshMaterializedView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("REFRESH MATERIALIZED VIEW ")?;
+        if self.concurrently {
+            f.write_str("CONCURRENTLY ")?;
+        }
+        write!(f, "{}", self.name)?;
+        match self.with_data {
+            Some(true) => f.write_str(" WITH DATA"),
+            Some(false) => f.write_str(" WITH NO DATA"),
+            None => Ok(()),
+        }
+    }
+}
+
 /// Query optimizer hints are optionally supported comments after the
 /// `SELECT`, `INSERT`, `UPDATE`, `REPLACE`, `MERGE`, and `DELETE` keywords in
 /// the corresponding statements.
@@ -20129,6 +20197,12 @@ impl From<AlterCollation> for Statement {
     }
 }
 
+impl From<AlterView> for Statement {
+    fn from(a: AlterView) -> Self {
+        Self::AlterView(a)
+    }
+}
+
 impl From<AlterOperator> for Statement {
     fn from(a: AlterOperator) -> Self {
         Self::AlterOperator(a)
@@ -20288,6 +20362,12 @@ impl From<VacuumStatement> for Statement {
 impl From<ResetStatement> for Statement {
     fn from(r: ResetStatement) -> Self {
         Self::Reset(r)
+    }
+}
+
+impl From<RefreshMaterializedView> for Statement {
+    fn from(r: RefreshMaterializedView) -> Self {
+        Self::RefreshMaterializedView(r)
     }
 }
 
