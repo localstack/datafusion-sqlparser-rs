@@ -32,14 +32,14 @@ use core::iter;
 use crate::tokenizer::Span;
 
 use super::{
-    AlterView, AlterViewOperation, CreateUserMapping, DropRule, RefreshMaterializedView, UserMappingUser,
     comments, dcl::SecondaryRoles, value::ValueWithSpan, AccessExpr, AlterColumnOperation,
-    AlterIndexOperation, AlterTableOperation, AlterTrigger, AlterTriggerOperation, Analyze, Array,
-    Assignment, AssignmentTarget, AttachedToken, BeginEndStatements, CaseStatement, CloseCursor,
-    ClusteredIndex, ColumnDef, ColumnOption, ColumnOptionDef, ConditionalStatementBlock,
-    ConditionalStatements, ConflictTarget, ConnectByKind, ConstraintCharacteristics, CopySource,
-    CreateIndex, CreateRule, CreateRuleAction, CreateTable, CreateTableOptions, Cte, Delete,
-    DoUpdate, ExceptSelectItem, ExcludeConstraintElement, ExcludeSelectItem, Expr, ExprWithAlias,
+    AlterIndexOperation, AlterTableOperation, AlterTrigger, AlterTriggerOperation, AlterView,
+    AlterViewOperation, Analyze, Array, Assignment, AssignmentTarget, AttachedToken,
+    BeginEndStatements, CaseStatement, CloseCursor, ClusteredIndex, ColumnDef, ColumnOption,
+    ColumnOptionDef, ConditionalStatementBlock, ConditionalStatements, ConflictTarget,
+    ConnectByKind, ConstraintCharacteristics, CopySource, CreateIndex, CreateRule,
+    CreateRuleAction, CreateTable, CreateTableOptions, CreateUserMapping, Cte, Delete, DoUpdate,
+    DropRule, ExceptSelectItem, ExcludeConstraintElement, ExcludeSelectItem, Expr, ExprWithAlias,
     Fetch, ForIterationSource, ForStatement, ForValues, FromTable, Function, FunctionArg,
     FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments, GroupByExpr,
     HavingBound, IfStatement, IlikeSelectItem, InTarget, IndexColumn, Insert, Interpolate,
@@ -50,11 +50,12 @@ use super::{
     OnConflictAction, OnInsert, OpenStatement, OperateFunctionArg, OrderBy, OrderByExpr,
     OrderByKind, OutputClause, Parens, Partition, PartitionBoundValue, PivotValueSource,
     ProjectionSelect, Query, RaiseStatement, RaiseStatementValue, ReferentialAction,
-    RenameSelectItem, RepeatStatement, ReplaceSelectElement, ReplaceSelectItem, Select, SelectInto,
-    SelectItem, SemanticViewQueryClause, SetExpr, Setting, SqlOption, Statement, Subscript,
-    SymbolDefinition, TableAlias, TableAliasColumnDef, TableConstraint, TableFactor, TableObject,
-    TableOptionsClustered, TableWithJoins, Update, UpdateTableFromKind, Use, Values, ViewColumnDef,
-    WhileStatement, WildcardAdditionalOptions, With, WithFill,
+    RefreshMaterializedView, RenameSelectItem, RepeatStatement, ReplaceSelectElement,
+    ReplaceSelectItem, Select, SelectInto, SelectItem, SemanticViewQueryClause, SetExpr, Setting,
+    SqlOption, Statement, Subscript, SymbolDefinition, TableAlias, TableAliasColumnDef,
+    TableConstraint, TableFactor, TableObject, TableOptionsClustered, TableWithJoins, Update,
+    UpdateTableFromKind, Use, UserMappingUser, Values, ViewColumnDef, WhileStatement,
+    WildcardAdditionalOptions, With, WithFill,
 };
 
 /// Given an iterator of spans, return the [Span::union] of all spans.
@@ -403,7 +404,9 @@ impl Spanned for Statement {
             ),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
-            Statement::CreateDatabaseRole { create_token, name, .. } => create_token.0.span.union(&name.span()),
+            Statement::CreateDatabaseRole {
+                create_token, name, ..
+            } => create_token.0.span.union(&name.span()),
             Statement::CreateApplicationRole { name, .. } => name.span(),
             Statement::CreateExtension(create_extension) => create_extension.span(),
             Statement::CreateCollation(create_collation) => create_collation.span(),

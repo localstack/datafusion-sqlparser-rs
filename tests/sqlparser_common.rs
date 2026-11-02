@@ -12100,7 +12100,9 @@ fn parse_is_boolean() {
 #[test]
 fn parse_is_json_predicate() {
     use self::Expr::*;
-    let dialects = all_dialects_where(|dialect| dialect.supports_is_json_predicate() && !dialect.supports_is_operator());
+    let dialects = all_dialects_where(|dialect| {
+        dialect.supports_is_json_predicate() && !dialect.supports_is_operator()
+    });
 
     // Assert the full AST once for a case that exercises every field.
     let sql = "a IS NOT JSON OBJECT WITHOUT UNIQUE KEYS";
@@ -12138,7 +12140,9 @@ fn parse_is_json_predicate() {
 
 #[test]
 fn parse_is_json_predicate_invalid() {
-    let dialects = all_dialects_where(|dialect| dialect.supports_is_json_predicate() && !dialect.supports_is_operator());
+    let dialects = all_dialects_where(|dialect| {
+        dialect.supports_is_json_predicate() && !dialect.supports_is_operator()
+    });
 
     for (sql, err) in [
         (
@@ -22793,6 +22797,9 @@ fn column_key_shorthand_preserves_characteristics_and_unique() {
             deferrable: Some(true),
             initially: Some(DeferrableInitial::Deferred),
             enforced: None,
+            enabled: None,
+            validated: None,
+            rely: None,
         })
     );
     assert_eq!(unique.index_type_display, KeyOrIndexDisplay::Key);
@@ -22857,6 +22864,7 @@ fn parse_delimited_identifiers() {
         &Expr::Function(Function {
             name: ObjectName::from(vec![Ident::with_quote('"', "myfun")]),
             uses_odbc_syntax: false,
+            from_first: None,
             parameters: FunctionArguments::None,
             args: FunctionArguments::List(FunctionArgumentList {
                 duplicate_treatment: None,

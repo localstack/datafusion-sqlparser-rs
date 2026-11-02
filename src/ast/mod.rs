@@ -58,13 +58,11 @@ pub use self::data_type::{
     ExactNumberInfo, IntervalFields, MapBracketKind, StructBracketKind, TimezoneInfo, TypeModifier,
 };
 pub use self::dcl::{
-    AlterDatabaseRoleOperation,
-    AlterRoleOperation, CreateRole, Grant, GrantRole, ResetConfig, Revoke, RevokeRole,
-    RoleGrantOption, RoleGrantOptionValue, RoleKeyword, RoleOption, SecondaryRoles, SetConfigValue,
-    Use,
+    AlterDatabaseRoleOperation, AlterRoleOperation, CreateRole, Grant, GrantRole, ResetConfig,
+    Revoke, RevokeRole, RoleGrantOption, RoleGrantOptionValue, RoleKeyword, RoleOption,
+    SecondaryRoles, SetConfigValue, Use,
 };
 pub use self::ddl::{
-    AlterView, AlterViewOperation, CreateUserMapping, DropRule, UserMappingUser,
     AggregateModifyKind, Alignment, AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation,
     AlterBackupSetOperation, AlterCollation, AlterCollationOperation, AlterColumnOperation,
     AlterConnectorOwner, AlterDataMovementPolicyOperation, AlterDataMovementRuleOperation,
@@ -78,18 +76,18 @@ pub use self::ddl::{
     AlterTable, AlterTableAlgorithm, AlterTableLock, AlterTableOperation, AlterTableType,
     AlterTagOperation, AlterTextSearch, AlterTextSearchOperation, AlterTextSearchOption,
     AlterTrigger, AlterTriggerOperation, AlterType, AlterTypeAddValue, AlterTypeAddValuePosition,
-    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, BackupPolicyPhase,
-    BackupSetTargetKind, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions,
-    ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget,
+    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, AlterView, AlterViewOperation,
+    BackupPolicyPhase, BackupSetTargetKind, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef,
+    ColumnOptions, ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget,
     CreateAggregate, CreateAggregateArgs, CreateAggregateOption, CreateCollation,
     CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension,
     CreateForeignDataWrapper, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
     CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
     CreateRule, CreateRuleAction, CreateRuleDoKind, CreateRuleEvent, CreateSemanticView,
-    CreateTable, CreateTextSearch, CreateTrigger, CreateView, Deduplicate, DeferrableInitial,
-    DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator, DropOperatorClass,
-    DropOperatorFamily, DropOperatorSignature, DropPolicy, DropTrigger,
-    ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
+    CreateTable, CreateTextSearch, CreateTrigger, CreateUserMapping, CreateView, Deduplicate,
+    DeferrableInitial, DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator,
+    DropOperatorClass, DropOperatorFamily, DropOperatorSignature, DropPolicy, DropRule,
+    DropTrigger, ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     ExternalTablePartitionColumn, ForValues, ForeignDataWrapperRoutineClause, FunctionReturnType,
     GeneratedAs, GeneratedExpressionMode, IdentityParameters, IdentityProperty,
     IdentityPropertyFormatKind, IdentityPropertyKind, IdentityPropertyOrder, IndexColumn,
@@ -102,7 +100,8 @@ pub use self::ddl::{
     SemanticViewTable, SqliteTableOption, SqliteTableOptions, TagsColumnOption,
     TextSearchObjectType, TriggerObjectKind, Truncate, UserDefinedTypeCompositeAttributeDef,
     UserDefinedTypeInternalLength, UserDefinedTypeRangeOption, UserDefinedTypeRepresentation,
-    UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, ViewColumnDef, WithData,
+    UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, UserMappingUser, ViewColumnDef,
+    WithData,
 };
 pub use self::dml::{
     Delete, Insert, InsertOverriding, Merge, MergeAction, MergeClause, MergeClauseKind,
@@ -112,7 +111,6 @@ pub use self::dml::{
 };
 pub use self::operator::{BinaryOperator, UnaryOperator};
 pub use self::query::{
-    TableInheritance,
     AfterMatchSkip, ConnectByKind, Cte, CteAsMaterialized, Distinct, EmptyMatchesMode,
     ExceptSelectItem, ExcludeSelectItem, ExprWithAlias, ExprWithAliasAndOrderBy, Fetch, ForClause,
     ForJson, ForXml, FormatClause, GroupByExpr, GroupByWithModifier, IdentWithAlias,
@@ -127,8 +125,8 @@ pub use self::query::{
     SelectFlavor, SelectInto, SelectItem, SelectItemQualifiedWildcardKind, SelectModifiers,
     SemanticViewQueryClause, SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table,
     TableAlias, TableAliasColumnDef, TableFactor, TableFunctionArgs, TableIndexDirective,
-    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableSample,
-    TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
+    TableIndexHintForClause, TableIndexHintType, TableIndexHints, TableIndexType, TableInheritance,
+    TableSample, TableSampleBucket, TableSampleKind, TableSampleMethod, TableSampleModifier,
     TableSampleQuantity, TableSampleSeed, TableSampleSeedModifier, TableSampleUnit, TableVersion,
     TableWithJoins, Top, TopQuantity, UpdateTableFromKind, ValueTableMode, Values,
     WildcardAdditionalOptions, With, WithFill, XmlNamespaceDefinition, XmlPassingArgument,
@@ -17370,7 +17368,11 @@ impl fmt::Display for ExternalVolumeStorageLocation {
         if self.aws_key_id.is_some() || self.aws_secret_key.is_some() {
             write!(f, " CREDENTIALS = (")?;
             if let Some(key_id) = &self.aws_key_id {
-                write!(f, "AWS_KEY_ID = '{}'", value::escape_single_quote_string(key_id))?;
+                write!(
+                    f,
+                    "AWS_KEY_ID = '{}'",
+                    value::escape_single_quote_string(key_id)
+                )?;
             }
             if let Some(secret_key) = &self.aws_secret_key {
                 if self.aws_key_id.is_some() {

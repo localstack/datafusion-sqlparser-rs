@@ -315,19 +315,25 @@ impl SnowflakeDialect {
                     return Some(parse_execute_code_bundle(parser, legacy, execute_token));
                 }
             }
-            if matches!(&first.token, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("NOTEBOOK")) {
+            if matches!(&first.token, Token::Word(word) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("NOTEBOOK"))
+            {
                 let execute_token = AttachedToken(parser.next_token());
                 parser.next_token();
                 return Some((|| {
                     let name = parser.parse_object_name(false)?;
                     let args = if parser.consume_token(&Token::LParen) {
-                        let args = parser.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
+                        let args =
+                            parser.parse_comma_separated0(Parser::parse_expr, Token::RParen)?;
                         parser.expect_token(&Token::RParen)?;
                         args
                     } else {
                         Vec::new()
                     };
-                    Ok(Statement::ExecuteNotebook { execute_token, name, args })
+                    Ok(Statement::ExecuteNotebook {
+                        execute_token,
+                        name,
+                        args,
+                    })
                 })());
             }
         }
@@ -1051,7 +1057,9 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] AUTHENTICATION POLICY
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICY]) {
-                return Some(parse_create_authentication_policy(or_replace, or_alter, parser));
+                return Some(parse_create_authentication_policy(
+                    or_replace, or_alter, parser,
+                ));
             }
 
             // CREATE [OR REPLACE | OR ALTER] BACKUP SET
@@ -1220,7 +1228,10 @@ impl SnowflakeDialect {
                         let key = parser.parse_identifier()?;
                         parser.expect_token(&Token::Eq)?;
                         let value = parser.parse_expr()?;
-                        options.push(SqlOption::KeyValue { key: key.into(), value });
+                        options.push(SqlOption::KeyValue {
+                            key: key.into(),
+                            value,
+                        });
                     }
                     Ok(Statement::CreateGitRepository {
                         or_replace,
@@ -2821,7 +2832,10 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
         loop {
             let key = parser.parse_identifier()?;
             parser.expect_token(&Token::Eq)?;
-            parameters.push(SqlOption::KeyValue { key: key.into(), value: parser.parse_expr()? });
+            parameters.push(SqlOption::KeyValue {
+                key: key.into(),
+                value: parser.parse_expr()?,
+            });
             if !parser.consume_token(&Token::Comma)
                 && !matches!(&parser.peek_token_ref().token, Token::Word(word)
                     if word.quote_style.is_none() && matches!(word.value.to_uppercase().as_str(), "LOG_LEVEL" | "TRACE_LEVEL" | "AUTO_EVENT_LOGGING" | "COMMENT"))
@@ -2831,7 +2845,9 @@ fn parse_alter_procedure(parser: &mut Parser) -> Result<Statement, ParserError> 
         }
         match parameters.as_slice() {
             [SqlOption::KeyValue { key, value }] if matches!(key.0.as_slice(), [crate::ast::ObjectNamePart::Identifier(ident)] if ident.value.eq_ignore_ascii_case("COMMENT")) => {
-                AlterProcedureOperation::SetComment { comment: value.clone() }
+                AlterProcedureOperation::SetComment {
+                    comment: value.clone(),
+                }
             }
             _ => AlterProcedureOperation::SetParameters { parameters },
         }
@@ -4095,7 +4111,10 @@ pub fn parse_create_database(
                     } else {
                         parser.parse_expr()?
                     };
-                    options.push(SqlOption::KeyValue { key: name.into(), value });
+                    options.push(SqlOption::KeyValue {
+                        key: name.into(),
+                        value,
+                    });
                     let _ = parser.consume_token(&Token::Comma);
                 }
                 builder.linked_catalog = Some(options);
@@ -7363,7 +7382,9 @@ fn parse_alter_session_policy(parser: &mut Parser) -> Result<Statement, ParserEr
                 tags: parser.parse_comma_separated(|parser| parser.parse_object_name(false))?,
             }
         } else {
-            AlterSessionPolicyOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+            AlterSessionPolicyOperation::Unset(
+                parser.parse_comma_separated(Parser::parse_identifier)?,
+            )
         }
     } else {
         return parser.expected_ref("SET, UNSET, or RENAME TO", parser.peek_token_ref());
@@ -7890,7 +7911,10 @@ fn parse_execute_code_bundle(
         } else {
             parser.parse_expr()?
         };
-        options.push(SqlOption::KeyValue { key: key.into(), value });
+        options.push(SqlOption::KeyValue {
+            key: key.into(),
+            value,
+        });
     }
     Ok(Statement::ExecuteCodeBundle {
         execute_token,
@@ -7937,7 +7961,10 @@ fn parse_streamlit_options(parser: &mut Parser) -> Result<Vec<SqlOption>, Parser
         } else {
             parser.parse_expr()?
         };
-        options.push(SqlOption::KeyValue { key: key.into(), value });
+        options.push(SqlOption::KeyValue {
+            key: key.into(),
+            value,
+        });
     }
     Ok(options)
 }

@@ -25,8 +25,8 @@ use serde::{Deserialize, Serialize};
 use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::{
-    CatalogSyncNamespaceMode, ContactEntry, ObjectName, SqlOption, Statement, StorageSerializationPolicy,
-    TableVersion, Tag,
+    CatalogSyncNamespaceMode, ContactEntry, ObjectName, SqlOption, Statement,
+    StorageSerializationPolicy, TableVersion, Tag,
 };
 use crate::parser::ParserError;
 
