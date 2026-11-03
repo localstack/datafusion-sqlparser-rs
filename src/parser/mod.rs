@@ -20629,6 +20629,22 @@ impl<'a> Parser<'a> {
         let session = self.parse_keyword(Keyword::SESSION);
         let global = self.parse_keyword(Keyword::GLOBAL);
         let external = self.parse_keyword(Keyword::EXTERNAL);
+        if self.parse_keywords(&[Keyword::SHARED, Keyword::CONTENT]) {
+            self.expect_keywords(&[Keyword::IN, Keyword::APPLICATION, Keyword::PACKAGE])?;
+            let name = self.parse_object_name(false)?;
+            let version = if self.parse_keywords(&[Keyword::FOR, Keyword::VERSION]) {
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            };
+            let patch = if self.parse_keyword(Keyword::PATCH) {
+                Some(self.parse_number_value()?.value)
+            } else {
+                None
+            };
+            let version_quoted = version.as_ref().is_some_and(|version| version.quote_style.is_some());
+            return Ok(Statement::ShowApplicationPackageSharedContent { name, version, patch, version_quoted });
+        }
         if let Ok((kind, show_options)) = self.try_parse(|parser| {
             let kind = if parser.parse_keyword(Keyword::RELEASE) {
                 Ident::new(format!("RELEASE {}", parser.parse_identifier()?.value.to_ascii_uppercase()))
