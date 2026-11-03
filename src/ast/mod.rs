@@ -5195,6 +5195,17 @@ pub enum Statement {
         #[doc = "Listing scope and filters."]
         show_options: ShowStatementOptions,
     },
+    #[doc = "SHOW SHARED CONTENT IN APPLICATION PACKAGE."]
+    ShowApplicationPackageSharedContent {
+        #[doc = "Application package name."]
+        name: ObjectName,
+        #[doc = "Version qualification."]
+        version: Option<Ident>,
+        #[doc = "Whether the version was originally quoted."]
+        version_quoted: bool,
+        #[doc = "Patch qualification."]
+        patch: Option<Value>,
+    },
     /// ```sql
     /// CREATE DATABASE
     /// ```
@@ -8586,6 +8597,12 @@ impl fmt::Display for Statement {
             Statement::ShowApplicationPackageVersions { kind, channel, show_options } => {
                 write!(f, "SHOW {kind}{show_options}")?;
                 if let Some(channel) = channel { write!(f, " FOR RELEASE CHANNEL {channel}")?; }
+                Ok(())
+            }
+            Statement::ShowApplicationPackageSharedContent { name, version, patch, .. } => {
+                write!(f, "SHOW SHARED CONTENT IN APPLICATION PACKAGE {name}")?;
+                if let Some(version) = version { write!(f, " FOR VERSION {version}")?; }
+                if let Some(patch) = patch { write!(f, " PATCH {patch}")?; }
                 Ok(())
             }
             Statement::CreateDatabase {
