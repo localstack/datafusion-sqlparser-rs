@@ -5133,7 +5133,13 @@ pub enum Statement {
         #[doc = "Source package."]
         package: ObjectName,
         #[doc = "Source stage directory."]
-        location: String,
+        location: Option<String>,
+        #[doc = "Registered version source."]
+        version: Option<Ident>,
+        #[doc = "Explicit registered patch."]
+        patch: Option<u64>,
+        #[doc = "Release channel source."]
+        release_channel: Option<Ident>,
     },
     #[doc = "DROP APPLICATION."]
     DropApplication {
@@ -5192,6 +5198,8 @@ pub enum Statement {
         name: ObjectName,
         #[doc = "Version operation."]
         operation: Ident,
+        #[doc = "Release channel, when supplied."]
+        channel: Option<Ident>,
         #[doc = "Version name, when supplied."]
         version: Option<Ident>,
         #[doc = "Explicit patch number."]
@@ -5205,6 +5213,10 @@ pub enum Statement {
     },
     #[doc = "SHOW VERSIONS IN APPLICATION PACKAGE."]
     ShowApplicationPackageVersions {
+        #[doc = "VERSIONS, RELEASE CHANNELS or RELEASE DIRECTIVES."]
+        kind: Ident,
+        #[doc = "Optional release directive channel filter."]
+        channel: Option<Ident>,
         #[doc = "Listing scope and filters."]
         show_options: ShowStatementOptions,
     },
@@ -8569,8 +8581,13 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::CreateApplication { name, package, location } => {
-                write!(f, "CREATE APPLICATION {name} FROM APPLICATION PACKAGE {package} USING {}", Value::SingleQuotedString(location.clone()))
+            Statement::CreateApplication { name, package, location, version, patch, release_channel } => {
+                write!(f, "CREATE APPLICATION {name} FROM APPLICATION PACKAGE {package}")?;
+                if let Some(location) = location { write!(f, " USING {}", Value::SingleQuotedString(location.clone()))?; }
+                if let Some(version) = version { write!(f, " USING VERSION {version}")?; }
+                if let Some(patch) = patch { write!(f, " PATCH {patch}")?; }
+                if let Some(channel) = release_channel { write!(f, " USING RELEASE CHANNEL {channel}")?; }
+                Ok(())
             }
             Statement::DropApplication { name, if_exists, cascade } => {
                 write!(f, "DROP APPLICATION {}{name}{}", if *if_exists { "IF EXISTS " } else { "" }, if *cascade { " CASCADE" } else { "" })
@@ -8580,8 +8597,15 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeApplicationPackage { name } => write!(f, "DESCRIBE APPLICATION PACKAGE {name}"),
             Statement::ShowApplicationPackages { show_options } => write!(f, "SHOW APPLICATION PACKAGES{show_options}"),
-            Statement::AlterApplicationPackageVersion { name, operation, version, patch, label, source, for_version } => {
-                write!(f, "ALTER APPLICATION PACKAGE {name} {operation}")?;
+            Statement::AlterApplicationPackageVersion { name, operation, channel, version, patch, label, source, for_version } => {
+                write!(f, "ALTER APPLICATION PACKAGE {name} ")?;
+                if let Some(channel) = channel { write!(f, "MODIFY RELEASE CHANNEL {channel} ")?; }
+                write!(f, "{operation}")?;
+                if operation.value == "SET DEFAULT RELEASE DIRECTIVE" {
+                    if let Some(version) = version { write!(f, " VERSION = {version}")?; }
+                    if let Some(patch) = patch { write!(f, " PATCH = {patch}")?; }
+                    return Ok(());
+                }
                 if operation.value == "ADD PATCH" {
                     if let Some(patch) = patch { write!(f, " {patch}")?; }
                     if *for_version { write!(f, " FOR VERSION")?; }
@@ -8594,7 +8618,11 @@ impl fmt::Display for Statement {
                 if let Some(label) = label { write!(f, " LABEL = '{}'", value::escape_single_quote_string(label))?; }
                 Ok(())
             }
-            Statement::ShowApplicationPackageVersions { show_options } => write!(f, "SHOW VERSIONS{show_options}"),
+            Statement::ShowApplicationPackageVersions { kind, channel, show_options } => {
+                write!(f, "SHOW {kind}{show_options}")?;
+                if let Some(channel) = channel { write!(f, " FOR RELEASE CHANNEL {channel}")?; }
+                Ok(())
+            }
             Statement::CreateDatabase {
                 db_name,
                 if_not_exists,

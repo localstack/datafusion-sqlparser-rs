@@ -6363,12 +6363,30 @@ impl<'a> Parser<'a> {
             let name = self.parse_object_name(false)?;
             self.expect_keywords(&[Keyword::FROM, Keyword::APPLICATION, Keyword::PACKAGE])?;
             let package = self.parse_object_name(false)?;
-            self.expect_keyword(Keyword::USING)?;
-            let location = self.parse_literal_string()?;
+            let mut location = None;
+            let mut version = None;
+            let mut patch = None;
+            let mut release_channel = None;
+            if self.parse_keyword(Keyword::USING) {
+                if self.parse_keyword(Keyword::VERSION) {
+                    version = Some(self.parse_identifier()?);
+                    if self.parse_keyword(Keyword::PATCH) {
+                        patch = Some(self.parse_literal_uint()?);
+                    }
+                } else if self.parse_keyword(Keyword::RELEASE) {
+                    self.expect_keyword(Keyword::CHANNEL)?;
+                    release_channel = Some(self.parse_identifier()?);
+                } else {
+                    location = Some(self.parse_literal_string()?);
+                }
+            }
             Ok(Statement::CreateApplication {
                 name,
                 package,
                 location,
+                version,
+                patch,
+                release_channel,
             })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
@@ -14559,7 +14577,33 @@ impl<'a> Parser<'a> {
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let name = self.parse_object_name(false)?;
+            let channel = if self.parse_keyword(Keyword::MODIFY) {
+                self.expect_keywords(&[Keyword::RELEASE, Keyword::CHANNEL])?;
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            };
             let action = self.parse_identifier()?.value.to_ascii_uppercase();
+            if action == "SET" {
+                self.expect_keywords(&[Keyword::DEFAULT, Keyword::RELEASE, Keyword::DIRECTIVE, Keyword::VERSION])?;
+                self.expect_token(&Token::Eq)?;
+                let version = Some(self.parse_identifier()?);
+                self.expect_keyword(Keyword::PATCH)?;
+                self.expect_token(&Token::Eq)?;
+                let patch = Some(self.parse_literal_uint()?);
+                return Ok(Statement::AlterApplicationPackageVersion {
+                    name, channel, operation: Ident::new("SET DEFAULT RELEASE DIRECTIVE"),
+                    version, patch, source: None, label: None, for_version: false,
+                });
+            }
+            if channel.is_some() {
+                self.expect_keyword(Keyword::VERSION)?;
+                return Ok(Statement::AlterApplicationPackageVersion {
+                    name, channel, operation: Ident::new(action),
+                    version: Some(self.parse_identifier()?), patch: None,
+                    source: None, label: None, for_version: false,
+                });
+            }
             let mut patch_number = None;
             let mut for_version = false;
             let (operation, version, source) = match action.as_str() {
@@ -14622,6 +14666,7 @@ impl<'a> Parser<'a> {
                 None
             };
             return Ok(Statement::AlterApplicationPackageVersion {
+                channel,
                 name,
                 operation: Ident::new(operation),
                 version,
@@ -20745,18 +20790,29 @@ impl<'a> Parser<'a> {
         let session = self.parse_keyword(Keyword::SESSION);
         let global = self.parse_keyword(Keyword::GLOBAL);
         let external = self.parse_keyword(Keyword::EXTERNAL);
-        if let Ok(show_options) = self.try_parse(|parser| {
-            parser.expect_keyword(Keyword::VERSIONS)?;
+        if let Ok((kind, show_options)) = self.try_parse(|parser| {
+            let kind = if parser.parse_keyword(Keyword::RELEASE) {
+                Ident::new(format!("RELEASE {}", parser.parse_identifier()?.value.to_ascii_uppercase()))
+            } else {
+                parser.expect_keyword(Keyword::VERSIONS)?;
+                Ident::new("VERSIONS")
+            };
             let options = parser.parse_show_stmt_options()?;
             if options.show_in.as_ref().is_some_and(|scope| {
                 scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)
             }) {
-                Ok(options)
+                Ok((kind, options))
             } else {
                 parser.expected("IN APPLICATION PACKAGE", parser.peek_token())
             }
         }) {
-            return Ok(Statement::ShowApplicationPackageVersions { show_options });
+            let channel = if kind.value == "RELEASE DIRECTIVES" && self.parse_keyword(Keyword::FOR) {
+                self.expect_keywords(&[Keyword::RELEASE, Keyword::CHANNEL])?;
+                Some(self.parse_identifier()?)
+            } else {
+                None
+            };
+            return Ok(Statement::ShowApplicationPackageVersions { kind, channel, show_options });
         }
         if self
             .parse_one_of_keywords(&[Keyword::COLUMNS, Keyword::FIELDS])
