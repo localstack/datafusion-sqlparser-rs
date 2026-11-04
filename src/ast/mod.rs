@@ -5196,6 +5196,17 @@ pub enum Statement {
         #[doc = "Listing filters and pagination."]
         show_options: ShowStatementOptions,
     },
+    #[doc = "ALTER APPLICATION PACKAGE release-channel target accounts."]
+    AlterApplicationPackageAccounts {
+        #[doc = "Package name."]
+        name: ObjectName,
+        #[doc = "Release channel name."]
+        channel: Ident,
+        #[doc = "Account list mutation."]
+        operation: Ident,
+        #[doc = "Target accounts."]
+        accounts: Vec<ObjectName>,
+    },
     #[doc = "ALTER APPLICATION PACKAGE version lifecycle."]
     AlterApplicationPackageVersion {
         #[doc = "Package name."]
@@ -8616,6 +8627,9 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeApplicationPackage { name } => write!(f, "DESCRIBE APPLICATION PACKAGE {name}"),
             Statement::ShowApplicationPackages { show_options } => write!(f, "SHOW APPLICATION PACKAGES{show_options}"),
+            Statement::AlterApplicationPackageAccounts { name, channel, operation, accounts } => {
+                write!(f, "ALTER APPLICATION PACKAGE {name} MODIFY RELEASE CHANNEL {channel} {operation} ACCOUNTS = ({})", display_comma_separated(accounts))
+            }
             Statement::AlterApplicationPackageVersion { name, operation, channel, version, patch, label, source, for_version } => {
                 write!(f, "ALTER APPLICATION PACKAGE {name} ")?;
                 if let Some(channel) = channel { write!(f, "MODIFY RELEASE CHANNEL {channel} ")?; }
