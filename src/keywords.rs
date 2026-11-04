@@ -354,6 +354,7 @@ define_keywords!(
     DAYS,
     DCPROPERTIES,
     DEALLOCATE,
+    DEBUG_MODE,
     DEC,
     DECADE,
     DECIMAL,
