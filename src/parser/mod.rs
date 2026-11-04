@@ -6412,6 +6412,16 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                || self.parse_keyword(Keyword::TAG)
+            {
+                self.expect_token(&Token::LParen)?;
+                let tags = self.parse_comma_separated(Parser::parse_tag)?;
+                self.expect_token(&Token::RParen)?;
+                tags
+            } else {
+                Vec::new()
+            };
             Ok(Statement::CreateApplication {
                 name,
                 package,
@@ -6421,6 +6431,7 @@ impl<'a> Parser<'a> {
                 release_channel,
                 debug_mode,
                 comment,
+                with_tags,
             })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
