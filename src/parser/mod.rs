@@ -6393,7 +6393,7 @@ impl<'a> Parser<'a> {
                     self.expect_keyword(Keyword::CHANNEL)?;
                     release_channel = Some(self.parse_identifier()?);
                 } else {
-                    location = Some(self.parse_literal_string()?);
+                    location = Some(self.parse_application_stage_source()?);
                 }
             }
             let debug_mode = if self.parse_keyword(Keyword::DEBUG_MODE) {
@@ -14665,7 +14665,7 @@ impl<'a> Parser<'a> {
                         Some(self.parse_identifier()?)
                     };
                     self.expect_keyword(Keyword::USING)?;
-                    (action, version, Some(self.parse_literal_string()?))
+                    (action, version, Some(self.parse_application_stage_source()?))
                 }
                 "ADD" => {
                     let patch = self.parse_keyword(Keyword::PATCH);
@@ -14695,7 +14695,7 @@ impl<'a> Parser<'a> {
                     (
                         if patch { "ADD PATCH".into() } else { action },
                         version,
-                        Some(self.parse_literal_string()?),
+                        Some(self.parse_application_stage_source()?),
                     )
                 }
                 "DROP" | "DEREGISTER" => {
@@ -17027,6 +17027,15 @@ impl<'a> Parser<'a> {
                 None
             },
         })
+    }
+
+    /// Parse a Native App source, retaining identifier quotes in bare stage paths.
+    pub fn parse_application_stage_source(&mut self) -> Result<String, ParserError> {
+        if self.peek_token().token == Token::AtSign {
+            Ok(parse_snowflake_stage_name(self)?.to_string())
+        } else {
+            self.parse_literal_string()
+        }
     }
 
     /// Parse a literal string
