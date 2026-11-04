@@ -14477,13 +14477,48 @@ impl<'a> Parser<'a> {
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let name = self.parse_object_name(false)?;
-            let channel = if self.parse_keyword(Keyword::MODIFY) {
-                self.expect_keywords(&[Keyword::RELEASE, Keyword::CHANNEL])?;
+            let channel = if self.parse_keywords(&[Keyword::MODIFY, Keyword::RELEASE, Keyword::CHANNEL]) {
                 Some(self.parse_identifier()?)
             } else {
                 None
             };
             let action = self.parse_identifier()?.value.to_ascii_uppercase();
+            if matches!(action.as_str(), "SET" | "MODIFY" | "UNSET")
+                && self.parse_keywords(&[Keyword::RELEASE, Keyword::DIRECTIVE])
+            {
+                let directive = self.parse_identifier()?;
+                let accounts = if action == "SET" {
+                    self.expect_keyword(Keyword::ACCOUNTS)?;
+                    self.expect_token(&Token::Eq)?;
+                    self.expect_token(&Token::LParen)?;
+                    let accounts = if self.consume_token(&Token::RParen) {
+                        vec![]
+                    } else {
+                        let accounts = self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                        self.expect_token(&Token::RParen)?;
+                        accounts
+                    };
+                    Some(accounts)
+                } else {
+                    None
+                };
+                let version = if action == "SET" || self.peek_keyword(Keyword::VERSION) {
+                    self.expect_keyword(Keyword::VERSION)?;
+                    self.expect_token(&Token::Eq)?;
+                    Some(self.parse_identifier()?)
+                } else {
+                    None
+                };
+                let patch = if self.parse_keyword(Keyword::PATCH) {
+                    self.expect_token(&Token::Eq)?;
+                    Some(self.parse_literal_uint()?)
+                } else {
+                    None
+                };
+                return Ok(Statement::AlterApplicationPackageReleaseDirective {
+                    name, channel, operation: Ident::new(action), directive, accounts, version, patch,
+                });
+            }
             if let Some(channel) = channel.as_ref().filter(|_| self.peek_keyword(Keyword::ACCOUNTS)) {
                 let channel = channel.clone();
                 self.expect_keyword(Keyword::ACCOUNTS)?;

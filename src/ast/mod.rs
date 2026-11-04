@@ -5203,6 +5203,23 @@ pub enum Statement {
         #[doc = "Stage source directory."]
         source: Option<String>,
     },
+    #[doc = "ALTER APPLICATION PACKAGE named release directive lifecycle."]
+    AlterApplicationPackageReleaseDirective {
+        #[doc = "Package name."]
+        name: ObjectName,
+        #[doc = "Release channel."]
+        channel: Option<Ident>,
+        #[doc = "SET, MODIFY, or UNSET."]
+        operation: Ident,
+        #[doc = "Directive name."]
+        directive: Ident,
+        #[doc = "Initial target accounts."]
+        accounts: Option<Vec<ObjectName>>,
+        #[doc = "Target version."]
+        version: Option<Ident>,
+        #[doc = "Target patch."]
+        patch: Option<u64>,
+    },
     #[doc = "SHOW VERSIONS IN APPLICATION PACKAGE."]
     ShowApplicationPackageVersions {
         #[doc = "VERSIONS, RELEASE CHANNELS or RELEASE DIRECTIVES."]
@@ -8617,6 +8634,15 @@ impl fmt::Display for Statement {
                 }
                 if let Some(source) = source { write!(f, " USING '{}'", value::escape_single_quote_string(source))?; }
                 if let Some(label) = label { write!(f, " LABEL = '{}'", value::escape_single_quote_string(label))?; }
+                Ok(())
+            }
+            Statement::AlterApplicationPackageReleaseDirective { name, channel, operation, directive, accounts, version, patch } => {
+                write!(f, "ALTER APPLICATION PACKAGE {name} ")?;
+                if let Some(channel) = channel { write!(f, "MODIFY RELEASE CHANNEL {channel} ")?; }
+                write!(f, "{operation} RELEASE DIRECTIVE {directive}")?;
+                if let Some(accounts) = accounts { write!(f, " ACCOUNTS = ({})", display_comma_separated(accounts))?; }
+                if let Some(version) = version { write!(f, " VERSION = {version}")?; }
+                if let Some(patch) = patch { write!(f, " PATCH = {patch}")?; }
                 Ok(())
             }
             Statement::ShowApplicationPackageVersions { kind, channel, show_options } => {
