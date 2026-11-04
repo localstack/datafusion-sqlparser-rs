@@ -6342,6 +6342,16 @@ impl<'a> Parser<'a> {
                     location = Some(self.parse_literal_string()?);
                 }
             }
+            let comment = if self.parse_keyword(Keyword::COMMENT) {
+                self.expect_token(&Token::Eq)?;
+                Some(if matches!(self.peek_token_ref().token, Token::Word(_)) {
+                    self.parse_identifier()?.value
+                } else {
+                    self.parse_literal_string()?
+                })
+            } else {
+                None
+            };
             Ok(Statement::CreateApplication {
                 name,
                 package,
@@ -6349,6 +6359,7 @@ impl<'a> Parser<'a> {
                 version,
                 patch,
                 release_channel,
+                comment,
             })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)
