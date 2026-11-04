@@ -17725,6 +17725,8 @@ impl fmt::Display for AlterFileFormatOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterStageOperation {
+    /// `UNSET STAGE_UNDROP_RETENTION_TIME_IN_DAYS`.
+    UnsetRetention,
     /// `RENAME TO <new_name>`
     RenameTo(ObjectName),
     /// `SET <stage-params/options>` — the same property groups as `CREATE STAGE`.
@@ -17752,6 +17754,9 @@ pub enum AlterStageOperation {
 impl fmt::Display for AlterStageOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AlterStageOperation::UnsetRetention => {
+                f.write_str("UNSET STAGE_UNDROP_RETENTION_TIME_IN_DAYS")
+            }
             AlterStageOperation::RenameTo(name) => {
                 write!(f, "RENAME TO {name}")
             }
