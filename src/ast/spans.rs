@@ -486,6 +486,7 @@ impl Spanned for Statement {
             | Statement::DropApplication { name, .. }
             | Statement::DropApplicationPackage { name, .. }
             | Statement::AlterApplicationPackageVersion { name, .. }
+            | Statement::AlterApplicationPackageAccounts { name, .. }
             | Statement::DescribeApplicationPackage { name } => name.span(),
             Statement::ShowApplicationPackages { .. }
             | Statement::ShowApplicationPackageVersions { .. }
