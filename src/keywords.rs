@@ -1174,6 +1174,7 @@ define_keywords!(
     STAGE,
     STAGES,
     STAGE_FILE_FORMAT,
+    STAGE_UNDROP_RETENTION_TIME_IN_DAYS,
     START,
     STARTS,
     STATEMENT,
