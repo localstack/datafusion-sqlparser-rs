@@ -6374,6 +6374,24 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            let mut authorization = Vec::new();
+            while let Token::Word(property) = self.peek_token_ref().token.clone() {
+                if property.quote_style.is_some()
+                    || !matches!(
+                        property.value.to_ascii_uppercase().as_str(),
+                        "AUTHORIZE_TELEMETRY_EVENT_SHARING"
+                            | "AUTHORIZE_RESTRICTED_PROVIDER_REMOTE_OPERATIONS_UNTIL"
+                    )
+                {
+                    break;
+                }
+                let key = self.parse_identifier()?;
+                self.expect_token(&Token::Eq)?;
+                authorization.push(SqlOption::KeyValue {
+                    key: key.into(),
+                    value: self.parse_expr()?,
+                });
+            }
             let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
                 || self.parse_keyword(Keyword::TAG)
             {
@@ -6393,6 +6411,7 @@ impl<'a> Parser<'a> {
                 release_channel,
                 debug_mode,
                 comment,
+                authorization,
                 with_tags,
             })
         } else if self.parse_keyword(Keyword::COLLATION) {

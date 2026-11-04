@@ -5119,6 +5119,8 @@ pub enum Statement {
         debug_mode: Option<Expr>,
         #[doc = "Application comment."]
         comment: Option<String>,
+        #[doc = "Creation-time authorization declarations."]
+        authorization: Vec<SqlOption>,
         #[doc = "Inline tag assignments."]
         with_tags: Vec<Tag>,
     },
@@ -8596,7 +8598,7 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::CreateApplication { name, package, location, version, patch, release_channel, debug_mode, comment, with_tags } => {
+            Statement::CreateApplication { name, package, location, version, patch, release_channel, debug_mode, comment, authorization, with_tags } => {
                 write!(f, "CREATE APPLICATION {name} FROM APPLICATION PACKAGE {package}")?;
                 if let Some(location) = location { write!(f, " USING {}", Value::SingleQuotedString(location.clone()))?; }
                 if let Some(version) = version { write!(f, " USING VERSION {version}")?; }
@@ -8604,6 +8606,7 @@ impl fmt::Display for Statement {
                 if let Some(channel) = release_channel { write!(f, " USING RELEASE CHANNEL {channel}")?; }
                 if let Some(debug_mode) = debug_mode { write!(f, " DEBUG_MODE = {debug_mode}")?; }
                 if let Some(comment) = comment { write!(f, " COMMENT = {}", Value::SingleQuotedString(comment.clone()))?; }
+                for option in authorization { write!(f, " {option}")?; }
                 if !with_tags.is_empty() { write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?; }
                 Ok(())
             }
