@@ -6396,6 +6396,12 @@ impl<'a> Parser<'a> {
                     location = Some(self.parse_literal_string()?);
                 }
             }
+            let debug_mode = if self.parse_keyword(Keyword::DEBUG_MODE) {
+                self.expect_token(&Token::Eq)?;
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
             let comment = if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 Some(if matches!(self.peek_token_ref().token, Token::Word(_)) {
@@ -6413,6 +6419,7 @@ impl<'a> Parser<'a> {
                 version,
                 patch,
                 release_channel,
+                debug_mode,
                 comment,
             })
         } else if self.parse_keyword(Keyword::COLLATION) {
