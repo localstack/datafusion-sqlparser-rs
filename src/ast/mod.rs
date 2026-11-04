@@ -5151,6 +5151,8 @@ pub enum Statement {
         if_not_exists: bool,
         #[doc = "Creation properties."]
         options: Vec<SqlOption>,
+        #[doc = "Inline tag assignments."]
+        with_tags: Vec<Tag>,
     },
     #[doc = "DROP APPLICATION PACKAGE."]
     DropApplicationPackage {
@@ -8543,7 +8545,7 @@ impl fmt::Display for Statement {
 
                 Ok(())
             }
-            Statement::CreateApplicationPackage { name, if_not_exists, options, or_alter, transient, temporary, scoped, global, volatile, multiset, view_params } => {
+            Statement::CreateApplicationPackage { name, if_not_exists, options, with_tags, or_alter, transient, temporary, scoped, global, volatile, multiset, view_params } => {
                 write!(f, "CREATE ")?;
                 if *or_alter { write!(f, "OR ALTER ")?; }
                 if let Some(multiset) = multiset { write!(f, "{} ", if *multiset { "MULTISET" } else { "SET" })?; }
@@ -8556,6 +8558,9 @@ impl fmt::Display for Statement {
                 write!(f, "APPLICATION PACKAGE {}{name}", if *if_not_exists { "IF NOT EXISTS " } else { "" })?;
                 for option in options {
                     write!(f, " {option}")?;
+                }
+                if !with_tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?;
                 }
                 Ok(())
             }
