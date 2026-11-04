@@ -14611,6 +14611,22 @@ impl<'a> Parser<'a> {
                 None
             };
             let action = self.parse_identifier()?.value.to_ascii_uppercase();
+            if let Some(channel) = channel.as_ref().filter(|_| self.peek_keyword(Keyword::ACCOUNTS)) {
+                let channel = channel.clone();
+                self.expect_keyword(Keyword::ACCOUNTS)?;
+                self.expect_token(&Token::Eq)?;
+                self.expect_token(&Token::LParen)?;
+                let accounts = if self.consume_token(&Token::RParen) {
+                    Vec::new()
+                } else {
+                    let accounts = self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                    self.expect_token(&Token::RParen)?;
+                    accounts
+                };
+                return Ok(Statement::AlterApplicationPackageAccounts {
+                    name, channel, operation: Ident::new(action), accounts,
+                });
+            }
             if action == "SET" {
                 self.expect_keywords(&[Keyword::DEFAULT, Keyword::RELEASE, Keyword::DIRECTIVE, Keyword::VERSION])?;
                 self.expect_token(&Token::Eq)?;
