@@ -27,7 +27,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::ast::helpers::key_value_options::KeyValueOptions;
-use crate::ast::{Ident, ObjectName, SelectItem};
+use crate::ast::{Ident, ObjectName, SelectItem, Value};
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
@@ -36,6 +36,8 @@ use sqlparser_derive::{Visit, VisitMut};
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 /// Parameters for a named stage object used in data loading/unloading.
 pub struct StageParamsObject {
+    /// Optional stage-level restoration retention override.
+    pub undrop_retention: Option<Value>,
     /// Optional URL for the stage.
     pub url: Option<String>,
     /// Encryption-related key/value options.
@@ -94,6 +96,9 @@ pub struct StageLoadSelectItem {
 
 impl fmt::Display for StageParamsObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(retention) = &self.undrop_retention {
+            write!(f, " STAGE_UNDROP_RETENTION_TIME_IN_DAYS={retention}")?;
+        }
         if let Some(ref url) = self.url {
             write!(f, " URL='{url}'")?;
         }

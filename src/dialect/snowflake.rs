@@ -4360,6 +4360,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
     let (mut url, mut storage_integration, mut endpoint) = (None, None, None);
     let mut use_privatelink_endpoint = None;
     let mut aws_access_point_arn = None;
+    let mut undrop_retention = None;
     let mut encryption = empty_options();
     let mut encryption_specified = false;
     let mut credentials = empty_options();
@@ -4398,6 +4399,11 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
         {
             parser.expect_token(&Token::Eq)?;
             aws_access_point_arn = Some(parser.parse_literal_string()?);
+        } else if undrop_retention.is_none()
+            && parser.parse_keyword(Keyword::STAGE_UNDROP_RETENTION_TIME_IN_DAYS)
+        {
+            parser.expect_token(&Token::Eq)?;
+            undrop_retention = Some(parser.parse_value()?.value);
         } else if credentials.options.is_empty() && parser.parse_keyword(Keyword::CREDENTIALS) {
             credentials_specified = true;
             parser.expect_token(&Token::Eq)?;
@@ -4443,6 +4449,7 @@ fn parse_stage_properties(parser: &mut Parser) -> Result<StageProperties, Parser
 
     Ok(StageProperties {
         stage_params: StageParamsObject {
+            undrop_retention,
             url,
             encryption,
             encryption_specified,
@@ -4560,6 +4567,9 @@ fn parse_alter_stage(parser: &mut Parser) -> Result<Statement, ParserError> {
             None
         };
         AlterStageOperation::Refresh { subpath }
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        parser.expect_keyword(Keyword::STAGE_UNDROP_RETENTION_TIME_IN_DAYS)?;
+        AlterStageOperation::UnsetRetention
     } else if parser.parse_keyword(Keyword::SET) {
         let StageProperties {
             stage_params,
@@ -4688,6 +4698,7 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
     let mut from_stage = None;
     let mut from_stage_args = None;
     let mut stage_params = StageParamsObject {
+        undrop_retention: None,
         url: None,
         encryption: KeyValueOptions {
             options: vec![],
@@ -4984,6 +4995,7 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
         from_obj_alias: None,
         from_obj_args: None,
         stage_params: StageParamsObject {
+            undrop_retention: None,
             url: None,
             encryption: KeyValueOptions {
                 options: vec![],
@@ -5202,6 +5214,7 @@ fn parse_stage_params(parser: &mut Parser) -> Result<StageParamsObject, ParserEr
     }
 
     Ok(StageParamsObject {
+        undrop_retention: None,
         url,
         encryption,
         encryption_specified,
