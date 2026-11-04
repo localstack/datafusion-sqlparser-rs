@@ -6296,6 +6296,11 @@ impl<'a> Parser<'a> {
             let name = self.parse_object_name(false)?;
             let mut options = Vec::new();
             while matches!(self.peek_token_ref().token, Token::Word(_)) {
+                if self.peek_keyword(Keyword::TAG)
+                    || self.peek_keywords(&[Keyword::WITH, Keyword::TAG])
+                {
+                    break;
+                }
                 let key = self.parse_identifier()?;
                 self.expect_token(&Token::Eq)?;
                 let value = self.parse_expr()?;
@@ -6304,10 +6309,21 @@ impl<'a> Parser<'a> {
                     value,
                 });
             }
+            let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                || self.parse_keyword(Keyword::TAG)
+            {
+                self.expect_token(&Token::LParen)?;
+                let tags = self.parse_comma_separated(Parser::parse_tag)?;
+                self.expect_token(&Token::RParen)?;
+                tags
+            } else {
+                Vec::new()
+            };
             Ok(Statement::CreateApplicationPackage {
                 name,
                 if_not_exists,
                 options,
+                with_tags,
                 or_alter,
                 transient,
                 temporary,
