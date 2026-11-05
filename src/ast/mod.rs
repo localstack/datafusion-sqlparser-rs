@@ -5246,6 +5246,8 @@ pub enum Statement {
         operation: Ident,
         #[doc = "Directive name."]
         directive: Ident,
+        #[doc = "Upgrade scheduling properties."]
+        scheduling: Vec<SqlOption>,
         #[doc = "Initial target accounts."]
         accounts: Option<Vec<ObjectName>>,
         #[doc = "ADD or REMOVE target accounts."]
@@ -8686,14 +8688,19 @@ impl fmt::Display for Statement {
                 if let Some(label) = label { write!(f, " LABEL = '{}'", value::escape_single_quote_string(label))?; }
                 Ok(())
             }
-            Statement::AlterApplicationPackageReleaseDirective { name, channel, operation, directive, accounts, account_operation, force, version, patch } => {
+            Statement::AlterApplicationPackageReleaseDirective { name, channel, operation, directive, scheduling, accounts, account_operation, force, version, patch } => {
                 write!(f, "ALTER APPLICATION PACKAGE {name} ")?;
                 if let Some(channel) = channel { write!(f, "MODIFY RELEASE CHANNEL {channel} ")?; }
-                write!(f, "{operation} RELEASE DIRECTIVE {directive}")?;
+                if operation.value == "SET DEFAULT RELEASE DIRECTIVE" {
+                    write!(f, "{operation}")?;
+                } else {
+                    write!(f, "{operation} RELEASE DIRECTIVE {directive}")?;
+                }
                 if let Some(operation) = account_operation { write!(f, " {operation}")?; }
                 if let Some(accounts) = accounts { write!(f, " ACCOUNTS = ({})", display_comma_separated(accounts))?; }
                 if let Some(version) = version { write!(f, " VERSION = {version}")?; }
                 if let Some(patch) = patch { write!(f, " PATCH = {patch}")?; }
+                for option in scheduling { write!(f, " {option}")?; }
                 if *force { write!(f, " FORCE")?; }
                 Ok(())
             }
