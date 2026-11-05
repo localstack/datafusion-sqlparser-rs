@@ -14707,9 +14707,14 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
+                let scheduling = if patch.is_some() && action != "UNSET" {
+                    self.parse_release_directive_scheduling()?
+                } else {
+                    Vec::new()
+                };
                 let force = self.parse_keyword(Keyword::FORCE);
                 return Ok(Statement::AlterApplicationPackageReleaseDirective {
-                    name, channel, operation: Ident::new(action), directive, accounts, account_operation, force, version, patch,
+                    name, channel, operation: Ident::new(action), directive, scheduling, accounts, account_operation, force, version, patch,
                 });
             }
             if let Some(channel) = channel.as_ref().filter(|_| self.peek_keyword(Keyword::ACCOUNTS)) {
@@ -14735,9 +14740,11 @@ impl<'a> Parser<'a> {
                 self.expect_keyword(Keyword::PATCH)?;
                 self.expect_token(&Token::Eq)?;
                 let patch = Some(self.parse_literal_uint()?);
-                return Ok(Statement::AlterApplicationPackageVersion {
+                let scheduling = self.parse_release_directive_scheduling()?;
+                return Ok(Statement::AlterApplicationPackageReleaseDirective {
                     name, channel, operation: Ident::new("SET DEFAULT RELEASE DIRECTIVE"),
-                    version, patch, source: None, label: None, for_version: false,
+                    directive: Ident::new("DEFAULT"), scheduling, version, patch,
+                    accounts: None, account_operation: None, force: false,
                 });
             }
             if channel.is_some() {
@@ -17121,6 +17128,21 @@ impl<'a> Parser<'a> {
                 None
             },
         })
+    }
+
+    fn parse_release_directive_scheduling(&mut self) -> Result<Vec<SqlOption>, ParserError> {
+        let mut options = Vec::new();
+        while matches!(&self.peek_token().token, Token::Word(word) if word.quote_style.is_none() && matches!(word.value.to_ascii_uppercase().as_str(), "UPGRADE_AFTER" | "UPGRADE_IN_MAINTENANCE_WINDOW" | "UPGRADE_DEADLINE")) {
+            let key = self.parse_identifier()?;
+            self.expect_token(&Token::Eq)?;
+            let value = if matches!(&self.peek_token().token, Token::Word(word) if !matches!(word.keyword, Keyword::TRUE | Keyword::FALSE | Keyword::NULL)) {
+                Expr::Identifier(self.parse_identifier()?)
+            } else {
+                Expr::Value(self.parse_value()?)
+            };
+            options.push(SqlOption::KeyValue { key: key.into(), value });
+        }
+        Ok(options)
     }
 
     /// Parse a Native App source, retaining identifier quotes in bare stage paths.
