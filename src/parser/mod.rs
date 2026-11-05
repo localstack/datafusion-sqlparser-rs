@@ -6370,26 +6370,28 @@ impl<'a> Parser<'a> {
                     location = Some(self.parse_application_stage_source()?);
                 }
             }
-            let debug_mode = if self.parse_keyword(Keyword::DEBUG_MODE) {
-                self.expect_token(&Token::Eq)?;
-                Some(self.parse_expr()?)
-            } else {
-                None
-            };
-            let comment = if self.parse_keyword(Keyword::COMMENT) {
-                self.expect_token(&Token::Eq)?;
-                Some(if matches!(self.peek_token_ref().token, Token::Word(_)) {
-                    self.parse_identifier()?.value
-                } else {
-                    self.parse_literal_string()?
-                })
-            } else {
-                None
-            };
+            let mut debug_mode = None;
+            let mut comment = None;
             let mut authorization = Vec::new();
             let mut with_tags = Vec::new();
             let mut background_install = None;
             loop {
+                if with_tags.is_empty() {
+                    if debug_mode.is_none() && self.parse_keyword(Keyword::DEBUG_MODE) {
+                        self.expect_token(&Token::Eq)?;
+                        debug_mode = Some(self.parse_expr()?);
+                        continue;
+                    }
+                    if comment.is_none() && self.parse_keyword(Keyword::COMMENT) {
+                        self.expect_token(&Token::Eq)?;
+                        comment = Some(if matches!(self.peek_token_ref().token, Token::Word(_)) {
+                            self.parse_identifier()?.value
+                        } else {
+                            self.parse_literal_string()?
+                        });
+                        continue;
+                    }
+                }
                 if with_tags.is_empty()
                     && (self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
                         || self.parse_keyword(Keyword::TAG))

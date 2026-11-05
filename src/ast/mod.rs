@@ -8616,9 +8616,10 @@ impl fmt::Display for Statement {
                 if let Some(channel) = release_channel { write!(f, " USING RELEASE CHANNEL {channel}")?; }
                 if let Some(debug_mode) = debug_mode { write!(f, " DEBUG_MODE = {debug_mode}")?; }
                 if let Some(comment) = comment { write!(f, " COMMENT = {}", Value::SingleQuotedString(comment.clone()))?; }
-                if !with_tags.is_empty() { write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?; }
+                if *from_listing && !with_tags.is_empty() { write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?; }
                 if let Some(background_install) = background_install { write!(f, " BACKGROUND_INSTALL = {background_install}")?; }
                 for option in authorization { write!(f, " {option}")?; }
+                if !*from_listing && !with_tags.is_empty() { write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?; }
                 Ok(())
             }
             Statement::DropApplication { name, if_exists, cascade } => {
