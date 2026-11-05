@@ -178,6 +178,7 @@ define_keywords!(
     AWS_SIGV4,
     AWS_SNS_TOPIC,
     AZURE_TENANT_ID,
+    BACKGROUND_INSTALL,
     BACKUP,
     BACKWARD,
     BASE64,
