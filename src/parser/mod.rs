@@ -14540,7 +14540,12 @@ impl<'a> Parser<'a> {
                 && self.parse_keywords(&[Keyword::RELEASE, Keyword::DIRECTIVE])
             {
                 let directive = self.parse_identifier()?;
-                let accounts = if action == "SET" {
+                let account_operation = if action == "MODIFY" {
+                    self.parse_one_of_keywords(&[Keyword::ADD, Keyword::REMOVE]).map(|keyword| Ident::new(keyword.to_string()))
+                } else {
+                    None
+                };
+                let accounts = if action == "SET" || account_operation.is_some() {
                     self.expect_keyword(Keyword::ACCOUNTS)?;
                     self.expect_token(&Token::Eq)?;
                     self.expect_token(&Token::LParen)?;
@@ -14555,7 +14560,7 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                let version = if action == "SET" || self.peek_keyword(Keyword::VERSION) {
+                let version = if self.peek_keyword(Keyword::VERSION) {
                     self.expect_keyword(Keyword::VERSION)?;
                     self.expect_token(&Token::Eq)?;
                     Some(self.parse_identifier()?)
@@ -14568,8 +14573,9 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
+                let force = self.parse_keyword(Keyword::FORCE);
                 return Ok(Statement::AlterApplicationPackageReleaseDirective {
-                    name, channel, operation: Ident::new(action), directive, accounts, version, patch,
+                    name, channel, operation: Ident::new(action), directive, accounts, account_operation, force, version, patch,
                 });
             }
             if let Some(channel) = channel.as_ref().filter(|_| self.peek_keyword(Keyword::ACCOUNTS)) {
