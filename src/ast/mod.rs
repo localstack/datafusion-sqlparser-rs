@@ -5101,12 +5101,14 @@ pub enum Statement {
         /// `None` when absent.
         with_tags: Option<Vec<Tag>>,
     },
-    #[doc = "CREATE APPLICATION from a staged package directory."]
+    #[doc = "CREATE APPLICATION from a package or listing."]
     CreateApplication {
         #[doc = "Application database name."]
         name: ObjectName,
-        #[doc = "Source package."]
-        package: ObjectName,
+        #[doc = "Source package or listing global name."]
+        source: ObjectName,
+        #[doc = "Whether the source is a listing rather than an application package."]
+        from_listing: bool,
         #[doc = "Source stage directory."]
         location: Option<String>,
         #[doc = "Registered version source."]
@@ -5123,6 +5125,8 @@ pub enum Statement {
         authorization: Vec<SqlOption>,
         #[doc = "Inline tag assignments."]
         with_tags: Vec<Tag>,
+        #[doc = "Whether a listing should be installed in the background."]
+        background_install: Option<Expr>,
     },
     #[doc = "DROP APPLICATION."]
     DropApplication {
@@ -8598,16 +8602,17 @@ impl fmt::Display for Statement {
                 }
                 Ok(())
             }
-            Statement::CreateApplication { name, package, location, version, patch, release_channel, debug_mode, comment, authorization, with_tags } => {
-                write!(f, "CREATE APPLICATION {name} FROM APPLICATION PACKAGE {package}")?;
+            Statement::CreateApplication { name, source, from_listing, location, version, patch, release_channel, debug_mode, comment, authorization, with_tags, background_install } => {
+                write!(f, "CREATE APPLICATION {name} FROM {} {source}", if *from_listing { "LISTING" } else { "APPLICATION PACKAGE" })?;
                 if let Some(location) = location { write!(f, " USING {}", Value::SingleQuotedString(location.clone()))?; }
                 if let Some(version) = version { write!(f, " USING VERSION {version}")?; }
                 if let Some(patch) = patch { write!(f, " PATCH {patch}")?; }
                 if let Some(channel) = release_channel { write!(f, " USING RELEASE CHANNEL {channel}")?; }
                 if let Some(debug_mode) = debug_mode { write!(f, " DEBUG_MODE = {debug_mode}")?; }
                 if let Some(comment) = comment { write!(f, " COMMENT = {}", Value::SingleQuotedString(comment.clone()))?; }
-                for option in authorization { write!(f, " {option}")?; }
                 if !with_tags.is_empty() { write!(f, " WITH TAG ({})", display_comma_separated(with_tags))?; }
+                if let Some(background_install) = background_install { write!(f, " BACKGROUND_INSTALL = {background_install}")?; }
+                for option in authorization { write!(f, " {option}")?; }
                 Ok(())
             }
             Statement::DropApplication { name, if_exists, cascade } => {
