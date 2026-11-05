@@ -6377,8 +6377,20 @@ impl<'a> Parser<'a> {
             self.parse_create_application_role(or_replace, false)
         } else if self.parse_keyword(Keyword::APPLICATION) {
             let name = self.parse_object_name(false)?;
-            self.expect_keywords(&[Keyword::FROM, Keyword::APPLICATION, Keyword::PACKAGE])?;
-            let package = self.parse_object_name(false)?;
+            self.expect_keyword(Keyword::FROM)?;
+            let from_listing = self.parse_keyword(Keyword::LISTING);
+            let source = if from_listing {
+                let identifier = if let Token::DollarQuotedString(literal) = self.peek_token().token {
+                    let span = self.next_token().span;
+                    Ident::with_quote_and_span('\'', span, literal.value)
+                } else {
+                    self.parse_identifier()?
+                };
+                ObjectName::from(identifier)
+            } else {
+                self.expect_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE])?;
+                self.parse_object_name(false)?
+            };
             let mut location = None;
             let mut version = None;
             let mut patch = None;
@@ -6413,7 +6425,26 @@ impl<'a> Parser<'a> {
                 None
             };
             let mut authorization = Vec::new();
-            while let Token::Word(property) = self.peek_token_ref().token.clone() {
+            let mut with_tags = Vec::new();
+            let mut background_install = None;
+            loop {
+                if with_tags.is_empty()
+                    && (self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                        || self.parse_keyword(Keyword::TAG))
+                {
+                    self.expect_token(&Token::LParen)?;
+                    with_tags = self.parse_comma_separated(Parser::parse_tag)?;
+                    self.expect_token(&Token::RParen)?;
+                    continue;
+                }
+                if background_install.is_none() && self.parse_keyword(Keyword::BACKGROUND_INSTALL) {
+                    self.expect_token(&Token::Eq)?;
+                    background_install = Some(self.parse_expr()?);
+                    continue;
+                }
+                let Token::Word(property) = self.peek_token_ref().token.clone() else {
+                    break;
+                };
                 if property.quote_style.is_some()
                     || !matches!(
                         property.value.to_ascii_uppercase().as_str(),
@@ -6430,19 +6461,10 @@ impl<'a> Parser<'a> {
                     value: self.parse_expr()?,
                 });
             }
-            let with_tags = if self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
-                || self.parse_keyword(Keyword::TAG)
-            {
-                self.expect_token(&Token::LParen)?;
-                let tags = self.parse_comma_separated(Parser::parse_tag)?;
-                self.expect_token(&Token::RParen)?;
-                tags
-            } else {
-                Vec::new()
-            };
             Ok(Statement::CreateApplication {
                 name,
-                package,
+                source,
+                from_listing,
                 location,
                 version,
                 patch,
@@ -6451,6 +6473,7 @@ impl<'a> Parser<'a> {
                 comment,
                 authorization,
                 with_tags,
+                background_install,
             })
         } else if self.parse_keyword(Keyword::COLLATION) {
             self.parse_create_collation().map(Into::into)

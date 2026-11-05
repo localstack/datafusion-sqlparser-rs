@@ -11694,3 +11694,38 @@ fn dataset_lifecycle() {
         assert!(snowflake().parse_sql_statements(statement).is_err());
     }
 }
+
+#[test]
+fn create_application_listing_and_background_install() {
+    for statement in [
+        "CREATE APPLICATION app FROM LISTING missing",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL = true",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL = false",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL = 'invalid'",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL = true AUTHORIZE_TELEMETRY_EVENT_SHARING = true",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL = false AUTHORIZE_RESTRICTED_PROVIDER_REMOTE_OPERATIONS_UNTIL = 'NEVER'",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL = true AUTHORIZE_TELEMETRY_EVENT_SHARING = false AUTHORIZE_RESTRICTED_PROVIDER_REMOTE_OPERATIONS_UNTIL = 'INDEFINITE'",
+        "CREATE APPLICATION app FROM LISTING missing WITH TAG (tag='value') BACKGROUND_INSTALL = true AUTHORIZE_TELEMETRY_EVENT_SHARING = true",
+        "CREATE APPLICATION app FROM LISTING 'missing'",
+        r#"CREATE APPLICATION app FROM LISTING "MixedListing""#,
+        "CREATE APPLICATION app FROM APPLICATION PACKAGE pkg USING '@stage' BACKGROUND_INSTALL = true",
+        "CREATE APPLICATION app FROM APPLICATION PACKAGE pkg USING '@stage' BACKGROUND_INSTALL = false",
+    ] {
+        snowflake().verified_stmt(statement);
+    }
+    snowflake().one_statement_parses_to(
+        "CREATE APPLICATION app FROM LISTING $$missing$$ BACKGROUND_INSTALL = FALSE",
+        "CREATE APPLICATION app FROM LISTING 'missing' BACKGROUND_INSTALL = false",
+    );
+    snowflake().one_statement_parses_to(
+        "CREATE APPLICATION app FROM LISTING missing AUTHORIZE_TELEMETRY_EVENT_SHARING = TRUE WITH TAG (tag = 'value') BACKGROUND_INSTALL = TRUE",
+        "CREATE APPLICATION app FROM LISTING missing WITH TAG (tag='value') BACKGROUND_INSTALL = true AUTHORIZE_TELEMETRY_EVENT_SHARING = true",
+    );
+    for statement in [
+        "CREATE APPLICATION app FROM LISTING",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL TRUE",
+        "CREATE APPLICATION app FROM LISTING missing BACKGROUND_INSTALL =",
+    ] {
+        assert!(snowflake().parse_sql_statements(statement).is_err());
+    }
+}
