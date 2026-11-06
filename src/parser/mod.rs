@@ -21032,6 +21032,8 @@ impl<'a> Parser<'a> {
             let options = parser.parse_show_stmt_options()?;
             if options.show_in.as_ref().is_some_and(|scope| {
                 scope.parent_type == Some(ShowStatementInParentType::ApplicationPackage)
+                    || (kind.value == "RELEASE CHANNELS"
+                        && scope.parent_type == Some(ShowStatementInParentType::Listing))
             }) {
                 Ok((kind, options))
             } else {
@@ -28013,6 +28015,7 @@ impl<'a> Parser<'a> {
             Keyword::APPLICATION,
             Keyword::CLASS,
             Keyword::DATABASE,
+            Keyword::LISTING,
             Keyword::SCHEMA,
             Keyword::TABLE,
             Keyword::VIEW,
@@ -28057,6 +28060,7 @@ impl<'a> Parser<'a> {
                     }
                     Keyword::CLASS => (Some(ShowStatementInParentType::Class), parent_name),
                     Keyword::DATABASE => (Some(ShowStatementInParentType::Database), parent_name),
+                    Keyword::LISTING => (Some(ShowStatementInParentType::Listing), parent_name),
                     Keyword::SCHEMA => (Some(ShowStatementInParentType::Schema), parent_name),
                     Keyword::TABLE => (Some(ShowStatementInParentType::Table), parent_name),
                     Keyword::VIEW => (Some(ShowStatementInParentType::View), parent_name),
