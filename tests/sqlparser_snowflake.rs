@@ -2705,7 +2705,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[0] {
@@ -2738,7 +2738,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     match &begin_stmts[0] {
@@ -6692,7 +6692,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     // First statement inside BEGIN...END is the bare assignment.
@@ -6728,7 +6728,7 @@ END; $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let seq = match body2 {
-        ConditionalStatements::Sequence { statements } => statements,
+        CreateProcedureBody::As(ConditionalStatements::Sequence { statements }) => statements,
         other => panic!("expected Sequence body, got {other:?}"),
     };
     assert_eq!(2, seq.len(), "expected DECLARE + BEGIN block");
@@ -6860,7 +6860,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     assert!(
@@ -6895,7 +6895,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     assert!(
@@ -6931,7 +6931,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[0] {
@@ -6967,7 +6967,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[0] {
@@ -7004,7 +7004,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     let decl = match &begin_stmts[1] {
@@ -7040,7 +7040,7 @@ END $$"#;
         other => panic!("expected CreateProcedure, got {other:?}"),
     };
     let begin_stmts = match body {
-        ConditionalStatements::BeginEnd(bes) => &bes.statements,
+        CreateProcedureBody::As(ConditionalStatements::BeginEnd(bes)) => &bes.statements,
         other => panic!("expected BeginEnd body, got {other:?}"),
     };
     assert!(
