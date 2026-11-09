@@ -6380,7 +6380,8 @@ impl<'a> Parser<'a> {
             self.expect_keyword(Keyword::FROM)?;
             let from_listing = self.parse_keyword(Keyword::LISTING);
             let source = if from_listing {
-                let identifier = if let Token::DollarQuotedString(literal) = self.peek_token().token {
+                let identifier = if let Token::DollarQuotedString(literal) = self.peek_token().token
+                {
                     let span = self.next_token().span;
                     Ident::with_quote_and_span('\'', span, literal.value)
                 } else {
@@ -14666,18 +14667,20 @@ impl<'a> Parser<'a> {
     pub fn parse_alter(&mut self) -> Result<Statement, ParserError> {
         if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let name = self.parse_object_name(false)?;
-            let channel = if self.parse_keywords(&[Keyword::MODIFY, Keyword::RELEASE, Keyword::CHANNEL]) {
-                Some(self.parse_identifier()?)
-            } else {
-                None
-            };
+            let channel =
+                if self.parse_keywords(&[Keyword::MODIFY, Keyword::RELEASE, Keyword::CHANNEL]) {
+                    Some(self.parse_identifier()?)
+                } else {
+                    None
+                };
             let action = self.parse_identifier()?.value.to_ascii_uppercase();
             if matches!(action.as_str(), "SET" | "MODIFY" | "UNSET")
                 && self.parse_keywords(&[Keyword::RELEASE, Keyword::DIRECTIVE])
             {
                 let directive = self.parse_identifier()?;
                 let account_operation = if action == "MODIFY" {
-                    self.parse_one_of_keywords(&[Keyword::ADD, Keyword::REMOVE]).map(|keyword| Ident::new(keyword.to_string()))
+                    self.parse_one_of_keywords(&[Keyword::ADD, Keyword::REMOVE])
+                        .map(|keyword| Ident::new(keyword.to_string()))
                 } else {
                     None
                 };
@@ -14688,7 +14691,8 @@ impl<'a> Parser<'a> {
                     let accounts = if self.consume_token(&Token::RParen) {
                         vec![]
                     } else {
-                        let accounts = self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                        let accounts =
+                            self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
                         self.expect_token(&Token::RParen)?;
                         accounts
                     };
@@ -14716,10 +14720,22 @@ impl<'a> Parser<'a> {
                 };
                 let force = self.parse_keyword(Keyword::FORCE);
                 return Ok(Statement::AlterApplicationPackageReleaseDirective {
-                    name, channel, operation: Ident::new(action), directive, scheduling, accounts, account_operation, force, version, patch,
+                    name,
+                    channel,
+                    operation: Ident::new(action),
+                    directive,
+                    scheduling,
+                    accounts,
+                    account_operation,
+                    force,
+                    version,
+                    patch,
                 });
             }
-            if let Some(channel) = channel.as_ref().filter(|_| self.peek_keyword(Keyword::ACCOUNTS)) {
+            if let Some(channel) = channel
+                .as_ref()
+                .filter(|_| self.peek_keyword(Keyword::ACCOUNTS))
+            {
                 let channel = channel.clone();
                 self.expect_keyword(Keyword::ACCOUNTS)?;
                 self.expect_token(&Token::Eq)?;
@@ -14727,16 +14743,25 @@ impl<'a> Parser<'a> {
                 let accounts = if self.consume_token(&Token::RParen) {
                     Vec::new()
                 } else {
-                    let accounts = self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
+                    let accounts =
+                        self.parse_comma_separated(|parser| parser.parse_object_name(false))?;
                     self.expect_token(&Token::RParen)?;
                     accounts
                 };
                 return Ok(Statement::AlterApplicationPackageAccounts {
-                    name, channel, operation: Ident::new(action), accounts,
+                    name,
+                    channel,
+                    operation: Ident::new(action),
+                    accounts,
                 });
             }
             if action == "SET" {
-                self.expect_keywords(&[Keyword::DEFAULT, Keyword::RELEASE, Keyword::DIRECTIVE, Keyword::VERSION])?;
+                self.expect_keywords(&[
+                    Keyword::DEFAULT,
+                    Keyword::RELEASE,
+                    Keyword::DIRECTIVE,
+                    Keyword::VERSION,
+                ])?;
                 self.expect_token(&Token::Eq)?;
                 let version = Some(self.parse_identifier()?);
                 self.expect_keyword(Keyword::PATCH)?;
@@ -14744,17 +14769,29 @@ impl<'a> Parser<'a> {
                 let patch = Some(self.parse_literal_uint()?);
                 let scheduling = self.parse_release_directive_scheduling()?;
                 return Ok(Statement::AlterApplicationPackageReleaseDirective {
-                    name, channel, operation: Ident::new("SET DEFAULT RELEASE DIRECTIVE"),
-                    directive: Ident::new("DEFAULT"), scheduling, version, patch,
-                    accounts: None, account_operation: None, force: false,
+                    name,
+                    channel,
+                    operation: Ident::new("SET DEFAULT RELEASE DIRECTIVE"),
+                    directive: Ident::new("DEFAULT"),
+                    scheduling,
+                    version,
+                    patch,
+                    accounts: None,
+                    account_operation: None,
+                    force: false,
                 });
             }
             if channel.is_some() {
                 self.expect_keyword(Keyword::VERSION)?;
                 return Ok(Statement::AlterApplicationPackageVersion {
-                    name, channel, operation: Ident::new(action),
-                    version: Some(self.parse_identifier()?), patch: None,
-                    source: None, label: None, for_version: false,
+                    name,
+                    channel,
+                    operation: Ident::new(action),
+                    version: Some(self.parse_identifier()?),
+                    patch: None,
+                    source: None,
+                    label: None,
+                    for_version: false,
                 });
             }
             let mut patch_number = None;
@@ -14768,7 +14805,11 @@ impl<'a> Parser<'a> {
                         Some(self.parse_identifier()?)
                     };
                     self.expect_keyword(Keyword::USING)?;
-                    (action, version, Some(self.parse_application_stage_source()?))
+                    (
+                        action,
+                        version,
+                        Some(self.parse_application_stage_source()?),
+                    )
                 }
                 "ADD" => {
                     let patch = self.parse_keyword(Keyword::PATCH);
@@ -14921,7 +14962,7 @@ impl<'a> Parser<'a> {
             _ => {
                 self.index = index;
                 self.expected_ref(
-                    "one of VIEW or MATERIALIZED VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or FOREIGN TABLE or SCHEMA or USER or OPERATOR or WAREHOUSE or TASK or ACCOUNT or TEXT SEARCH or STREAM or SEQUENCE or PIPE",
+                    "one of VIEW or MATERIALIZED VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or FOREIGN TABLE or SCHEMA or USER or OPERATOR",
                     self.peek_token_ref(),
                 )
             }
@@ -17134,15 +17175,20 @@ impl<'a> Parser<'a> {
 
     fn parse_release_directive_scheduling(&mut self) -> Result<Vec<SqlOption>, ParserError> {
         let mut options = Vec::new();
-        while matches!(&self.peek_token().token, Token::Word(word) if word.quote_style.is_none() && matches!(word.value.to_ascii_uppercase().as_str(), "UPGRADE_AFTER" | "UPGRADE_IN_MAINTENANCE_WINDOW" | "UPGRADE_DEADLINE")) {
+        while matches!(&self.peek_token().token, Token::Word(word) if word.quote_style.is_none() && matches!(word.value.to_ascii_uppercase().as_str(), "UPGRADE_AFTER" | "UPGRADE_IN_MAINTENANCE_WINDOW" | "UPGRADE_DEADLINE"))
+        {
             let key = self.parse_identifier()?;
             self.expect_token(&Token::Eq)?;
-            let value = if matches!(&self.peek_token().token, Token::Word(word) if !matches!(word.keyword, Keyword::TRUE | Keyword::FALSE | Keyword::NULL)) {
+            let value = if matches!(&self.peek_token().token, Token::Word(word) if !matches!(word.keyword, Keyword::TRUE | Keyword::FALSE | Keyword::NULL))
+            {
                 Expr::Identifier(self.parse_identifier()?)
             } else {
                 Expr::Value(self.parse_value()?)
             };
-            options.push(SqlOption::KeyValue { key: key.into(), value });
+            options.push(SqlOption::KeyValue {
+                key: key.into(),
+                value,
+            });
         }
         Ok(options)
     }
@@ -20980,12 +21026,22 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            let version_quoted = version.as_ref().is_some_and(|version| version.quote_style.is_some());
-            return Ok(Statement::ShowApplicationPackageSharedContent { name, version, patch, version_quoted });
+            let version_quoted = version
+                .as_ref()
+                .is_some_and(|version| version.quote_style.is_some());
+            return Ok(Statement::ShowApplicationPackageSharedContent {
+                name,
+                version,
+                patch,
+                version_quoted,
+            });
         }
         if let Ok((kind, show_options)) = self.try_parse(|parser| {
             let kind = if parser.parse_keyword(Keyword::RELEASE) {
-                Ident::new(format!("RELEASE {}", parser.parse_identifier()?.value.to_ascii_uppercase()))
+                Ident::new(format!(
+                    "RELEASE {}",
+                    parser.parse_identifier()?.value.to_ascii_uppercase()
+                ))
             } else {
                 parser.expect_keyword(Keyword::VERSIONS)?;
                 Ident::new("VERSIONS")
@@ -21001,13 +21057,18 @@ impl<'a> Parser<'a> {
                 parser.expected("IN APPLICATION PACKAGE", parser.peek_token())
             }
         }) {
-            let channel = if kind.value == "RELEASE DIRECTIVES" && self.parse_keyword(Keyword::FOR) {
+            let channel = if kind.value == "RELEASE DIRECTIVES" && self.parse_keyword(Keyword::FOR)
+            {
                 self.expect_keywords(&[Keyword::RELEASE, Keyword::CHANNEL])?;
                 Some(self.parse_identifier()?)
             } else {
                 None
             };
-            return Ok(Statement::ShowApplicationPackageVersions { kind, channel, show_options });
+            return Ok(Statement::ShowApplicationPackageVersions {
+                kind,
+                channel,
+                show_options,
+            });
         }
         if self
             .parse_one_of_keywords(&[Keyword::COLUMNS, Keyword::FIELDS])

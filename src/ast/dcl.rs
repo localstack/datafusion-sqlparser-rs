@@ -31,8 +31,7 @@ use sqlparser_derive::{Visit, VisitMut};
 use super::{display_comma_separated, Expr, Ident, Password, Spanned};
 use crate::ast::{
     display_separated, CascadeOption, CurrentGrantsKind, GrantObjects, Grantee, GranteeName,
-    ObjectName, Privileges,
-    Tag,
+    ObjectName, Privileges, Tag,
 };
 use crate::tokenizer::Span;
 
