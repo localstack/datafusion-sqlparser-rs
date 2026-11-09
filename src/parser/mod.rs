@@ -8971,7 +8971,7 @@ impl<'a> Parser<'a> {
             && self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
         let names = self.parse_comma_separated(|p| p.parse_object_name(false))?;
 
-        // Snowflake: trailing `COMMENT = '<string>'` and `WITH TAG ( <t> = '<v>'
+        // Snowflake: trailing `COMMENT = '<string>'` and `[WITH] TAG ( <t> = '<v>'
         // [, ...] )`. Both are trailing-only and may appear in either order, so
         // no other role option may follow. `WITH TAG` is consumed atomically
         // here; a bare `WITH` (or `WITH <other>`) is left for the generic option
@@ -8984,7 +8984,8 @@ impl<'a> Parser<'a> {
                     self.expect_token(&Token::Eq)?;
                     comment = Some(self.parse_literal_string()?);
                 } else if with_tags.is_empty()
-                    && self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                    && (self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+                        || self.parse_keyword(Keyword::TAG))
                 {
                     self.expect_token(&Token::LParen)?;
                     with_tags = self.parse_comma_separated(Parser::parse_tag)?;
