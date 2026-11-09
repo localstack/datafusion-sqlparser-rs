@@ -6703,6 +6703,16 @@ impl<'a> Parser<'a> {
                 show_initial_rows = Some(enabled);
             }
         }
+        let copy_property = self.parse_keyword(Keyword::COPY);
+        if copy_property {
+            self.expect_token(&Token::Eq)?;
+            self.expect_token(&Token::LParen)?;
+            self.expect_keyword(Keyword::GRANTS)?;
+            while self.consume_token(&Token::Comma) {
+                self.expect_keyword(Keyword::GRANTS)?;
+            }
+            self.expect_token(&Token::RParen)?;
+        }
         Ok(Statement::CreateStream {
             or_replace,
             or_alter,
@@ -6715,7 +6725,7 @@ impl<'a> Parser<'a> {
             append_only,
             insert_only,
             show_initial_rows,
-            copy_grants,
+            copy_grants: copy_grants || copy_property,
         })
     }
 
