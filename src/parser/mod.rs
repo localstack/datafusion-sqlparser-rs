@@ -15723,18 +15723,40 @@ impl<'a> Parser<'a> {
             AlterSequenceOperation::UnsetComment
         } else {
             // `SET` is optional before `INCREMENT`, mandatory before `COMMENT`.
-            let _ = self.parse_keyword(Keyword::SET);
+            let has_set = self.parse_keyword(Keyword::SET);
             if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
-                AlterSequenceOperation::SetComment(self.parse_literal_string()?)
+                let comment = self.parse_literal_string()?;
+                let ordering = if has_set {
+                    self.parse_one_of_keywords(&[Keyword::ORDER, Keyword::NOORDER])
+                } else {
+                    None
+                };
+                if let Some(ordering) = ordering {
+                    AlterSequenceOperation::SetOrderAndComment {
+                        ordered: ordering == Keyword::ORDER,
+                        comment,
+                    }
+                } else {
+                    AlterSequenceOperation::SetComment(comment)
+                }
             } else if self.parse_keyword(Keyword::INCREMENT) {
                 let _ = self.parse_keyword(Keyword::BY);
                 let _ = self.consume_token(&Token::Eq);
                 AlterSequenceOperation::SetIncrement(self.parse_number()?)
-            } else if self.parse_keyword(Keyword::ORDER) {
-                AlterSequenceOperation::SetOrder(true)
-            } else if self.parse_keyword(Keyword::NOORDER) {
-                AlterSequenceOperation::SetOrder(false)
+            } else if let Some(ordering) =
+                self.parse_one_of_keywords(&[Keyword::ORDER, Keyword::NOORDER])
+            {
+                let ordered = ordering == Keyword::ORDER;
+                if has_set && self.parse_keyword(Keyword::COMMENT) {
+                    self.expect_token(&Token::Eq)?;
+                    AlterSequenceOperation::SetOrderAndComment {
+                        ordered,
+                        comment: self.parse_literal_string()?,
+                    }
+                } else {
+                    AlterSequenceOperation::SetOrder(ordered)
+                }
             } else {
                 return self.expected(
                     "RENAME TO, INCREMENT, ORDER, NOORDER, SET COMMENT, or UNSET COMMENT after ALTER SEQUENCE",
