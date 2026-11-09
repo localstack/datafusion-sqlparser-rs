@@ -2132,7 +2132,7 @@ impl Dialect for SnowflakeDialect {
     fn is_reserved_for_identifier(&self, kw: Keyword) -> bool {
         // Unreserve some keywords that Snowflake accepts as identifiers
         // See: https://docs.snowflake.com/en/sql-reference/reserved-keywords
-        if matches!(kw, Keyword::INTERVAL) {
+        if matches!(kw, Keyword::INTERVAL | Keyword::TRIM) {
             false
         } else {
             matches!(kw, Keyword::FROM) || RESERVED_FOR_IDENTIFIER.contains(&kw)
