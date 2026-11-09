@@ -6302,8 +6302,12 @@ fn parse_alter_database_role(parser: &mut Parser) -> Result<Statement, ParserErr
     } else if parser.parse_keyword(Keyword::SET) {
         parser.expect_keyword_is(Keyword::COMMENT)?;
         parser.expect_token(&Token::Eq)?;
-        let comment = parser.parse_literal_string()?;
-        AlterDatabaseRoleOperation::SetComment { comment }
+        if parser.parse_keyword(Keyword::NULL) {
+            AlterDatabaseRoleOperation::UnsetComment
+        } else {
+            let comment = parser.parse_literal_string()?;
+            AlterDatabaseRoleOperation::SetComment { comment }
+        }
     } else if parser.parse_keyword(Keyword::UNSET) {
         parser.expect_keyword_is(Keyword::COMMENT)?;
         AlterDatabaseRoleOperation::UnsetComment
