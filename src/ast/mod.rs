@@ -18460,6 +18460,13 @@ pub enum AlterSequenceOperation {
     UnsetComment,
     /// `SET ORDER` or `SET NOORDER`; `true` = `ORDER`, `false` = `NOORDER`.
     SetOrder(bool),
+    /// `SET { ORDER | NOORDER } COMMENT = '<string>'`.
+    SetOrderAndComment {
+        /// `true` for `ORDER`, `false` for `NOORDER`.
+        ordered: bool,
+        /// The sequence comment.
+        comment: String,
+    },
 }
 
 impl fmt::Display for AlterSequenceOperation {
@@ -18472,6 +18479,12 @@ impl fmt::Display for AlterSequenceOperation {
             AlterSequenceOperation::SetOrder(order) => {
                 write!(f, "SET {}", if *order { "ORDER" } else { "NOORDER" })
             }
+            AlterSequenceOperation::SetOrderAndComment { ordered, comment } => write!(
+                f,
+                "SET {} COMMENT = '{}'",
+                if *ordered { "ORDER" } else { "NOORDER" },
+                value::escape_single_quote_string(comment)
+            ),
         }
     }
 }
