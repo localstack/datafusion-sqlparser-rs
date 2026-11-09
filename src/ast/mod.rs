@@ -58,34 +58,36 @@ pub use self::data_type::{
     ExactNumberInfo, IntervalFields, MapBracketKind, StructBracketKind, TimezoneInfo, TypeModifier,
 };
 pub use self::dcl::{
-    AlterDatabaseRoleOperation, AlterRoleOperation, CreateRole, Grant, GrantRole, ResetConfig,
-    Revoke, RevokeRole, RoleGrantOption, RoleGrantOptionValue, RoleKeyword, RoleOption,
-    SecondaryRoles, SetConfigValue, Use,
+    AlterDatabaseRoleOperation, AlterDefaultPrivileges, AlterDefaultPrivilegesOperation,
+    AlterRoleOperation, CreateRole, DefaultPrivilegesObjectType, DefaultPrivilegesOption, Grant,
+    GrantRole, ResetConfig, Revoke, RevokeRole, RoleGrantOption, RoleGrantOptionValue, RoleKeyword,
+    RoleOption, SecondaryRoles, SetConfigValue, Use,
 };
 pub use self::ddl::{
     AggregateModifyKind, Alignment, AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation,
     AlterBackupSetOperation, AlterCollation, AlterCollationOperation, AlterColumnOperation,
     AlterConnectorOwner, AlterDataMovementPolicyOperation, AlterDataMovementRuleOperation,
     AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
-    AlterIndexOperation, AlterMaintenancePolicyOperation, AlterMaskingPolicyOperation,
-    AlterNetworkRuleOperation, AlterOperator, AlterOperatorClass, AlterOperatorClassOperation,
-    AlterOperatorFamily, AlterOperatorFamilyOperation, AlterOperatorOperation,
-    AlterPasswordPolicyOperation, AlterPolicy, AlterPolicyOperation, AlterProcedure,
-    AlterProcedureOperation, AlterRowAccessPolicyOperation, AlterSchema, AlterSchemaOperation,
-    AlterSemanticViewOperation, AlterSessionPolicyOperation, AlterSnowflakeSecretOperation,
-    AlterTable, AlterTableAlgorithm, AlterTableLock, AlterTableOperation, AlterTableType,
-    AlterTagOperation, AlterTextSearch, AlterTextSearchOperation, AlterTextSearchOption,
-    AlterTrigger, AlterTriggerOperation, AlterType, AlterTypeAddValue, AlterTypeAddValuePosition,
-    AlterTypeOperation, AlterTypeRename, AlterTypeRenameValue, AlterView, AlterViewOperation,
-    BackupPolicyPhase, BackupSetTargetKind, ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef,
-    ColumnOptions, ColumnPolicy, ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget,
-    CreateAggregate, CreateAggregateArgs, CreateAggregateOption, CreateCollation,
-    CreateCollationDefinition, CreateConnector, CreateDomain, CreateExtension,
-    CreateForeignDataWrapper, CreateForeignTable, CreateFunction, CreateIndex, CreateOperator,
-    CreateOperatorClass, CreateOperatorFamily, CreatePolicy, CreatePolicyCommand, CreatePolicyType,
-    CreateRule, CreateRuleAction, CreateRuleDoKind, CreateRuleEvent, CreateSemanticView,
-    CreateTable, CreateTextSearch, CreateTrigger, CreateUserMapping, CreateView, Deduplicate,
-    DeferrableInitial, DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator,
+    AlterGenericOption, AlterIndexOperation, AlterMaintenancePolicyOperation,
+    AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator, AlterOperatorClass,
+    AlterOperatorClassOperation, AlterOperatorFamily, AlterOperatorFamilyOperation,
+    AlterOperatorOperation, AlterPasswordPolicyOperation, AlterPolicy, AlterPolicyOperation,
+    AlterProcedure, AlterProcedureOperation, AlterRowAccessPolicyOperation, AlterSchema,
+    AlterSchemaOperation, AlterSemanticViewOperation, AlterSessionPolicyOperation,
+    AlterSnowflakeSecretOperation, AlterTable, AlterTableAlgorithm, AlterTableLock,
+    AlterTableOperation, AlterTableType, AlterTagOperation, AlterTextSearch,
+    AlterTextSearchOperation, AlterTextSearchOption, AlterTrigger, AlterTriggerOperation,
+    AlterType, AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
+    AlterTypeRenameValue, AlterView, AlterViewOperation, BackupPolicyPhase, BackupSetTargetKind,
+    ClusteredBy, ColumnDef, ColumnOption, ColumnOptionDef, ColumnOptions, ColumnPolicy,
+    ColumnPolicyProperty, ConstraintCharacteristics, ConstraintTarget, CreateAggregate,
+    CreateAggregateArgs, CreateAggregateOption, CreateCollation, CreateCollationDefinition,
+    CreateConnector, CreateDomain, CreateExtension, CreateForeignDataWrapper, CreateForeignTable,
+    CreateFunction, CreateIndex, CreateOperator, CreateOperatorClass, CreateOperatorFamily,
+    CreatePolicy, CreatePolicyCommand, CreatePolicyType, CreateRule, CreateRuleAction,
+    CreateRuleDoKind, CreateRuleEvent, CreateSemanticView, CreateTable, CreateTextSearch,
+    CreateTrigger, CreateUserMapping, CreateView, Deduplicate, DeferrableInitial,
+    DetachPartitionMode, DistStyle, DropBehavior, DropExtension, DropFunction, DropOperator,
     DropOperatorClass, DropOperatorFamily, DropOperatorSignature, DropPolicy, DropRule,
     DropTrigger, ExternalFunctionCompression, ExternalFunctionHeader, ExternalFunctionParams,
     ExternalTablePartitionColumn, ForValues, ForeignDataWrapperRoutineClause, FunctionReturnType,
@@ -161,7 +163,7 @@ pub mod table_constraints;
 pub use table_constraints::{
     CheckConstraint, ConstraintUsingIndex, ExcludeConstraint, ExcludeConstraintElement,
     ExcludeConstraintOperator, ForeignKeyConstraint, FullTextOrSpatialConstraint, IndexConstraint,
-    PrimaryKeyConstraint, TableConstraint, UniqueConstraint,
+    NotNullConstraint, PrimaryKeyConstraint, TableConstraint, UniqueConstraint,
 };
 mod operator;
 mod query;
@@ -220,6 +222,16 @@ fn format_statement_list(f: &mut fmt::Formatter, statements: &[Statement]) -> fm
     // We manually insert semicolon for the last statement,
     // since display_separated doesn't handle that case.
     write!(f, ";")
+}
+
+/// Writes ` BEGIN ATOMIC <statements> END`.
+fn format_begin_atomic(f: &mut fmt::Formatter, statements: &[Statement]) -> fmt::Result {
+    write!(f, " BEGIN ATOMIC")?;
+    if !statements.is_empty() {
+        write!(f, " ")?;
+        format_statement_list(f, statements)?;
+    }
+    write!(f, " END")
 }
 
 /// A item `T` enclosed in a pair of parentheses
@@ -4350,7 +4362,7 @@ pub enum Statement {
         operation: AlterIndexOperation,
     },
     /// ```sql
-    /// ALTER VIEW
+    /// ALTER [ MATERIALIZED ] VIEW
     /// ```
     AlterView(AlterView),
     /// ```sql
@@ -5368,8 +5380,8 @@ pub enum Statement {
         /// `None` means the clause was omitted, which Snowflake treats as
         /// owner's rights — i.e. absent is equivalent to `Some(Owner)`.
         execute_as: Option<ProcedureExecuteAs>,
-        /// Procedure body statements.
-        body: ConditionalStatements,
+        /// Procedure body.
+        body: CreateProcedureBody,
     },
     /// ```sql
     /// CREATE MACRO
@@ -7574,6 +7586,10 @@ pub enum Statement {
     /// ```
     RevokeRole(RevokeRole),
     /// ```sql
+    /// ALTER DEFAULT PRIVILEGES
+    /// ```
+    AlterDefaultPrivileges(AlterDefaultPrivileges),
+    /// ```sql
     /// DEALLOCATE [ PREPARE ] { name | ALL }
     /// ```
     ///
@@ -7929,6 +7945,12 @@ pub enum Statement {
         /// Notification channel identifier.
         channel: Ident,
     },
+    /// ```sql
+    /// DO { code | LANGUAGE lang_name } [ ... ]
+    /// ```
+    ///
+    /// See Postgres <https://www.postgresql.org/docs/current/sql-do.html>
+    Do(DoStatement),
     /// ```sql
     /// NOTIFY channel [ , payload ]
     /// ```
@@ -8881,7 +8903,12 @@ impl fmt::Display for Statement {
                     write!(f, " EXECUTE AS {execute_as}")?;
                 }
 
-                write!(f, " AS {body}")
+                match body {
+                    CreateProcedureBody::As(body) => write!(f, " AS {body}"),
+                    CreateProcedureBody::BeginAtomic(BeginEndStatements { statements, .. }) => {
+                        format_begin_atomic(f, statements)
+                    }
+                }
             }
             Statement::CreateMacro {
                 or_replace,
@@ -9608,6 +9635,7 @@ impl fmt::Display for Statement {
             Statement::Revoke(revoke) => write!(f, "{revoke}"),
             Statement::GrantRole(grant) => write!(f, "{grant}"),
             Statement::RevokeRole(revoke) => write!(f, "{revoke}"),
+            Statement::AlterDefaultPrivileges(stmt) => write!(f, "{stmt}"),
             Statement::Deallocate { name, prepare } => write!(
                 f,
                 "DEALLOCATE {prepare}{name}",
@@ -12023,6 +12051,7 @@ impl fmt::Display for Statement {
                 write!(f, "UNLISTEN {channel}")?;
                 Ok(())
             }
+            Statement::Do(s) => write!(f, "{s}"),
             Statement::NOTIFY { channel, payload } => {
                 write!(f, "NOTIFY {channel}")?;
                 if let Some(payload) = payload {
@@ -12809,6 +12838,8 @@ pub enum Action {
         /// Optional list of target columns for insert.
         columns: Option<Vec<Ident>>,
     },
+    /// Maintain permission.
+    Maintain,
     /// Manage operation with a specific manage type.
     Manage {
         /// The specific manage sub-type.
@@ -12924,6 +12955,7 @@ impl fmt::Display for Action {
             Action::ImportedPrivileges => f.write_str("IMPORTED PRIVILEGES")?,
             Action::ImportShare => f.write_str("IMPORT SHARE")?,
             Action::Insert { .. } => f.write_str("INSERT")?,
+            Action::Maintain => f.write_str("MAINTAIN")?,
             Action::Manage { manage_type } => write!(f, "MANAGE {manage_type}")?,
             Action::ManageReleases => f.write_str("MANAGE RELEASES")?,
             Action::ManageVersions => f.write_str("MANAGE VERSIONS")?,
@@ -16597,6 +16629,19 @@ pub enum CreateFunctionBody {
     AsReturnSelect(Select),
 }
 
+/// Body of a `CREATE PROCEDURE` statement.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CreateProcedureBody {
+    /// Statements after `AS`.
+    As(ConditionalStatements),
+    /// SQL-standard body enclosed by `BEGIN ATOMIC` and `END`.
+    ///
+    /// [PostgreSQL]: https://www.postgresql.org/docs/current/sql-createprocedure.html
+    BeginAtomic(BeginEndStatements),
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -19032,6 +19077,50 @@ impl fmt::Display for WaitForStatement {
     }
 }
 
+/// PostgreSQL `DO` statement, executing an anonymous code block.
+///
+/// ```sql
+/// DO { code | LANGUAGE lang_name } [ ... ]
+/// ```
+///
+/// See <https://www.postgresql.org/docs/current/sql-do.html>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct DoStatement {
+    /// The code blocks and `LANGUAGE` options, in source order.
+    pub options: Vec<DoOption>,
+}
+
+impl fmt::Display for DoStatement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "DO {}", display_separated(&self.options, " "))
+    }
+}
+
+/// An item of a [`DoStatement`].
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum DoOption {
+    /// `LANGUAGE lang_name`
+    Language(Ident),
+    /// `LANGUAGE` followed by the name as a string literal.
+    LanguageLiteral(ValueWithSpan),
+    /// The anonymous code block, a string literal.
+    Code(ValueWithSpan),
+}
+
+impl fmt::Display for DoOption {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DoOption::Language(language) => write!(f, "LANGUAGE {language}"),
+            DoOption::LanguageLiteral(language) => write!(f, "LANGUAGE {language}"),
+            DoOption::Code(code) => write!(f, "{code}"),
+        }
+    }
+}
+
 /// Represents a `Return` statement.
 ///
 /// [MsSql triggers](https://learn.microsoft.com/en-us/sql/t-sql/statements/create-trigger-transact-sql)
@@ -20233,6 +20322,12 @@ impl From<RaiseStatement> for Statement {
 impl From<ThrowStatement> for Statement {
     fn from(t: ThrowStatement) -> Self {
         Self::Throw(t)
+    }
+}
+
+impl From<DoStatement> for Statement {
+    fn from(d: DoStatement) -> Self {
+        Self::Do(d)
     }
 }
 

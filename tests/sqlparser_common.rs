@@ -5710,6 +5710,7 @@ fn parse_alter_view() {
     let sql = "ALTER VIEW myschema.myview AS SELECT foo FROM bar";
     match verified_stmt(sql) {
         Statement::AlterView(AlterView {
+            materialized: false,
             name,
             if_exists,
             operation:
@@ -5764,6 +5765,7 @@ fn parse_alter_view_with_columns() {
     let sql = "ALTER VIEW v (has, cols) AS SELECT 1, 2";
     match verified_stmt(sql) {
         Statement::AlterView(AlterView {
+            materialized: false,
             name,
             if_exists,
             operation:
@@ -5793,6 +5795,7 @@ fn parse_alter_view_operations() {
     assert_eq!(
         verified_stmt("ALTER VIEW IF EXISTS s.v OWNER TO o"),
         Statement::AlterView(AlterView {
+            materialized: false,
             name: ObjectName::from(vec![Ident::new("s"), Ident::new("v")]),
             if_exists: true,
             operation: AlterViewOperation::OwnerTo(Owner::Ident(Ident::new("o"))),
@@ -5943,7 +5946,7 @@ fn display_alter_view_propagates_write_errors() {
     }
 
     let with_options = verified_stmt("ALTER VIEW IF EXISTS v WITH (x = 1) AS SELECT 1");
-    for rejected in ["ALTER VIEW ", "IF EXISTS ", "WITH ("] {
+    for rejected in ["ALTER ", "VIEW ", "IF EXISTS ", "WITH ("] {
         let mut writer = RejectingWriter(rejected);
         assert_eq!(
             write!(writer, "{with_options}"),
@@ -5953,7 +5956,7 @@ fn display_alter_view_propagates_write_errors() {
     }
 
     let columns = verified_stmt("ALTER VIEW IF EXISTS v (zeta) AS SELECT 1");
-    for rejected in ["ALTER VIEW ", "IF EXISTS ", "("] {
+    for rejected in ["ALTER ", "VIEW ", "IF EXISTS ", "("] {
         let mut writer = RejectingWriter(rejected);
         assert_eq!(write!(writer, "{columns}"), Err(fmt::Error), "{rejected:?}");
     }
@@ -16313,7 +16316,7 @@ fn parse_alter_trigger_spans() {
 
 #[test]
 fn parse_alter_rejects_missing_or_unknown_object_type() {
-    let objects = "one of VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or SCHEMA or USER or OPERATOR";
+    let objects = "one of VIEW or MATERIALIZED VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or FOREIGN TABLE or SCHEMA or USER or OPERATOR";
     for (sql, found) in [
         ("ALTER", "EOF"),
         ("ALTER 1", "1"),
@@ -23520,4 +23523,159 @@ fn display_refresh_materialized_view_propagates_write_errors() {
         let mut writer = RejectingWriter(rejected);
         assert_eq!(write!(writer, "{statement}"), Err(fmt::Error), "{rejected}");
     }
+}
+
+#[test]
+fn parse_create_procedure_begin_atomic() {
+    let sql = "CREATE PROCEDURE p () LANGUAGE sql BEGIN ATOMIC INSERT INTO t VALUES (1); END";
+    verified_stmt(sql);
+    match all_dialects().run_parser_method(sql, |parser| parser.parse_statement().unwrap()) {
+        Statement::CreateProcedure {
+            body: CreateProcedureBody::BeginAtomic(body),
+            ..
+        } => {
+            assert_eq!(
+                body.statements,
+                vec![verified_stmt("INSERT INTO t VALUES (1)")]
+            );
+            assert_eq!(
+                body.span(),
+                Span::new(Location::new(1, 36), Location::new(1, 78))
+            );
+        }
+        stmt => panic!("unexpected statement: {stmt:?}"),
+    }
+
+    for sql in [
+        "CREATE PROCEDURE p (a INT) LANGUAGE sql BEGIN ATOMIC INSERT INTO t VALUES (a); UPDATE t SET b = a; END",
+        "CREATE PROCEDURE p () BEGIN ATOMIC SELECT 1; END",
+        "CREATE PROCEDURE p () LANGUAGE sql BEGIN ATOMIC END",
+    ] {
+        verified_stmt(sql);
+    }
+
+    one_statement_parses_to(
+        r#"CREATE PROCEDURE public.p(a integer)
+    LANGUAGE sql
+    BEGIN ATOMIC
+ INSERT INTO public.t (a)
+   VALUES (p.a);
+END"#,
+        "CREATE PROCEDURE public.p (a INTEGER) LANGUAGE sql BEGIN ATOMIC INSERT INTO public.t (a) VALUES (p.a); END",
+    );
+
+    for (sql, err) in [
+        (
+            "CREATE PROCEDURE p () LANGUAGE sql BEGIN ATOMIC SELECT 1;",
+            "Expected: END, found: EOF",
+        ),
+        (
+            "CREATE PROCEDURE p () LANGUAGE sql BEGIN ATOMIC SELECT 1 AS a END",
+            "Expected: ;, found: END",
+        ),
+        (
+            "CREATE PROCEDURE p () LANGUAGE sql BEGIN SELECT 1; END",
+            "Expected: AS, found: BEGIN",
+        ),
+        (
+            "CREATE PROCEDURE p () LANGUAGE sql AS BEGIN SELECT 1;",
+            "Expected: END, found: EOF",
+        ),
+    ] {
+        assert_eq!(
+            parse_sql_statements(sql).unwrap_err(),
+            ParserError::ParserError(err.to_string()),
+            "{sql}"
+        );
+    }
+}
+
+#[test]
+fn display_create_procedure_begin_atomic_propagates_write_errors() {
+    use core::fmt::{self, Write};
+
+    struct RejectingWriter(&'static str);
+
+    impl Write for RejectingWriter {
+        fn write_str(&mut self, value: &str) -> fmt::Result {
+            if value == self.0 {
+                Err(fmt::Error)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    let stmt = verified_stmt("CREATE PROCEDURE p () LANGUAGE sql BEGIN ATOMIC SELECT 1; END");
+    for rejected in [" BEGIN ATOMIC", " ", ";", " END"] {
+        let mut writer = RejectingWriter(rejected);
+        assert_eq!(write!(writer, "{stmt}"), Err(fmt::Error), "{rejected:?}");
+    }
+}
+
+#[test]
+fn parse_do_statement() {
+    let dialects = all_dialects_where(|d| d.supports_do_statement());
+
+    match dialects.verified_stmt("DO $$BEGIN RAISE NOTICE 'hi'; END$$") {
+        Statement::Do(DoStatement { options }) => assert_eq!(
+            options,
+            vec![DoOption::Code(
+                Value::DollarQuotedString(DollarQuotedString {
+                    value: "BEGIN RAISE NOTICE 'hi'; END".to_string(),
+                    tag: None,
+                })
+                .with_empty_span()
+            )]
+        ),
+        _ => unreachable!(),
+    }
+
+    match dialects.verified_stmt("DO LANGUAGE plpgsql $body$BEGIN NULL; END$body$") {
+        Statement::Do(DoStatement { options }) => {
+            assert_eq!(options[0], DoOption::Language(Ident::new("plpgsql")));
+        }
+        _ => unreachable!(),
+    }
+
+    dialects.verified_stmt("DO 'BEGIN NULL; END'");
+    dialects.verified_stmt("DO U&'BEGIN NULL; END'");
+    dialects.verified_stmt("DO U&'BEGIN NULL; END' LANGUAGE plpgsql");
+    dialects.verified_stmt("DO LANGUAGE 'plpgsql'");
+    dialects.verified_stmt("DO LANGUAGE plpgsql U&'BEGIN NULL; END'");
+    dialects.verified_stmt("DO $$BEGIN NULL; END$$ LANGUAGE plpgsql");
+    dialects.verified_stmt("DO LANGUAGE 'plpgsql' $$BEGIN NULL; END$$");
+    dialects.verified_stmt("DO LANGUAGE $$plpgsql$$ $$BEGIN NULL; END$$");
+    dialects.verified_stmt("DO $$BEGIN NULL; END$$ LANGUAGE E'plpgsql'");
+    dialects.verified_stmt("DO LANGUAGE plpgsql");
+    dialects.verified_stmt("DO $$BEGIN NULL; END$$ $$BEGIN NULL; END$$");
+    dialects.verified_stmt("DO LANGUAGE plpgsql LANGUAGE sql $$BEGIN NULL; END$$");
+
+    assert_eq!(
+        dialects.parse_sql_statements("DO 1").unwrap_err(),
+        ParserError::ParserError("Expected: string literal, found: 1".to_string())
+    );
+    assert_eq!(
+        dialects.parse_sql_statements("DO LANGUAGE").unwrap_err(),
+        ParserError::ParserError("Expected: identifier, found: EOF".to_string())
+    );
+
+    let dialects = all_dialects_where(|d| !d.supports_do_statement());
+    assert_eq!(
+        dialects
+            .parse_sql_statements("DO $$BEGIN NULL; END$$")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: an SQL statement, found: DO".to_string())
+    );
+}
+
+#[test]
+fn parse_trailing_end_keyword_is_not_silently_dropped() {
+    let dialects = all_dialects();
+    assert_eq!(
+        dialects
+            .parse_sql_statements("SELECT a FROM t1 WHERE a = b END")
+            .unwrap_err(),
+        ParserError::ParserError("Expected: end of statement, found: END".to_string())
+    );
 }

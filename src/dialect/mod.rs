@@ -1559,6 +1559,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if the dialect supports the `DO` statement
+    fn supports_do_statement(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect supports the `LISTEN`, `UNLISTEN` and `NOTIFY` statements
     fn supports_listen_notify(&self) -> bool {
         false
@@ -1568,6 +1573,13 @@ pub trait Dialect: Debug + Any {
     /// `EXCLUDE USING gist (c WITH &&)` in `CREATE TABLE`/`ALTER TABLE`.
     /// See <https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-EXCLUDE>.
     fn supports_exclude_constraint(&self) -> bool {
+        false
+    }
+
+    /// Returns true if the dialect supports table-level `NOT NULL` constraints, e.g.
+    /// `CONSTRAINT nn NOT NULL a NO INHERIT` in `CREATE TABLE`/`ALTER TABLE`.
+    /// See <https://www.postgresql.org/docs/current/sql-createtable.html>.
+    fn supports_table_not_null_constraint(&self) -> bool {
         false
     }
 
@@ -1690,6 +1702,14 @@ pub trait Dialect: Debug + Any {
     ///
     /// <https://www.postgresql.org/docs/current/sql-altertable.html>
     fn supports_attach_partition_of(&self) -> bool {
+        false
+    }
+
+    /// Returns true if the dialect supports detaching a partition with
+    /// `ALTER TABLE ... DETACH PARTITION name [ CONCURRENTLY | FINALIZE ]`.
+    ///
+    /// <https://www.postgresql.org/docs/current/sql-altertable.html>
+    fn supports_detach_partition_of(&self) -> bool {
         false
     }
 
