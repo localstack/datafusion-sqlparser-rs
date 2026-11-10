@@ -383,6 +383,8 @@ pub struct CreateRole {
     pub names: Vec<ObjectName>,
     /// Whether `OR REPLACE` was specified.
     pub or_replace: bool,
+    /// Whether `OR ALTER` was specified.
+    pub or_alter: bool,
     /// Whether `IF NOT EXISTS` was specified.
     pub if_not_exists: bool,
     // Postgres
@@ -422,8 +424,10 @@ pub struct CreateRole {
     // Snowflake
     /// Trailing `WITH TAG (<t> = '<v>' [, ...])` clause; empty when absent.
     pub with_tags: Vec<Tag>,
-    /// Snowflake `COMMENT = '<string>'` clause; `None` when absent.
+    /// Snowflake `COMMENT = '<string>'` clause; `None` when absent or NULL.
     pub comment: Option<String>,
+    /// Whether the comment was explicitly set to NULL.
+    pub comment_is_null: bool,
 }
 
 impl fmt::Display for CreateRole {
@@ -432,7 +436,7 @@ impl fmt::Display for CreateRole {
             f,
             "CREATE {or_replace}{keyword} {if_not_exists}{names}{superuser}{create_db}{create_role}{inherit}{login}{replication}{bypassrls}",
             keyword = self.keyword,
-            or_replace = if self.or_replace { "OR REPLACE " } else { "" },
+            or_replace = if self.or_replace { "OR REPLACE " } else if self.or_alter { "OR ALTER " } else { "" },
             if_not_exists = if self.if_not_exists { "IF NOT EXISTS " } else { "" },
             names = display_separated(&self.names, ", "),
             superuser = match self.superuser {
@@ -500,8 +504,10 @@ impl fmt::Display for CreateRole {
         if let Some(owner) = &self.authorization_owner {
             write!(f, " AUTHORIZATION {owner}")?;
         }
-        if let Some(comment) = &self.comment {
-            write!(f, " COMMENT = '{comment}'")?;
+        if self.comment_is_null {
+            write!(f, " COMMENT = NULL")?;
+        } else if let Some(comment) = &self.comment {
+            write!(f, " COMMENT = '{}'", comment.replace('\'', "''"))?;
         }
         if !self.with_tags.is_empty() {
             write!(
