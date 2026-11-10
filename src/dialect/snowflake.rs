@@ -2083,11 +2083,14 @@ impl Dialect for SnowflakeDialect {
                 if parenthesised {
                     parser.expect_token(&Token::RParen)?;
                 }
+                let generation_expr_mode = parser
+                    .parse_keyword(Keyword::VIRTUAL)
+                    .then_some(crate::ast::GeneratedExpressionMode::Virtual);
                 Ok(Ok(Some(ColumnOption::Generated {
                     generated_as: GeneratedAs::Always,
                     sequence_options: None,
                     generation_expr: Some(expr),
-                    generation_expr_mode: None,
+                    generation_expr_mode,
                     generated_keyword: false,
                 })))
             } else {
