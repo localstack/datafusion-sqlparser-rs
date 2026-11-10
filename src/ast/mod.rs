@@ -4244,6 +4244,8 @@ pub enum Statement {
         create_token: AttachedToken,
         /// `true` when `OR REPLACE` was specified.
         or_replace: bool,
+        /// Alter an existing role or create it when absent.
+        or_alter: bool,
         /// `true` when `IF NOT EXISTS` was specified.
         if_not_exists: bool,
         /// The (optionally database-qualified) role name.
@@ -8998,6 +9000,7 @@ impl fmt::Display for Statement {
             Statement::CreateRole(create_role) => write!(f, "{create_role}"),
             Statement::CreateDatabaseRole {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 comment,
@@ -9006,8 +9009,8 @@ impl fmt::Display for Statement {
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}DATABASE ROLE {if_not_exists}{name}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    "CREATE {create_option}DATABASE ROLE {if_not_exists}{name}",
+                    create_option = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if let Some(clone) = clone {

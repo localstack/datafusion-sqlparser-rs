@@ -1,0 +1,1 @@
+CREATE OR ALTER DATABASE ROLE db.role COMMENT = 'changed'
