@@ -28358,13 +28358,32 @@ impl<'a> Parser<'a> {
                 if word.value.eq_ignore_ascii_case("IDENTIFIER")
                     && self.consume_token(&Token::LParen)
                 {
-                    let name = self.parse_value()?;
-                    self.expect_token(&Token::RParen)?;
+                    let name = match self.peek_tokens_with_location::<2>() {
+                        [
+                            TokenWithSpan {
+                                token: Token::Word(prefix),
+                                span: prefix_span,
+                            },
+                            TokenWithSpan {
+                                token: Token::SingleQuotedString(value),
+                                span,
+                            },
+                        ] if prefix.quote_style.is_none()
+                            && prefix.value.eq_ignore_ascii_case("E")
+                            && prefix_span.end == span.start =>
+                        {
+                            self.next_token();
+                            self.next_token();
+                            Value::EscapedStringLiteral(value).with_span(prefix_span.union(&span))
+                        }
+                        _ => self.parse_value()?,
+                    };
+                    let closing = self.expect_token(&Token::RParen)?;
                     return Ok(KeyValueOption {
                         option_name: key.value.clone(),
                         option_value: KeyValueOptionKind::Single(
                             Value::Placeholder(format!("{}({name})", word.value))
-                                .with_span(peeked_token.span),
+                                .with_span(peeked_token.span.union(&closing.span)),
                         ),
                     });
                 }
@@ -28374,8 +28393,10 @@ impl<'a> Parser<'a> {
                 // identifier normalisation while quoted parts keep their case.
                 if self.peek_token_ref().token == Token::Period {
                     let mut value = key_value_ident_part(&word);
+                    let mut span = peeked_token.span;
                     while self.consume_token(&Token::Period) {
                         let part = self.next_token();
+                        span = span.union(&part.span);
                         match part.token {
                             Token::Word(w) => {
                                 value.push('.');
@@ -28390,7 +28411,7 @@ impl<'a> Parser<'a> {
                     return Ok(KeyValueOption {
                         option_name: key.value.clone(),
                         option_value: KeyValueOptionKind::Single(
-                            Value::Placeholder(value).with_span(peeked_token.span),
+                            Value::Placeholder(value).with_span(span),
                         ),
                     });
                 }
