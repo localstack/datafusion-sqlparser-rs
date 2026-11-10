@@ -12687,7 +12687,8 @@ impl<'a> Parser<'a> {
                 generation_expr_mode: None,
                 generated_keyword: true,
             }))
-        } else if self.parse_keywords(&[Keyword::ALWAYS, Keyword::AS]) {
+        } else if self.parse_keyword(Keyword::ALWAYS) {
+            self.expect_keyword_is(Keyword::AS)?;
             if self.expect_token(&Token::LParen).is_ok() {
                 let expr: Expr = self.with_state(ParserState::Normal, |p| p.parse_expr())?;
                 self.expect_token(&Token::RParen)?;
