@@ -1,0 +1,2 @@
+CREATE USER synthetic_user PASSWORD = IDENTIFIER('Synthetic_secret_7252');
+ALTER USER synthetic_user SET PASSWORD = NULL.SECRET7252;
