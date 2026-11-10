@@ -6285,7 +6285,7 @@ impl<'a> Parser<'a> {
         {
             self.parse_create_procedure(or_alter, or_replace, temporary, false)
         } else if self.parse_keyword(Keyword::ROLE) {
-            self.parse_create_role(RoleKeyword::Role, or_replace)
+            self.parse_create_role(RoleKeyword::Role, or_replace, or_alter)
                 .map(Into::into)
         } else if self.parse_keyword(Keyword::SEQUENCE) {
             self.parse_create_sequence(or_replace, or_alter, temporary)
@@ -6327,7 +6327,7 @@ impl<'a> Parser<'a> {
                 self.parse_create_database()
             }
         } else if self.dialect.supports_create_group() && self.parse_keyword(Keyword::GROUP) {
-            self.parse_create_role(RoleKeyword::Group, false)
+            self.parse_create_role(RoleKeyword::Group, false, false)
                 .map(Into::into)
         } else if self.parse_keywords(&[Keyword::APPLICATION, Keyword::PACKAGE]) {
             let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -8956,6 +8956,7 @@ impl<'a> Parser<'a> {
         &mut self,
         role_keyword: RoleKeyword,
         or_replace: bool,
+        or_alter: bool,
     ) -> Result<CreateRole, ParserError> {
         let supports_if_not_exists = matches!(role_keyword, RoleKeyword::Role)
             && self.dialect.supports_create_role_if_not_exists();
@@ -8978,11 +8979,16 @@ impl<'a> Parser<'a> {
         // loop below.
         let mut with_tags = Vec::new();
         let mut comment = None;
+        let mut comment_is_null = false;
         if dialect_of!(self is SnowflakeDialect) {
             loop {
-                if comment.is_none() && self.parse_keyword(Keyword::COMMENT) {
+                if comment.is_none() && !comment_is_null && self.parse_keyword(Keyword::COMMENT) {
                     self.expect_token(&Token::Eq)?;
-                    comment = Some(self.parse_literal_string()?);
+                    if self.parse_keyword(Keyword::NULL) {
+                        comment_is_null = true;
+                    } else {
+                        comment = Some(self.parse_literal_string()?);
+                    }
                 } else if with_tags.is_empty()
                     && (self.parse_keywords(&[Keyword::WITH, Keyword::TAG])
                         || self.parse_keyword(Keyword::TAG))
@@ -9198,6 +9204,7 @@ impl<'a> Parser<'a> {
             keyword: role_keyword,
             names,
             or_replace,
+            or_alter,
             if_not_exists,
             login,
             inherit,
@@ -9217,6 +9224,7 @@ impl<'a> Parser<'a> {
             authorization_owner,
             with_tags,
             comment,
+            comment_is_null,
         })
     }
 

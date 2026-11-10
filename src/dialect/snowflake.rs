@@ -6277,8 +6277,12 @@ fn parse_alter_role(parser: &mut Parser) -> Result<Statement, ParserError> {
     } else if parser.parse_keyword(Keyword::SET) {
         parser.expect_keyword_is(Keyword::COMMENT)?;
         parser.expect_token(&Token::Eq)?;
-        let comment = parser.parse_literal_string()?;
-        AlterRoleOperation::SetComment { comment }
+        if parser.parse_keyword(Keyword::NULL) {
+            AlterRoleOperation::UnsetComment
+        } else {
+            let comment = parser.parse_literal_string()?;
+            AlterRoleOperation::SetComment { comment }
+        }
     } else if parser.parse_keyword(Keyword::UNSET) {
         parser.expect_keyword_is(Keyword::COMMENT)?;
         AlterRoleOperation::UnsetComment
