@@ -1410,7 +1410,11 @@ impl SnowflakeDialect {
                 );
             } else if parser.parse_keyword(Keyword::DATABASE) {
                 if parser.parse_keyword(Keyword::ROLE) {
-                    return Some(parser.parse_create_database_role(or_replace, create_token));
+                    return Some(parser.parse_create_database_role(
+                        or_replace,
+                        or_alter,
+                        create_token,
+                    ));
                 }
                 if plain_create {
                     if let Some(restore) =
