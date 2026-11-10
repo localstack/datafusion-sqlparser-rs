@@ -10299,6 +10299,8 @@ impl<'a> Parser<'a> {
             ObjectType::View
         } else if self.parse_keyword(Keyword::SCHEMA) {
             ObjectType::Schema
+        } else if self.parse_keywords(&[Keyword::DATABASE, Keyword::ROLE]) {
+            ObjectType::DatabaseRole
         } else if self.parse_keyword(Keyword::DATABASE) {
             ObjectType::Database
         } else if self.parse_keyword(Keyword::ALERT) {
