@@ -6322,7 +6322,7 @@ impl<'a> Parser<'a> {
             self.parse_create_virtual_table()
         } else if self.parse_keyword(Keyword::DATABASE) {
             if self.parse_keyword(Keyword::ROLE) {
-                self.parse_create_database_role(or_replace, create_token)
+                self.parse_create_database_role(or_replace, or_alter, create_token)
             } else {
                 self.parse_create_database()
             }
@@ -9228,11 +9228,12 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse a Snowflake `CREATE [OR REPLACE] DATABASE ROLE` statement. The
+    /// Parse a Snowflake `CREATE [OR REPLACE | OR ALTER] DATABASE ROLE` statement. The
     /// leading `DATABASE ROLE` keywords have already been consumed.
     pub fn parse_create_database_role(
         &mut self,
         or_replace: bool,
+        or_alter: bool,
         create_token: TokenWithSpan,
     ) -> Result<Statement, ParserError> {
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -9255,6 +9256,7 @@ impl<'a> Parser<'a> {
         Ok(Statement::CreateDatabaseRole {
             create_token: AttachedToken(create_token),
             or_replace,
+            or_alter,
             if_not_exists,
             name,
             comment,
