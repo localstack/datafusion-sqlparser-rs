@@ -23252,7 +23252,7 @@ impl<'a> Parser<'a> {
         let name = self.parse_identifier()?;
         self.expect_keyword_is(Keyword::IN)?;
         let columns = self.parse_parenthesized_column_list_inner(Mandatory, false, |p| {
-            p.parse_expr_with_alias()
+            p.parse_expr_with_alias_optional_as_keyword()
         })?;
         self.expect_token(&Token::RParen)?;
         let alias = self.maybe_parse_table_alias()?;
