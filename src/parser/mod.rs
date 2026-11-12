@@ -22963,6 +22963,10 @@ impl<'a> Parser<'a> {
             } else if self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE) {
                 let func_name = self.parse_object_name(true)?;
                 let func = self.parse_function(func_name)?;
+                if self.peek_keyword(Keyword::END) && self.peek_nth_token(1).token == Token::LParen {
+                    let end_name = self.parse_object_name(true)?;
+                    self.parse_function(end_name)?;
+                }
                 return Ok(Some(TableVersion::Function(func)));
             } else if self.parse_keywords(&[Keyword::TIMESTAMP, Keyword::AS, Keyword::OF]) {
                 let expr = self.parse_expr()?;

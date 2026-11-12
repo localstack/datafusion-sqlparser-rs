@@ -1,0 +1,2 @@
+SELECT id FROM tracked AT(STATEMENT => 'anchor') END(OFFSET => 0) ORDER BY id;
+SELECT id FROM tracked BEFORE(STATEMENT => 'anchor') END(TIMESTAMP => NULL) ORDER BY id;
