@@ -1058,14 +1058,18 @@ impl<'a> Parser<'a> {
                 end,
             }
         };
-        self.expect_keyword_is(Keyword::DO)?;
+        let body_uses_loop =
+            self.expect_one_of_keywords(&[Keyword::DO, Keyword::LOOP])? == Keyword::LOOP;
         let body = self.parse_scripting_conditional_statements(&[Keyword::END])?;
         self.expect_keyword_is(Keyword::END)?;
-        self.expect_keyword_is(Keyword::FOR)?;
+        let end_uses_loop =
+            self.expect_one_of_keywords(&[Keyword::FOR, Keyword::LOOP])? == Keyword::LOOP;
         Ok(ForStatement {
             var,
             iteration,
             body,
+            body_uses_loop,
+            end_uses_loop,
         })
     }
 
