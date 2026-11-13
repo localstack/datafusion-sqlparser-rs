@@ -1222,7 +1222,9 @@ impl<'a> Parser<'a> {
         &mut self,
         terminal_keywords: &[Keyword],
     ) -> Result<ConditionalStatements, ParserError> {
-        if self.peek_keyword(Keyword::BEGIN) {
+        if self.peek_keyword(Keyword::BEGIN)
+            && !self.dialect.supports_nested_begin_end_in_control_flow()
+        {
             let begin_token = self.expect_keyword(Keyword::BEGIN)?;
             let statements = self.parse_scripting_statement_list(terminal_keywords)?;
             let end_token = self.expect_keyword(Keyword::END)?;
