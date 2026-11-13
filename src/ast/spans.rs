@@ -1123,8 +1123,9 @@ impl Spanned for ForStatement {
             body,
             body_uses_loop: _,
             end_uses_loop: _,
+            end_token,
         } = self;
-        let mut spans = vec![var.span, body.span()];
+        let mut spans = vec![var.span, body.span(), end_token.0.span];
         match iteration {
             ForIterationSource::Range { start, end, .. } => {
                 spans.push(start.span());
