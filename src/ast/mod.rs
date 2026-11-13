@@ -3121,6 +3121,8 @@ pub struct ForStatement {
     pub end_uses_loop: bool,
     /// Closing keyword with its original source location.
     pub end_token: AttachedToken,
+    /// Optional closing label, retaining identifier quoting and source location.
+    pub label: Option<Ident>,
 }
 
 /// The thing a [`ForStatement`] iterates over.
@@ -3152,6 +3154,7 @@ impl fmt::Display for ForStatement {
             body_uses_loop,
             end_uses_loop,
             end_token: _,
+            label,
         } = self;
         write!(f, "FOR {var} IN ")?;
         match iteration {
@@ -3173,7 +3176,11 @@ impl fmt::Display for ForStatement {
         if !body.statements().is_empty() {
             write!(f, " {body}")?;
         }
-        write!(f, " END {}", if *end_uses_loop { "LOOP" } else { "FOR" })
+        write!(f, " END {}", if *end_uses_loop { "LOOP" } else { "FOR" })?;
+        if let Some(label) = label {
+            write!(f, " {label}")?;
+        }
+        Ok(())
     }
 }
 
