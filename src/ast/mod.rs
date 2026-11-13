@@ -2982,6 +2982,10 @@ pub struct ForStatement {
     pub iteration: ForIterationSource,
     /// Loop body statements.
     pub body: ConditionalStatements,
+    /// Whether the body opens with `LOOP` rather than `DO`.
+    pub body_uses_loop: bool,
+    /// Kept independently of the opener so mismatched delimiters survive round-tripping.
+    pub end_uses_loop: bool,
 }
 
 /// The thing a [`ForStatement`] iterates over.
@@ -3010,6 +3014,8 @@ impl fmt::Display for ForStatement {
             var,
             iteration,
             body,
+            body_uses_loop,
+            end_uses_loop,
         } = self;
         write!(f, "FOR {var} IN ")?;
         match iteration {
@@ -3021,16 +3027,17 @@ impl fmt::Display for ForStatement {
                 if *reverse {
                     write!(f, "REVERSE ")?;
                 }
-                write!(f, "{start} TO {end} DO")?;
+                write!(f, "{start} TO {end}")?;
             }
             ForIterationSource::Cursor(source) => {
-                write!(f, "{source} DO")?;
+                write!(f, "{source}")?;
             }
         }
+        write!(f, " {}", if *body_uses_loop { "LOOP" } else { "DO" })?;
         if !body.statements().is_empty() {
             write!(f, " {body}")?;
         }
-        write!(f, " END FOR")
+        write!(f, " END {}", if *end_uses_loop { "LOOP" } else { "FOR" })
     }
 }
 
