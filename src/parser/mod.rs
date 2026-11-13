@@ -1065,6 +1065,11 @@ impl<'a> Parser<'a> {
         let end_token = AttachedToken(self.peek_token());
         let end_uses_loop =
             self.expect_one_of_keywords(&[Keyword::FOR, Keyword::LOOP])? == Keyword::LOOP;
+        let label = if matches!(self.peek_token_ref().token, Token::Word(_)) {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
         Ok(ForStatement {
             var,
             iteration,
@@ -1072,6 +1077,7 @@ impl<'a> Parser<'a> {
             body_uses_loop,
             end_uses_loop,
             end_token,
+            label,
         })
     }
 
