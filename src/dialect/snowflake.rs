@@ -1941,6 +1941,10 @@ impl Dialect for SnowflakeDialect {
         true
     }
 
+    fn supports_nested_begin_end_in_control_flow(&self) -> bool {
+        true
+    }
+
     /// See <https://docs.snowflake.com/en/developer-guide/snowflake-scripting/cursors>
     fn supports_for_loop_over_cursor(&self) -> bool {
         true
