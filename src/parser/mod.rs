@@ -14833,7 +14833,12 @@ impl<'a> Parser<'a> {
             let mut patch_number = None;
             let mut for_version = false;
             let (operation, version, source) = match action.as_str() {
-                "BUILD" => (action, None, None),
+                "BUILD" | "COMMIT" => (action, None, None),
+                "ABORT" => {
+                    self.expect_keyword(Keyword::LIVE)?;
+                    self.expect_keyword(Keyword::VERSION)?;
+                    ("ABORT LIVE VERSION".into(), None, None)
+                }
                 "REGISTER" => {
                     self.expect_keyword(Keyword::VERSION)?;
                     let version = if self.peek_keyword(Keyword::USING) {
@@ -14849,6 +14854,31 @@ impl<'a> Parser<'a> {
                     )
                 }
                 "ADD" => {
+                    if self.parse_keyword(Keyword::LIVE) {
+                        self.expect_keyword(Keyword::VERSION)?;
+                        return Ok(Statement::AlterApplicationPackageVersion {
+                            name,
+                            channel,
+                            operation: Ident::new("ADD LIVE VERSION"),
+                            version: None,
+                            source: None,
+                            patch: None,
+                            label: None,
+                            for_version: false,
+                        });
+                    }
+                    if self.parse_keywords(&[Keyword::VERSION, Keyword::FROM]) {
+                        return Ok(Statement::AlterApplicationPackageVersion {
+                            name,
+                            channel,
+                            operation: Ident::new("ADD VERSION FROM"),
+                            version: None,
+                            source: Some(self.parse_application_stage_source()?),
+                            patch: None,
+                            label: None,
+                            for_version: false,
+                        });
+                    }
                     let patch = self.parse_keyword(Keyword::PATCH);
                     let version = if patch {
                         if matches!(self.peek_token().token, Token::Number(_, _)) {

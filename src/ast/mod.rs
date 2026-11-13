@@ -8671,6 +8671,13 @@ impl fmt::Display for Statement {
                 write!(f, "ALTER APPLICATION PACKAGE {name} ")?;
                 if let Some(channel) = channel { write!(f, "MODIFY RELEASE CHANNEL {channel} ")?; }
                 write!(f, "{operation}")?;
+                if matches!(operation.value.as_str(), "BUILD" | "COMMIT" | "ABORT LIVE VERSION" | "ADD LIVE VERSION") {
+                    return Ok(());
+                }
+                if operation.value == "ADD VERSION FROM" {
+                    if let Some(source) = source { write!(f, " '{}'", value::escape_single_quote_string(source))?; }
+                    return Ok(());
+                }
                 if operation.value == "SET DEFAULT RELEASE DIRECTIVE" {
                     if let Some(version) = version { write!(f, " VERSION = {version}")?; }
                     if let Some(patch) = patch { write!(f, " PATCH = {patch}")?; }
