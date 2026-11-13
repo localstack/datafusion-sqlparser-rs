@@ -14825,6 +14825,7 @@ impl<'a> Parser<'a> {
             let mut patch_number = None;
             let mut for_version = false;
             let (operation, version, source) = match action.as_str() {
+                "BUILD" => (action, None, None),
                 "REGISTER" => {
                     self.expect_keyword(Keyword::VERSION)?;
                     let version = if self.peek_keyword(Keyword::USING) {
