@@ -688,6 +688,7 @@ define_keywords!(
     LIST,
     LISTEN,
     LISTING,
+    LIVE,
     LN,
     LOAD,
     LOCAL,
