@@ -2986,6 +2986,8 @@ pub struct ForStatement {
     pub body_uses_loop: bool,
     /// Kept independently of the opener so mismatched delimiters survive round-tripping.
     pub end_uses_loop: bool,
+    /// Closing keyword with its original source location.
+    pub end_token: AttachedToken,
 }
 
 /// The thing a [`ForStatement`] iterates over.
@@ -3016,6 +3018,7 @@ impl fmt::Display for ForStatement {
             body,
             body_uses_loop,
             end_uses_loop,
+            end_token: _,
         } = self;
         write!(f, "FOR {var} IN ")?;
         match iteration {
