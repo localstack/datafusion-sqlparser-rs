@@ -1384,6 +1384,12 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Treats a leading `BEGIN ... END` in a control-flow body as a nested
+    /// statement rather than the delimiter of the entire body.
+    fn supports_nested_begin_end_in_control_flow(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect supports `$` as a prefix for money literals
     /// e.g. `SELECT $123.45` (SQL Server)
     fn supports_dollar_as_money_prefix(&self) -> bool {
