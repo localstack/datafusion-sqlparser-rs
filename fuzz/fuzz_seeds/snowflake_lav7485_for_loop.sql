@@ -1,0 +1,1 @@
+BEGIN FOR counter IN 1 TO 3 LOOP RETURN counter; END LOOP; END

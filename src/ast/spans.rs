@@ -1121,6 +1121,8 @@ impl Spanned for ForStatement {
             var,
             iteration,
             body,
+            body_uses_loop: _,
+            end_uses_loop: _,
         } = self;
         let mut spans = vec![var.span, body.span()];
         match iteration {
