@@ -3913,17 +3913,33 @@ impl Display for Set {
 pub struct ExceptionWhen {
     /// Identifiers that trigger this branch (error conditions).
     pub idents: Vec<Ident>,
+    /// Explicit handler mode; omission defaults to EXIT.
+    pub mode: Option<ExceptionHandlerMode>,
     /// Statements to execute when the condition matches.
     pub statements: Vec<Statement>,
+}
+
+/// How execution proceeds after an exception handler finishes.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ExceptionHandlerMode {
+    /// Leave the block that owns the handler.
+    Exit,
 }
 
 impl Display for ExceptionWhen {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "WHEN {idents} THEN",
+            "WHEN {idents}",
             idents = display_separated(&self.idents, " OR ")
         )?;
+        match self.mode {
+            Some(ExceptionHandlerMode::Exit) => write!(f, " EXIT")?,
+            None => {}
+        }
+        write!(f, " THEN")?;
 
         if !self.statements.is_empty() {
             write!(f, " ")?;

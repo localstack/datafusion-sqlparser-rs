@@ -26370,22 +26370,23 @@ impl<'a> Parser<'a> {
             while !self.peek_keyword(Keyword::END) {
                 self.expect_keyword(Keyword::WHEN)?;
 
-                // Each `WHEN` case can have one or more conditions, e.g.
-                // WHEN EXCEPTION_1 [OR EXCEPTION_2] THEN
-                // So we parse identifiers until the `THEN` keyword.
-                let mut idents = Vec::new();
-
-                while !self.parse_keyword(Keyword::THEN) {
-                    let ident = self.parse_identifier()?;
-                    idents.push(ident);
-
-                    self.maybe_parse(|p| p.expect_keyword(Keyword::OR))?;
+                let mut idents = vec![self.parse_identifier()?];
+                while self.parse_keyword(Keyword::OR) {
+                    idents.push(self.parse_identifier()?);
                 }
+                let mode = self
+                    .parse_keyword(Keyword::EXIT)
+                    .then_some(ExceptionHandlerMode::Exit);
+                self.expect_keyword(Keyword::THEN)?;
 
                 let statements =
                     self.parse_scripting_statement_list(&[Keyword::WHEN, Keyword::END])?;
 
-                when.push(ExceptionWhen { idents, statements });
+                when.push(ExceptionWhen {
+                    idents,
+                    mode,
+                    statements,
+                });
             }
 
             Some(when)
