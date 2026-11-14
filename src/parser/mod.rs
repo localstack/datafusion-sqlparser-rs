@@ -14840,6 +14840,14 @@ impl<'a> Parser<'a> {
             let mut for_version = false;
             let (operation, version, source) = match action.as_str() {
                 "BUILD" | "COMMIT" => (action, None, None),
+                "RELEASE" => {
+                    if self.parse_keyword(Keyword::LIVE) {
+                        self.expect_keyword(Keyword::VERSION)?;
+                        ("RELEASE LIVE VERSION".into(), None, None)
+                    } else {
+                        (action, None, None)
+                    }
+                }
                 "ABORT" => {
                     self.expect_keyword(Keyword::LIVE)?;
                     self.expect_keyword(Keyword::VERSION)?;
@@ -14862,6 +14870,10 @@ impl<'a> Parser<'a> {
                 "ADD" => {
                     if self.parse_keyword(Keyword::LIVE) {
                         self.expect_keyword(Keyword::VERSION)?;
+                        if self.parse_keyword(Keyword::COMMENT) {
+                            self.expect_token(&Token::Eq)?;
+                            self.parse_literal_string()?;
+                        }
                         return Ok(Statement::AlterApplicationPackageVersion {
                             name,
                             channel,
@@ -14874,12 +14886,17 @@ impl<'a> Parser<'a> {
                         });
                     }
                     if self.parse_keywords(&[Keyword::VERSION, Keyword::FROM]) {
+                        let source = self.parse_application_stage_source()?;
+                        if self.parse_keyword(Keyword::COMMENT) {
+                            self.expect_token(&Token::Eq)?;
+                            self.parse_literal_string()?;
+                        }
                         return Ok(Statement::AlterApplicationPackageVersion {
                             name,
                             channel,
                             operation: Ident::new("ADD VERSION FROM"),
                             version: None,
-                            source: Some(self.parse_application_stage_source()?),
+                            source: Some(source),
                             patch: None,
                             label: None,
                             for_version: false,
