@@ -168,6 +168,7 @@ define_keywords!(
     AVG,
     AVG_ROW_LENGTH,
     AVRO,
+    AWAIT,
     AWS_ACCESS_KEY_ID,
     AWS_ACCESS_POINT_ARN,
     AWS_KEY_ID,

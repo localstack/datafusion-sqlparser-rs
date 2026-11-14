@@ -8438,11 +8438,13 @@ fn test_execute_task() {
             retry_last,
             retry_graph_run_group,
             config,
+            await_completion,
         } => {
             assert_eq!("foo", name.to_string());
             assert!(!retry_last);
             assert_eq!(retry_graph_run_group, None);
             assert_eq!(config, None);
+            assert!(!await_completion);
         }
         _ => unreachable!(),
     }
