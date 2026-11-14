@@ -11729,3 +11729,29 @@ fn create_application_listing_and_background_install() {
         assert!(snowflake().parse_sql_statements(statement).is_err());
     }
 }
+
+#[test]
+fn open_cursor_using() {
+    for statement in [
+        "OPEN c",
+        "OPEN c USING (1)",
+        "OPEN c USING (lo + 1, 3, NULL, 'x''?y')",
+        r#"OPEN "MixedCursor" USING (:value, COALESCE(other, 0))"#,
+    ] {
+        snowflake().verified_stmt(statement);
+    }
+    for (statement, expected) in [
+        ("OPEN c USING 1", "Expected: (, found: 1"),
+        ("OPEN c USING ()", "Expected: an expression, found: )"),
+        ("OPEN c USING (1,)", "Expected: an expression, found: )"),
+        ("OPEN c USING (1", "Expected: ), found: EOF"),
+    ] {
+        assert_eq!(
+            snowflake()
+                .parse_sql_statements(statement)
+                .unwrap_err()
+                .to_string(),
+            format!("sql parser error: {expected}")
+        );
+    }
+}
