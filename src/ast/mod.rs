@@ -5990,7 +5990,8 @@ pub enum Statement {
         action: AlterTaskAction,
     },
     /// ```sql
-    /// EXECUTE TASK <name> [RETRY LAST | RETRY GRAPH RUN GROUP '<id>']
+    /// EXECUTE TASK <name> [USING CONFIG = '<configuration>'] [AWAIT]
+    /// EXECUTE TASK <name> {RETRY LAST | RETRY GRAPH RUN GROUP '<id>'}
     /// ```
     /// See <https://docs.snowflake.com/en/sql-reference/sql/execute-task>
     ExecuteTask {
@@ -6002,6 +6003,8 @@ pub enum Statement {
         retry_graph_run_group: Option<String>,
         /// Per-run JSON configuration override.
         config: Option<String>,
+        /// Wait for the submitted graph to complete.
+        await_completion: bool,
     },
     /// ```sql
     /// EXECUTE ALERT <name>
@@ -10493,6 +10496,7 @@ impl fmt::Display for Statement {
                 retry_last,
                 retry_graph_run_group,
                 config,
+                await_completion,
             } => {
                 write!(f, "EXECUTE TASK {name}")?;
                 if *retry_last {
@@ -10501,6 +10505,9 @@ impl fmt::Display for Statement {
                     write!(f, " RETRY GRAPH RUN GROUP '{}'", group_id.replace('\'', "''"))?;
                 } else if let Some(config) = config {
                     write!(f, " USING CONFIG = '{}'", config.replace('\'', "''"))?;
+                }
+                if *await_completion {
+                    write!(f, " AWAIT")?;
                 }
                 Ok(())
             }
