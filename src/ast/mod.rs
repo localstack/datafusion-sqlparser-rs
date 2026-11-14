@@ -18116,12 +18116,19 @@ pub enum AlterAccountOperation {
         #[doc = "The account user class."]
         user_class: Ident,
     },
-    #[doc = "SET AUTHENTICATION POLICY <policy_name> [ FORCE ]"]
+    #[doc = "SET AUTHENTICATION POLICY <policy_name> [ FOR ALL { PERSON | SERVICE } USERS ] [ FORCE ]"]
     SetAuthenticationPolicy {
         #[doc = "The qualified policy name."]
         policy: ObjectName,
         #[doc = "Whether to replace an existing attachment."]
         force: bool,
+        #[doc = "The account user class, if specified."]
+        user_class: Option<Ident>,
+    },
+    #[doc = "UNSET AUTHENTICATION POLICY FOR ALL { PERSON | SERVICE } USERS"]
+    UnsetAuthenticationPolicy {
+        #[doc = "The account user class."]
+        user_class: Ident,
     },
     #[doc = "SET DATA MOVEMENT POLICY <policy_name> [ FORCE ]"]
     SetDataMovementPolicy {
@@ -18189,8 +18196,11 @@ impl fmt::Display for AlterAccountOperation {
                 }
                 Ok(())
             }
-            AlterAccountOperation::SetAuthenticationPolicy { policy, force } => {
+            AlterAccountOperation::SetAuthenticationPolicy { policy, force, user_class } => {
                 write!(f, "SET AUTHENTICATION POLICY {policy}")?;
+                if let Some(user_class) = user_class {
+                    write!(f, " FOR ALL {user_class} USERS")?;
+                }
                 if *force {
                     write!(f, " FORCE")?;
                 }
@@ -18208,6 +18218,9 @@ impl fmt::Display for AlterAccountOperation {
             }
             AlterAccountOperation::UnsetSessionPolicy { user_class } => {
                 write!(f, "UNSET SESSION POLICY FOR ALL {user_class} USERS")
+            }
+            AlterAccountOperation::UnsetAuthenticationPolicy { user_class } => {
+                write!(f, "UNSET AUTHENTICATION POLICY FOR ALL {user_class} USERS")
             }
             AlterAccountOperation::SetPackagesPolicy { policy, force } => {
                 write!(f, "SET PACKAGES POLICY {policy}")?;
