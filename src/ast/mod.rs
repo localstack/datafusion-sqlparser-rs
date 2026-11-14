@@ -18114,6 +18114,15 @@ pub enum AlterAccountOperation {
         #[doc = "The account user class."]
         user_class: Ident,
     },
+    #[doc = "SET DATA MOVEMENT POLICY <policy_name> [ FORCE ]"]
+    SetDataMovementPolicy {
+        #[doc = "The qualified policy name."]
+        policy: ObjectName,
+        #[doc = "Whether to replace an existing attachment."]
+        force: bool,
+    },
+    #[doc = "UNSET DATA MOVEMENT POLICY"]
+    UnsetDataMovementPolicy,
     #[doc = "SET PACKAGES POLICY <policy_name> [ FORCE ]"]
     SetPackagesPolicy {
         #[doc = "The qualified policy name."]
@@ -18170,6 +18179,16 @@ impl fmt::Display for AlterAccountOperation {
                     write!(f, " FORCE")?;
                 }
                 Ok(())
+            }
+            AlterAccountOperation::SetDataMovementPolicy { policy, force } => {
+                write!(f, "SET DATA MOVEMENT POLICY {policy}")?;
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
+            AlterAccountOperation::UnsetDataMovementPolicy => {
+                write!(f, "UNSET DATA MOVEMENT POLICY")
             }
             AlterAccountOperation::UnsetSessionPolicy { user_class } => {
                 write!(f, "UNSET SESSION POLICY FOR ALL {user_class} USERS")
