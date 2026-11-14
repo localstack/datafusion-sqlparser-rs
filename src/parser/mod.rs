@@ -16654,9 +16654,16 @@ impl<'a> Parser<'a> {
     /// Parse [Statement::Open]
     fn parse_open(&mut self) -> Result<Statement, ParserError> {
         self.expect_keyword(Keyword::OPEN)?;
-        Ok(Statement::Open(OpenStatement {
-            cursor_name: self.parse_identifier()?,
-        }))
+        let cursor_name = self.parse_identifier()?;
+        let using = if self.parse_keyword(Keyword::USING) {
+            self.expect_token(&Token::LParen)?;
+            let expressions = self.parse_comma_separated(Parser::parse_expr)?;
+            self.expect_token(&Token::RParen)?;
+            expressions
+        } else {
+            Vec::new()
+        };
+        Ok(Statement::Open(OpenStatement { cursor_name, using }))
     }
 
     /// Parse a `CLOSE` cursor statement.
