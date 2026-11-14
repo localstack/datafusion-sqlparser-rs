@@ -26398,9 +26398,13 @@ impl<'a> Parser<'a> {
                 while self.parse_keyword(Keyword::OR) {
                     idents.push(self.parse_identifier()?);
                 }
-                let mode = self
-                    .parse_keyword(Keyword::EXIT)
-                    .then_some(ExceptionHandlerMode::Exit);
+                let mode = if self.parse_keyword(Keyword::EXIT) {
+                    Some(ExceptionHandlerMode::Exit)
+                } else if self.parse_keyword(Keyword::CONTINUE) {
+                    Some(ExceptionHandlerMode::Continue)
+                } else {
+                    None
+                };
                 self.expect_keyword(Keyword::THEN)?;
 
                 let statements =

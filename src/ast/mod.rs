@@ -3926,6 +3926,8 @@ pub struct ExceptionWhen {
 pub enum ExceptionHandlerMode {
     /// Leave the block that owns the handler.
     Exit,
+    /// Resume after the statement that raised the exception.
+    Continue,
 }
 
 impl Display for ExceptionWhen {
@@ -3937,6 +3939,7 @@ impl Display for ExceptionWhen {
         )?;
         match self.mode {
             Some(ExceptionHandlerMode::Exit) => write!(f, " EXIT")?,
+            Some(ExceptionHandlerMode::Continue) => write!(f, " CONTINUE")?,
             None => {}
         }
         write!(f, " THEN")?;
