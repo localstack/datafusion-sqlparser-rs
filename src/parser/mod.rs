@@ -26768,6 +26768,7 @@ impl<'a> Parser<'a> {
                 retry_last,
                 retry_graph_run_group,
                 config,
+                await_completion: self.parse_keyword(Keyword::AWAIT),
             });
         }
 
