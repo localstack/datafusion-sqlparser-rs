@@ -1119,7 +1119,7 @@ impl<'a> Parser<'a> {
         kind: LoopControlKind,
     ) -> Result<LoopControlStatement, ParserError> {
         // Consume the leading keyword (already matched by the caller).
-        self.next_token();
+        let keyword_token = self.next_token().into();
         // Snowflake allows an optional loop label after the keyword. The
         // surrounding scripting body ends each statement with `;`, so a
         // label is present iff the next token is a Word that is not itself
@@ -1131,7 +1131,11 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        Ok(LoopControlStatement { kind, label })
+        Ok(LoopControlStatement {
+            keyword_token,
+            kind,
+            label,
+        })
     }
 
     /// Parses an expression and associated list of statements

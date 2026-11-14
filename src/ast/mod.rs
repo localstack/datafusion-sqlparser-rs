@@ -3152,6 +3152,8 @@ impl fmt::Display for LoopControlKind {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct LoopControlStatement {
+    /// Leading keyword with its original source location.
+    pub keyword_token: AttachedToken,
     /// Which keyword was used (`BREAK` / `EXIT` / `CONTINUE` / `ITERATE`).
     pub kind: LoopControlKind,
     /// Optional loop label.
@@ -3160,7 +3162,7 @@ pub struct LoopControlStatement {
 
 impl fmt::Display for LoopControlStatement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let LoopControlStatement { kind, label } = self;
+        let LoopControlStatement { kind, label, .. } = self;
         write!(f, "{kind}")?;
         if let Some(label) = label {
             write!(f, " {label}")?;

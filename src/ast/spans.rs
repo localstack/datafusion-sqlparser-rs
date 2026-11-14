@@ -1157,8 +1157,10 @@ impl Spanned for RepeatStatement {
 
 impl Spanned for LoopControlStatement {
     fn span(&self) -> Span {
-        let LoopControlStatement { kind: _, label } = self;
-        label.as_ref().map(|l| l.span).unwrap_or_else(Span::empty)
+        union_spans(
+            core::iter::once(self.keyword_token.0.span)
+                .chain(self.label.as_ref().map(|label| label.span)),
+        )
     }
 }
 
