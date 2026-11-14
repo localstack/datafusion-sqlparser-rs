@@ -7044,27 +7044,7 @@ impl<'a> Parser<'a> {
 
         loop {
             if self.parse_keyword(Keyword::AS) {
-                let declaration = if self.peek_keyword(Keyword::DECLARE) {
-                    Some(self.parse_statement()?)
-                } else {
-                    None
-                };
-                if declaration.is_some() {
-                    self.expect_token(&Token::SemiColon)?;
-                }
-                let mut sql_body = self.parse_statement()?;
-                if let Some(declaration) = declaration {
-                    match &mut sql_body {
-                        Statement::StartTransaction {
-                            begin: true,
-                            has_end_keyword: true,
-                            statements,
-                            ..
-                        } => statements.insert(0, declaration),
-                        _ => return self.expected("BEGIN ... END", self.peek_token()),
-                    }
-                }
-                let sql_body = Box::new(sql_body);
+                let sql_body = Box::new(self.parse_task_sql_body()?);
                 return Ok(Statement::CreateTask {
                     or_replace,
                     or_alter,
@@ -15638,6 +15618,30 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_task_sql_body(&mut self) -> Result<Statement, ParserError> {
+        let declaration = if self.peek_keyword(Keyword::DECLARE) {
+            Some(self.parse_statement()?)
+        } else {
+            None
+        };
+        if declaration.is_some() {
+            self.expect_token(&Token::SemiColon)?;
+        }
+        let mut body = self.parse_statement()?;
+        if let Some(declaration) = declaration {
+            match &mut body {
+                Statement::StartTransaction {
+                    begin: true,
+                    has_end_keyword: true,
+                    statements,
+                    ..
+                } => statements.insert(0, declaration),
+                _ => return self.expected("BEGIN ... END", self.peek_token()),
+            }
+        }
+        Ok(body)
+    }
+
     /// Parse `ALTER TASK [IF EXISTS] <name> { RESUME | SUSPEND | { ADD | REMOVE } AFTER ... }`.
     pub fn parse_alter_task(&mut self) -> Result<Statement, ParserError> {
         let if_exists = self.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
@@ -15662,7 +15666,7 @@ impl<'a> Parser<'a> {
             }
         } else if self.parse_keyword(Keyword::MODIFY) {
             if self.parse_keyword(Keyword::AS) {
-                AlterTaskAction::ModifyAs(Box::new(self.parse_statement()?))
+                AlterTaskAction::ModifyAs(Box::new(self.parse_task_sql_body()?))
             } else if self.parse_keyword(Keyword::WHEN) {
                 AlterTaskAction::ModifyWhen(self.parse_expr()?)
             } else {
