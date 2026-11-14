@@ -18093,12 +18093,19 @@ pub enum AlterAccountOperation {
         /// The qualified name of the password policy to attach.
         policy: ObjectName,
     },
-    #[doc = "SET SESSION POLICY <policy_name> [ FORCE ]"]
+    #[doc = "SET SESSION POLICY <policy_name> [ FOR ALL { PERSON | SERVICE } USERS ] [ FORCE ]"]
     SetSessionPolicy {
         #[doc = "The qualified policy name."]
         policy: ObjectName,
         #[doc = "Whether to replace an existing attachment."]
         force: bool,
+        #[doc = "The account user class, if specified."]
+        user_class: Option<Ident>,
+    },
+    #[doc = "UNSET SESSION POLICY FOR ALL { PERSON | SERVICE } USERS"]
+    UnsetSessionPolicy {
+        #[doc = "The account user class."]
+        user_class: Ident,
     },
     #[doc = "SET PACKAGES POLICY <policy_name> [ FORCE ]"]
     SetPackagesPolicy {
@@ -18147,12 +18154,18 @@ impl fmt::Display for AlterAccountOperation {
             AlterAccountOperation::SetPasswordPolicyForce { policy } => {
                 write!(f, "SET PASSWORD POLICY {policy} FORCE")
             }
-            AlterAccountOperation::SetSessionPolicy { policy, force } => {
+            AlterAccountOperation::SetSessionPolicy { policy, force, user_class } => {
                 write!(f, "SET SESSION POLICY {policy}")?;
+                if let Some(user_class) = user_class {
+                    write!(f, " FOR ALL {user_class} USERS")?;
+                }
                 if *force {
                     write!(f, " FORCE")?;
                 }
                 Ok(())
+            }
+            AlterAccountOperation::UnsetSessionPolicy { user_class } => {
+                write!(f, "UNSET SESSION POLICY FOR ALL {user_class} USERS")
             }
             AlterAccountOperation::SetPackagesPolicy { policy, force } => {
                 write!(f, "SET PACKAGES POLICY {policy}")?;

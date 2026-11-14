@@ -15383,6 +15383,24 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn parse_account_policy_user_class(&mut self) -> Result<Option<Ident>, ParserError> {
+        if !self.parse_keyword(Keyword::FOR) {
+            return Ok(None);
+        }
+        self.expect_keyword(Keyword::ALL)?;
+        let token = self.next_token();
+        let user_class = match token.token {
+            Token::Word(ref word) if word.quote_style.is_none()
+                && (word.value.eq_ignore_ascii_case("PERSON")
+                    || word.value.eq_ignore_ascii_case("SERVICE")) => {
+                Ident::new(word.value.to_uppercase())
+            }
+            _ => return self.expected("PERSON or SERVICE", token),
+        };
+        self.expect_keyword(Keyword::USERS)?;
+        Ok(Some(user_class))
+    }
+
     fn parse_alter_account(&mut self) -> Result<Statement, ParserError> {
         let starts_with_op = matches!(
             self.peek_token().token,
@@ -15437,8 +15455,9 @@ impl<'a> Parser<'a> {
             AlterAccountOperation::UnsetPackagesPolicy
         } else if self.parse_keywords(&[Keyword::SET, Keyword::SESSION, Keyword::POLICY]) {
             let policy = self.parse_object_name(false)?;
+            let user_class = self.parse_account_policy_user_class()?;
             let force = self.parse_keyword(Keyword::FORCE);
-            AlterAccountOperation::SetSessionPolicy { policy, force }
+            AlterAccountOperation::SetSessionPolicy { policy, force, user_class }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
             let forced = if policy_kind == UserPolicyKind::Password {
                 self.try_parse(|parser| {
@@ -15460,7 +15479,15 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
-            AlterAccountOperation::UnsetPolicy { policy_kind }
+            if policy_kind == UserPolicyKind::Session {
+                if let Some(user_class) = self.parse_account_policy_user_class()? {
+                    AlterAccountOperation::UnsetSessionPolicy { user_class }
+                } else {
+                    AlterAccountOperation::UnsetPolicy { policy_kind }
+                }
+            } else {
+                AlterAccountOperation::UnsetPolicy { policy_kind }
+            }
         } else if self.parse_keywords(&[Keyword::SET, Keyword::TAG]) {
             AlterAccountOperation::SetTags {
                 tags: self.parse_comma_separated(Parser::parse_tag)?,
