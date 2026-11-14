@@ -15453,6 +15453,22 @@ impl<'a> Parser<'a> {
             AlterAccountOperation::SetPackagesPolicy { policy, force }
         } else if self.parse_keywords(&[Keyword::UNSET, Keyword::PACKAGES, Keyword::POLICY]) {
             AlterAccountOperation::UnsetPackagesPolicy
+        } else if self.parse_keywords(&[
+            Keyword::SET,
+            Keyword::DATA,
+            Keyword::MOVEMENT,
+            Keyword::POLICY,
+        ]) {
+            let policy = self.parse_object_name(false)?;
+            let force = self.parse_keyword(Keyword::FORCE);
+            AlterAccountOperation::SetDataMovementPolicy { policy, force }
+        } else if self.parse_keywords(&[
+            Keyword::UNSET,
+            Keyword::DATA,
+            Keyword::MOVEMENT,
+            Keyword::POLICY,
+        ]) {
+            AlterAccountOperation::UnsetDataMovementPolicy
         } else if self.parse_keywords(&[Keyword::SET, Keyword::SESSION, Keyword::POLICY]) {
             let policy = self.parse_object_name(false)?;
             let user_class = self.parse_account_policy_user_class()?;
