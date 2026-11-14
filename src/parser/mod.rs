@@ -15489,13 +15489,14 @@ impl<'a> Parser<'a> {
             } else if policy_kind == UserPolicyKind::Authentication {
                 self.try_parse(|parser| {
                     let policy = parser.parse_object_name(false)?;
-                    let force = if policy.0.len() == 1 {
+                    let user_class = parser.parse_account_policy_user_class()?;
+                    let force = if policy.0.len() == 1 && user_class.is_none() {
                         parser.expect_keyword(Keyword::FORCE)?;
                         true
                     } else {
                         parser.parse_keyword(Keyword::FORCE)
                     };
-                    Ok(AlterAccountOperation::SetAuthenticationPolicy { policy, force })
+                    Ok(AlterAccountOperation::SetAuthenticationPolicy { policy, force, user_class })
                 })
                 .ok()
             } else {
@@ -15511,9 +15512,13 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
-            if policy_kind == UserPolicyKind::Session {
+            if matches!(policy_kind, UserPolicyKind::Session | UserPolicyKind::Authentication) {
                 if let Some(user_class) = self.parse_account_policy_user_class()? {
-                    AlterAccountOperation::UnsetSessionPolicy { user_class }
+                    if policy_kind == UserPolicyKind::Session {
+                        AlterAccountOperation::UnsetSessionPolicy { user_class }
+                    } else {
+                        AlterAccountOperation::UnsetAuthenticationPolicy { user_class }
+                    }
                 } else {
                     AlterAccountOperation::UnsetPolicy { policy_kind }
                 }
