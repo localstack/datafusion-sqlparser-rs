@@ -18114,6 +18114,13 @@ pub enum AlterAccountOperation {
         #[doc = "The account user class."]
         user_class: Ident,
     },
+    #[doc = "SET AUTHENTICATION POLICY <policy_name> [ FORCE ]"]
+    SetAuthenticationPolicy {
+        #[doc = "The qualified policy name."]
+        policy: ObjectName,
+        #[doc = "Whether to replace an existing attachment."]
+        force: bool,
+    },
     #[doc = "SET DATA MOVEMENT POLICY <policy_name> [ FORCE ]"]
     SetDataMovementPolicy {
         #[doc = "The qualified policy name."]
@@ -18175,6 +18182,13 @@ impl fmt::Display for AlterAccountOperation {
                 if let Some(user_class) = user_class {
                     write!(f, " FOR ALL {user_class} USERS")?;
                 }
+                if *force {
+                    write!(f, " FORCE")?;
+                }
+                Ok(())
+            }
+            AlterAccountOperation::SetAuthenticationPolicy { policy, force } => {
+                write!(f, "SET AUTHENTICATION POLICY {policy}")?;
                 if *force {
                     write!(f, " FORCE")?;
                 }
