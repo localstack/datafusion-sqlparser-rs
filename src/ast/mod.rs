@@ -19214,11 +19214,17 @@ pub enum ReturnStatementValue {
 pub struct OpenStatement {
     /// Cursor name
     pub cursor_name: Ident,
+    /// Positional bind arguments evaluated when the cursor is opened.
+    pub using: Vec<Expr>,
 }
 
 impl fmt::Display for OpenStatement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "OPEN {}", self.cursor_name)
+        write!(f, "OPEN {}", self.cursor_name)?;
+        if !self.using.is_empty() {
+            write!(f, " USING ({})", display_comma_separated(&self.using))?;
+        }
+        Ok(())
     }
 }
 

@@ -3108,8 +3108,8 @@ impl Spanned for BeginEndStatements {
 
 impl Spanned for OpenStatement {
     fn span(&self) -> Span {
-        let OpenStatement { cursor_name } = self;
-        cursor_name.span
+        let OpenStatement { cursor_name, using } = self;
+        union_spans(core::iter::once(cursor_name.span).chain(using.iter().map(Spanned::span)))
     }
 }
 

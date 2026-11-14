@@ -19359,6 +19359,7 @@ fn test_open() {
         stmt,
         Statement::Open(OpenStatement {
             cursor_name: Ident::new("Employee_Cursor"),
+            using: vec![],
         })
     );
 }
