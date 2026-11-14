@@ -2405,7 +2405,7 @@ impl Dialect for SnowflakeDialect {
 // a LIMIT/FETCH keyword.
 fn peek_for_limit_options(parser: &Parser) -> bool {
     match &parser.peek_token_ref().token {
-        Token::Number(_, _) | Token::Placeholder(_) => true,
+        Token::Number(_, _) | Token::Placeholder(_) | Token::Colon => true,
         Token::SingleQuotedString(val) if val.is_empty() => true,
         Token::DollarQuotedString(DollarQuotedString { value, .. }) if value.is_empty() => true,
         Token::Word(w) if w.keyword == Keyword::NULL => true,
