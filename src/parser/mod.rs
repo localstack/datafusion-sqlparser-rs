@@ -1359,6 +1359,10 @@ impl<'a> Parser<'a> {
                         )
                     }
                 }
+            } else if self.dialect.supports_nested_begin_end_in_control_flow()
+                && self.parse_keyword(Keyword::DECLARE)
+            {
+                self.parse_scripting_declare_block()?
             } else {
                 self.parse_statement()?
             };
@@ -1367,6 +1371,27 @@ impl<'a> Parser<'a> {
             self.expect_token(&Token::SemiColon)?;
         }
         Ok(values)
+    }
+
+    fn parse_scripting_declare_block(&mut self) -> Result<Statement, ParserError> {
+        let declaration = self.parse_declare()?;
+        let declaration_end = self.index;
+        if !self.consume_token(&Token::SemiColon) || !self.parse_keyword(Keyword::BEGIN) {
+            self.index = declaration_end;
+            return Ok(declaration);
+        }
+        let mut statements = vec![declaration];
+        statements.push(self.parse_begin_exception_end()?);
+        Ok(Statement::StartTransaction {
+            begin: true,
+            statements,
+            exception: None,
+            has_end_keyword: true,
+            transaction: None,
+            modifier: None,
+            modes: Default::default(),
+            name: None,
+        })
     }
 
     /// If the next scripting statement is a `PUT` / `GET` file-transfer
