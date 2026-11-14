@@ -15576,17 +15576,29 @@ impl<'a> Parser<'a> {
             let force = self.parse_keyword(Keyword::FORCE);
             AlterAccountOperation::SetSessionPolicy { policy, force, user_class }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
-            let forced = if policy_kind == UserPolicyKind::Password {
+            let extended = if policy_kind == UserPolicyKind::Password {
                 self.try_parse(|parser| {
                     let policy = parser.parse_object_name(false)?;
                     parser.expect_keyword(Keyword::FORCE)?;
                     Ok(AlterAccountOperation::SetPasswordPolicyForce { policy })
                 })
                 .ok()
+            } else if policy_kind == UserPolicyKind::Authentication {
+                self.try_parse(|parser| {
+                    let policy = parser.parse_object_name(false)?;
+                    let force = if policy.0.len() == 1 {
+                        parser.expect_keyword(Keyword::FORCE)?;
+                        true
+                    } else {
+                        parser.parse_keyword(Keyword::FORCE)
+                    };
+                    Ok(AlterAccountOperation::SetAuthenticationPolicy { policy, force })
+                })
+                .ok()
             } else {
                 None
             };
-            if let Some(operation) = forced {
+            if let Some(operation) = extended {
                 operation
             } else {
                 let policy = self.parse_identifier()?;
