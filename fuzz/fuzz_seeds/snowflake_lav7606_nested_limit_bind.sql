@@ -1,0 +1,1 @@
+SELECT COUNT(*) FROM (SELECT column1 FROM VALUES (1), (2), (3) LIMIT :lim)
