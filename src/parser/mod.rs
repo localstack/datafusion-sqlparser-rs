@@ -5909,6 +5909,7 @@ impl<'a> Parser<'a> {
                             relation: table.relation,
                             global: false,
                             directed: false,
+                            first: None,
                             last: None,
                             join_operator: JoinOperator::Join(constraint),
                         });
@@ -21737,6 +21738,7 @@ impl<'a> Parser<'a> {
                     relation,
                     global,
                     directed,
+                    first: None,
                     last: None,
                     join_operator,
                 }
@@ -21747,6 +21749,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    first: None,
                     last: None,
                     join_operator: JoinOperator::OuterApply,
                 }
@@ -21759,6 +21762,7 @@ impl<'a> Parser<'a> {
                     relation,
                     global,
                     directed,
+                    first: None,
                     last: None,
                     join_operator: JoinOperator::AsOf {
                         match_condition,
@@ -21773,6 +21777,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    first: None,
                     last: None,
                     join_operator: JoinOperator::InnerArrayJoin,
                 }
@@ -21784,6 +21789,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    first: None,
                     last: None,
                     join_operator: JoinOperator::LeftArrayJoin,
                 }
@@ -21795,6 +21801,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    first: None,
                     last: None,
                     join_operator: JoinOperator::ArrayJoin,
                 }
@@ -21919,6 +21926,18 @@ impl<'a> Parser<'a> {
                 }
 
                 let join_constraint = self.parse_join_constraint(natural)?;
+                let first = if matches!(
+                    join_constraint,
+                    JoinConstraint::On(_) | JoinConstraint::Using(_) | JoinConstraint::UsingAlias(..)
+                ) && self.parse_keyword(Keyword::FIRST)
+                {
+                    self.expect_token(&Token::LParen)?;
+                    let alias = self.parse_identifier()?;
+                    self.expect_token(&Token::RParen)?;
+                    Some(alias)
+                } else {
+                    None
+                };
                 let last = if self.parse_keyword(Keyword::LAST) {
                     Some(self.parse_parenthesized(Self::parse_identifier)?)
                 } else {
@@ -21928,6 +21947,7 @@ impl<'a> Parser<'a> {
                     relation,
                     global,
                     directed,
+                    first,
                     last,
                     join_operator: join_operator_type(join_constraint),
                 }
