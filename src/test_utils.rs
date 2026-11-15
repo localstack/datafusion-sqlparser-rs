@@ -436,6 +436,7 @@ pub fn join(relation: TableFactor) -> Join {
         relation,
         global: false,
         directed: false,
+        first: None,
         last: None,
         join_operator: JoinOperator::Join(JoinConstraint::Natural),
     }

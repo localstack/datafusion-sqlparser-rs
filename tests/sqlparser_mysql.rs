@@ -2837,6 +2837,7 @@ fn parse_update_with_joins() {
                         },
                         global: false,
                         directed: false,
+                        first: None,
                         last: None,
                         join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
                             left: Box::new(Expr::CompoundIdentifier(vec![

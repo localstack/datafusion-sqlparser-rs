@@ -4367,6 +4367,7 @@ fn asof_joins() {
                 relation: table_with_alias("quotes_unixtime", true, "qu"),
                 global: false,
                 directed: false,
+                first: None,
                 last: None,
                 join_operator: JoinOperator::AsOf {
                     match_condition: Expr::BinaryOp {
