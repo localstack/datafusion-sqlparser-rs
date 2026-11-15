@@ -391,6 +391,7 @@ define_keywords!(
     DETERMINISTIC,
     DICTIONARY,
     DIMENSIONS,
+    DIRECTED,
     DIRECTIVE,
     DIRECTORY,
     DISABLE,

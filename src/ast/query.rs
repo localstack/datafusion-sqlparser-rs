@@ -2909,6 +2909,8 @@ pub struct Join {
     /// ClickHouse supports the optional `GLOBAL` keyword before the join operator.
     /// See [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/select/join)
     pub global: bool,
+    /// Whether the left operand must be scanned before the right operand.
+    pub directed: bool,
     /// The join operator and its constraint (INNER/LEFT/RIGHT/CROSS/ASOF/etc.).
     pub join_operator: JoinOperator,
 }
@@ -2942,6 +2944,7 @@ impl fmt::Display for Join {
         if self.global {
             write!(f, "GLOBAL ")?;
         }
+        let directed = if self.directed { "DIRECTED " } else { "" };
 
         match &self.join_operator {
             JoinOperator::Join(constraint) => f.write_fmt(format_args!(
@@ -2951,43 +2954,43 @@ impl fmt::Display for Join {
                 suffix(constraint)
             )),
             JoinOperator::Inner(constraint) => f.write_fmt(format_args!(
-                "{}INNER JOIN {}{}",
+                "{}INNER {directed}JOIN {}{}",
                 prefix(constraint),
                 self.relation,
                 suffix(constraint)
             )),
             JoinOperator::Left(constraint) => f.write_fmt(format_args!(
-                "{}LEFT JOIN {}{}",
+                "{}LEFT {directed}JOIN {}{}",
                 prefix(constraint),
                 self.relation,
                 suffix(constraint)
             )),
             JoinOperator::LeftOuter(constraint) => f.write_fmt(format_args!(
-                "{}LEFT OUTER JOIN {}{}",
+                "{}LEFT OUTER {directed}JOIN {}{}",
                 prefix(constraint),
                 self.relation,
                 suffix(constraint)
             )),
             JoinOperator::Right(constraint) => f.write_fmt(format_args!(
-                "{}RIGHT JOIN {}{}",
+                "{}RIGHT {directed}JOIN {}{}",
                 prefix(constraint),
                 self.relation,
                 suffix(constraint)
             )),
             JoinOperator::RightOuter(constraint) => f.write_fmt(format_args!(
-                "{}RIGHT OUTER JOIN {}{}",
+                "{}RIGHT OUTER {directed}JOIN {}{}",
                 prefix(constraint),
                 self.relation,
                 suffix(constraint)
             )),
             JoinOperator::FullOuter(constraint) => f.write_fmt(format_args!(
-                "{}FULL JOIN {}{}",
+                "{}FULL {directed}JOIN {}{}",
                 prefix(constraint),
                 self.relation,
                 suffix(constraint)
             )),
             JoinOperator::CrossJoin(constraint) => f.write_fmt(format_args!(
-                "CROSS JOIN {}{}",
+                "CROSS {directed}JOIN {}{}",
                 self.relation,
                 suffix(constraint)
             )),

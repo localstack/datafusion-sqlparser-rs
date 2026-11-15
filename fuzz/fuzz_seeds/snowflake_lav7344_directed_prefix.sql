@@ -1,0 +1,1 @@
+SELECT l.id, r.id FROM t l INNER JOIN LATERAL (SELECT l.id) r LEFT OUTER DIRECTED JOIN u z ON r.id = z.id

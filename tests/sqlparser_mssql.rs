@@ -554,6 +554,7 @@ fn parse_mssql_openjson() {
                     alias: table_alias(true, "B")
                 },
                 global: false,
+                directed: false,
                 join_operator: JoinOperator::CrossApply
             }]
         }],
@@ -609,6 +610,7 @@ fn parse_mssql_openjson() {
                     alias: table_alias(true, "B")
                 },
                 global: false,
+                directed: false,
                 join_operator: JoinOperator::CrossApply
             }]
         }],
@@ -664,6 +666,7 @@ fn parse_mssql_openjson() {
                     alias: table_alias(true, "B")
                 },
                 global: false,
+                directed: false,
                 join_operator: JoinOperator::CrossApply
             }]
         }],
@@ -699,6 +702,7 @@ fn parse_mssql_openjson() {
                     alias: table_alias(true, "B")
                 },
                 global: false,
+                directed: false,
                 join_operator: JoinOperator::CrossApply
             }]
         }],
@@ -734,6 +738,7 @@ fn parse_mssql_openjson() {
                     alias: table_alias(true, "B")
                 },
                 global: false,
+                directed: false,
                 join_operator: JoinOperator::CrossApply
             }]
         }],
