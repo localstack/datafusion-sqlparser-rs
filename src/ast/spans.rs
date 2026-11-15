@@ -2886,6 +2886,7 @@ impl Spanned for Join {
         let Join {
             relation,
             global: _, // bool
+            directed: _,
             join_operator,
         } = self;
 
