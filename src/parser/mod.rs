@@ -5909,6 +5909,7 @@ impl<'a> Parser<'a> {
                             relation: table.relation,
                             global: false,
                             directed: false,
+                            last: None,
                             join_operator: JoinOperator::Join(constraint),
                         });
                         previous.joins.extend(parser.parse_joins()?);
@@ -21775,6 +21776,7 @@ impl<'a> Parser<'a> {
                     relation,
                     global,
                     directed,
+                    last: None,
                     join_operator,
                 }
             } else if self.parse_keyword(Keyword::OUTER) {
@@ -21784,6 +21786,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    last: None,
                     join_operator: JoinOperator::OuterApply,
                 }
             } else if self.parse_keyword(Keyword::ASOF) {
@@ -21795,6 +21798,7 @@ impl<'a> Parser<'a> {
                     relation,
                     global,
                     directed,
+                    last: None,
                     join_operator: JoinOperator::AsOf {
                         match_condition,
                         constraint: self.parse_join_constraint(false)?,
@@ -21808,6 +21812,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    last: None,
                     join_operator: JoinOperator::InnerArrayJoin,
                 }
             } else if self.dialect.supports_array_join_syntax()
@@ -21818,6 +21823,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    last: None,
                     join_operator: JoinOperator::LeftArrayJoin,
                 }
             } else if self.dialect.supports_array_join_syntax()
@@ -21828,6 +21834,7 @@ impl<'a> Parser<'a> {
                     relation: self.parse_table_factor()?,
                     global,
                     directed,
+                    last: None,
                     join_operator: JoinOperator::ArrayJoin,
                 }
             } else {
@@ -21951,10 +21958,16 @@ impl<'a> Parser<'a> {
                 }
 
                 let join_constraint = self.parse_join_constraint(natural)?;
+                let last = if self.parse_keyword(Keyword::LAST) {
+                    Some(self.parse_parenthesized(Self::parse_identifier)?)
+                } else {
+                    None
+                };
                 Join {
                     relation,
                     global,
                     directed,
+                    last,
                     join_operator: join_operator_type(join_constraint),
                 }
             };
