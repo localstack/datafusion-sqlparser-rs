@@ -6726,6 +6726,7 @@ fn parse_join_constraint_unnest_alias() {
             },
             global: false,
             directed: false,
+            first: None,
             last: None,
             join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::Identifier("c1".into())),
