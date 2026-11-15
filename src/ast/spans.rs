@@ -2889,6 +2889,7 @@ impl Spanned for Join {
             relation,
             global: _, // bool
             directed: _,
+            last: _,
             join_operator,
         } = self;
 
