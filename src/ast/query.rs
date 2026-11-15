@@ -2909,8 +2909,10 @@ pub struct Join {
     /// ClickHouse supports the optional `GLOBAL` keyword before the join operator.
     /// See [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/select/join)
     pub global: bool,
-    /// Whether the left operand must be scanned before the right operand.
+    /// Whether operand scan order is enforced.
     pub directed: bool,
+    /// The operand alias selected to be scanned last.
+    pub last: Option<Ident>,
     /// The join operator and its constraint (INNER/LEFT/RIGHT/CROSS/ASOF/etc.).
     pub join_operator: JoinOperator,
 }
@@ -3052,7 +3054,11 @@ impl fmt::Display for Join {
             JoinOperator::InnerArrayJoin => {
                 f.write_fmt(format_args!("INNER ARRAY JOIN {}", self.relation))
             }
+        }?;
+        if let Some(last) = &self.last {
+            write!(f, " LAST({last})")?;
         }
+        Ok(())
     }
 }
 
