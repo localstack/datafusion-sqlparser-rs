@@ -5913,6 +5913,7 @@ impl<'a> Parser<'a> {
                         previous.joins.push(Join {
                             relation: table.relation,
                             global: false,
+                            directed: false,
                             join_operator: JoinOperator::Join(constraint),
                         });
                         previous.joins.extend(parser.parse_joins()?);
@@ -22022,7 +22023,9 @@ impl<'a> Parser<'a> {
         let mut joins = vec![];
         loop {
             let global = self.parse_keyword(Keyword::GLOBAL);
+            let mut directed = false;
             let join = if self.parse_keyword(Keyword::CROSS) {
+                directed = self.parse_keyword(Keyword::DIRECTED);
                 let join_operator = if self.parse_keyword(Keyword::JOIN) {
                     JoinOperator::CrossJoin(JoinConstraint::None)
                 } else if self.parse_keyword(Keyword::APPLY) {
@@ -22043,6 +22046,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation,
                     global,
+                    directed,
                     join_operator,
                 }
             } else if self.parse_keyword(Keyword::OUTER) {
@@ -22051,6 +22055,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation: self.parse_table_factor()?,
                     global,
+                    directed,
                     join_operator: JoinOperator::OuterApply,
                 }
             } else if self.parse_keyword(Keyword::ASOF) {
@@ -22061,6 +22066,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation,
                     global,
+                    directed,
                     join_operator: JoinOperator::AsOf {
                         match_condition,
                         constraint: self.parse_join_constraint(false)?,
@@ -22073,6 +22079,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation: self.parse_table_factor()?,
                     global,
+                    directed,
                     join_operator: JoinOperator::InnerArrayJoin,
                 }
             } else if self.dialect.supports_array_join_syntax()
@@ -22082,6 +22089,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation: self.parse_table_factor()?,
                     global,
+                    directed,
                     join_operator: JoinOperator::LeftArrayJoin,
                 }
             } else if self.dialect.supports_array_join_syntax()
@@ -22091,6 +22099,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation: self.parse_table_factor()?,
                     global,
+                    directed,
                     join_operator: JoinOperator::ArrayJoin,
                 }
             } else {
@@ -22104,6 +22113,9 @@ impl<'a> Parser<'a> {
                 let join_operator_type = match peek_keyword {
                     Keyword::INNER | Keyword::JOIN => {
                         let inner = self.parse_keyword(Keyword::INNER); // [ INNER ]
+                        if inner {
+                            directed = self.parse_keyword(Keyword::DIRECTED);
+                        }
                         self.expect_keyword_is(Keyword::JOIN)?;
                         if inner {
                             JoinOperator::Inner
@@ -22118,10 +22130,12 @@ impl<'a> Parser<'a> {
                             Keyword::OUTER,
                             Keyword::SEMI,
                             Keyword::ANTI,
+                            Keyword::DIRECTED,
                             Keyword::JOIN,
                         ]);
                         match join_type {
                             Some(Keyword::OUTER) => {
+                                directed = self.parse_keyword(Keyword::DIRECTED);
                                 self.expect_keyword_is(Keyword::JOIN)?;
                                 if is_left {
                                     JoinOperator::LeftOuter
@@ -22145,7 +22159,11 @@ impl<'a> Parser<'a> {
                                     JoinOperator::RightAnti
                                 }
                             }
-                            Some(Keyword::JOIN) => {
+                            Some(Keyword::DIRECTED | Keyword::JOIN) => {
+                                directed = join_type == Some(Keyword::DIRECTED);
+                                if directed {
+                                    self.expect_keyword_is(Keyword::JOIN)?;
+                                }
                                 if is_left {
                                     JoinOperator::Left
                                 } else {
@@ -22172,6 +22190,7 @@ impl<'a> Parser<'a> {
                     Keyword::FULL => {
                         let _ = self.next_token(); // consume FULL
                         let _ = self.parse_keyword(Keyword::OUTER); // [ OUTER ]
+                        directed = self.parse_keyword(Keyword::DIRECTED);
                         self.expect_keyword_is(Keyword::JOIN)?;
                         JoinOperator::FullOuter
                     }
@@ -22207,6 +22226,7 @@ impl<'a> Parser<'a> {
                 Join {
                     relation,
                     global,
+                    directed,
                     join_operator: join_operator_type(join_constraint),
                 }
             };
@@ -22216,6 +22236,17 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_parens_less_nested_join(&self) -> bool {
+        if matches!(
+            &self.peek_nth_token_ref(1).token,
+            Token::Word(word) if word.keyword == Keyword::DIRECTED
+        ) {
+            return false;
+        }
+        if self.peek_nth_token_ref(1).token == Token::make_keyword("OUTER")
+            && self.peek_nth_token_ref(2).token == Token::make_keyword("DIRECTED")
+        {
+            return false;
+        }
         matches!(
             self.peek_token_ref().token,
             Token::Word(Word {

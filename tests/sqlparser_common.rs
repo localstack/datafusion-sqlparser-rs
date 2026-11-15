@@ -8402,6 +8402,7 @@ fn parse_implicit_join() {
                 joins: vec![Join {
                     relation: table_from_name(ObjectName::from(vec!["t1b".into()])),
                     global: false,
+                    directed: false,
                     join_operator: JoinOperator::Join(JoinConstraint::Natural),
                 }],
             },
@@ -8410,6 +8411,7 @@ fn parse_implicit_join() {
                 joins: vec![Join {
                     relation: table_from_name(ObjectName::from(vec!["t2b".into()])),
                     global: false,
+                    directed: false,
                     join_operator: JoinOperator::Join(JoinConstraint::Natural),
                 }],
             },
@@ -8426,6 +8428,7 @@ fn parse_cross_join() {
         Join {
             relation: table_from_name(ObjectName::from(vec![Ident::new("t2")])),
             global: false,
+            directed: false,
             join_operator: JoinOperator::CrossJoin(JoinConstraint::None),
         },
         only(only(select.from).joins),
@@ -8438,6 +8441,7 @@ fn parse_cross_join_constraint() {
         Join {
             relation: table_from_name(ObjectName::from(vec![Ident::new("t2")])),
             global: false,
+            directed: false,
             join_operator: JoinOperator::CrossJoin(constraint),
         }
     }
@@ -8488,6 +8492,7 @@ fn parse_joins_on() {
                 inheritance: None,
             },
             global,
+            directed: false,
             join_operator: f(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::Identifier("c1".into())),
                 op: BinaryOperator::Eq,
@@ -8631,6 +8636,7 @@ fn parse_joins_using() {
                 inheritance: None,
             },
             global: false,
+            directed: false,
             join_operator: f(JoinConstraint::Using(vec![ObjectName::from(vec![
                 "c1".into()
             ])])),
@@ -8727,6 +8733,7 @@ fn parse_natural_join() {
                 inheritance: None,
             },
             global: false,
+            directed: false,
             join_operator: f(JoinConstraint::Natural),
         }
     }
@@ -9032,6 +9039,7 @@ fn parse_derived_tables() {
                 joins: vec![Join {
                     relation: table_from_name(ObjectName::from(vec!["t2".into()])),
                     global: false,
+                    directed: false,
                     join_operator: JoinOperator::Join(JoinConstraint::Natural),
                 }],
             }),
@@ -10174,6 +10182,7 @@ fn lateral_function() {
                     alias: None,
                 },
                 global: false,
+                directed: false,
                 join_operator: JoinOperator::Left(JoinConstraint::None),
             }],
         }],
@@ -19499,6 +19508,7 @@ fn test_nested_join_without_parentheses() {
                             inheritance: None,
                         },
                         global: false,
+                        directed: false,
                         join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
                             left: Box::new(Expr::CompoundIdentifier(vec![
                                 Ident::new("p".to_string()),
@@ -19515,6 +19525,7 @@ fn test_nested_join_without_parentheses() {
                 alias: None
             },
             global: false,
+            directed: false,
             join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::CompoundIdentifier(vec![
                     Ident::new("c".to_string()),
@@ -19568,6 +19579,7 @@ fn test_nested_join_without_parentheses() {
                             inheritance: None,
                         },
                         global: false,
+                        directed: false,
                         join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
                             left: Box::new(Expr::CompoundIdentifier(vec![
                                 Ident::new("p".to_string()),
@@ -19584,6 +19596,7 @@ fn test_nested_join_without_parentheses() {
                 alias: None
             },
             global: false,
+            directed: false,
             join_operator: JoinOperator::Join(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::CompoundIdentifier(vec![
                     Ident::new("c".to_string()),
@@ -19637,6 +19650,7 @@ fn test_nested_join_without_parentheses() {
                             inheritance: None,
                         },
                         global: false,
+                        directed: false,
                         join_operator: JoinOperator::Left(JoinConstraint::On(Expr::BinaryOp {
                             left: Box::new(Expr::CompoundIdentifier(vec![
                                 Ident::new("p".to_string()),
@@ -19653,6 +19667,7 @@ fn test_nested_join_without_parentheses() {
                 alias: None
             },
             global: false,
+            directed: false,
             join_operator: JoinOperator::Left(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::CompoundIdentifier(vec![
                     Ident::new("c".to_string()),
@@ -19706,6 +19721,7 @@ fn test_nested_join_without_parentheses() {
                             inheritance: None,
                         },
                         global: false,
+                        directed: false,
                         join_operator: JoinOperator::Right(JoinConstraint::On(Expr::BinaryOp {
                             left: Box::new(Expr::CompoundIdentifier(vec![
                                 Ident::new("p".to_string()),
@@ -19722,6 +19738,7 @@ fn test_nested_join_without_parentheses() {
                 alias: None
             },
             global: false,
+            directed: false,
             join_operator: JoinOperator::Right(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::CompoundIdentifier(vec![
                     Ident::new("c".to_string()),
@@ -19775,6 +19792,7 @@ fn test_nested_join_without_parentheses() {
                             inheritance: None,
                         },
                         global: false,
+                        directed: false,
                         join_operator: JoinOperator::FullOuter(JoinConstraint::On(
                             Expr::BinaryOp {
                                 left: Box::new(Expr::CompoundIdentifier(vec![
@@ -19793,6 +19811,7 @@ fn test_nested_join_without_parentheses() {
                 alias: None
             },
             global: false,
+            directed: false,
             join_operator: JoinOperator::FullOuter(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::CompoundIdentifier(vec![
                     Ident::new("c".to_string()),
