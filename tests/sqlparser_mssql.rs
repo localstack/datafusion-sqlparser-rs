@@ -555,6 +555,7 @@ fn parse_mssql_openjson() {
                 },
                 global: false,
                 directed: false,
+                first: None,
                 last: None,
                 join_operator: JoinOperator::CrossApply
             }]
@@ -612,6 +613,7 @@ fn parse_mssql_openjson() {
                 },
                 global: false,
                 directed: false,
+                first: None,
                 last: None,
                 join_operator: JoinOperator::CrossApply
             }]
@@ -669,6 +671,7 @@ fn parse_mssql_openjson() {
                 },
                 global: false,
                 directed: false,
+                first: None,
                 last: None,
                 join_operator: JoinOperator::CrossApply
             }]
@@ -706,6 +709,7 @@ fn parse_mssql_openjson() {
                 },
                 global: false,
                 directed: false,
+                first: None,
                 last: None,
                 join_operator: JoinOperator::CrossApply
             }]
@@ -743,6 +747,7 @@ fn parse_mssql_openjson() {
                 },
                 global: false,
                 directed: false,
+                first: None,
                 last: None,
                 join_operator: JoinOperator::CrossApply
             }]
