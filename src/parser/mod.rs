@@ -15397,9 +15397,11 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::ALL)?;
         let token = self.next_token();
         let user_class = match token.token {
-            Token::Word(ref word) if word.quote_style.is_none()
-                && (word.value.eq_ignore_ascii_case("PERSON")
-                    || word.value.eq_ignore_ascii_case("SERVICE")) => {
+            Token::Word(ref word)
+                if word.quote_style.is_none()
+                    && (word.value.eq_ignore_ascii_case("PERSON")
+                        || word.value.eq_ignore_ascii_case("SERVICE")) =>
+            {
                 Ident::new(word.value.to_uppercase())
             }
             _ => return self.expected("PERSON or SERVICE", token),
@@ -15480,7 +15482,11 @@ impl<'a> Parser<'a> {
             let policy = self.parse_object_name(false)?;
             let user_class = self.parse_account_policy_user_class()?;
             let force = self.parse_keyword(Keyword::FORCE);
-            AlterAccountOperation::SetSessionPolicy { policy, force, user_class }
+            AlterAccountOperation::SetSessionPolicy {
+                policy,
+                force,
+                user_class,
+            }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
             let extended = if policy_kind == UserPolicyKind::Password {
                 self.try_parse(|parser| {
@@ -15499,7 +15505,11 @@ impl<'a> Parser<'a> {
                     } else {
                         parser.parse_keyword(Keyword::FORCE)
                     };
-                    Ok(AlterAccountOperation::SetAuthenticationPolicy { policy, force, user_class })
+                    Ok(AlterAccountOperation::SetAuthenticationPolicy {
+                        policy,
+                        force,
+                        user_class,
+                    })
                 })
                 .ok()
             } else {
@@ -15515,7 +15525,10 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
-            if matches!(policy_kind, UserPolicyKind::Session | UserPolicyKind::Authentication) {
+            if matches!(
+                policy_kind,
+                UserPolicyKind::Session | UserPolicyKind::Authentication
+            ) {
                 if let Some(user_class) = self.parse_account_policy_user_class()? {
                     if policy_kind == UserPolicyKind::Session {
                         AlterAccountOperation::UnsetSessionPolicy { user_class }
@@ -17239,7 +17252,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let ident = match next_token.token {
-                    Token::Word(w) => Ok(w.into_ident(next_token.span)),
+                    Token::Word(w)
+                        if w.quote_style.is_none() || !dialect_of!(self is SnowflakeDialect) =>
+                    {
+                        Ok(w.into_ident(next_token.span))
+                    }
                     Token::Number(w, false) => Ok(Ident::with_span(next_token.span, w)),
                     _ => self.expected("placeholder", next_token),
                 }?;
@@ -21967,16 +21984,15 @@ impl<'a> Parser<'a> {
                 let join_constraint = self.parse_join_constraint(natural)?;
                 let first = if matches!(
                     join_constraint,
-                    JoinConstraint::On(_) | JoinConstraint::Using(_) | JoinConstraint::UsingAlias(..)
+                    JoinConstraint::On(_)
+                        | JoinConstraint::Using(_)
+                        | JoinConstraint::UsingAlias(..)
                 ) && self.parse_keyword(Keyword::FIRST)
                 {
                     self.expect_token(&Token::LParen)?;
                     let alias = self.parse_identifier()?;
                     if !self.consume_token(&Token::RParen) {
-                        return self.expected(
-                            ") after FIRST operand",
-                            self.peek_token(),
-                        );
+                        return self.expected(") after FIRST operand", self.peek_token());
                     }
                     Some(alias)
                 } else {
@@ -23235,7 +23251,8 @@ impl<'a> Parser<'a> {
             } else if self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE) {
                 let func_name = self.parse_object_name(true)?;
                 let func = self.parse_function(func_name)?;
-                if self.peek_keyword(Keyword::END) && self.peek_nth_token(1).token == Token::LParen {
+                if self.peek_keyword(Keyword::END) && self.peek_nth_token(1).token == Token::LParen
+                {
                     let end_name = self.parse_object_name(true)?;
                     self.parse_function(end_name)?;
                 }
@@ -28661,16 +28678,13 @@ impl<'a> Parser<'a> {
                     && self.consume_token(&Token::LParen)
                 {
                     let name = match self.peek_tokens_with_location::<2>() {
-                        [
-                            TokenWithSpan {
-                                token: Token::Word(prefix),
-                                span: prefix_span,
-                            },
-                            TokenWithSpan {
-                                token: Token::SingleQuotedString(value),
-                                span,
-                            },
-                        ] if prefix.quote_style.is_none()
+                        [TokenWithSpan {
+                            token: Token::Word(prefix),
+                            span: prefix_span,
+                        }, TokenWithSpan {
+                            token: Token::SingleQuotedString(value),
+                            span,
+                        }] if prefix.quote_style.is_none()
                             && prefix.value.eq_ignore_ascii_case("E")
                             && prefix_span.end == span.start =>
                         {

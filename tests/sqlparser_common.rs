@@ -22194,7 +22194,6 @@ fn parse_quoted_placeholders_roundtrip() {
     let dialects = TestedDialects::new(vec![
         Box::new(AnsiDialect {}),
         Box::new(GenericDialect {}),
-        Box::new(SnowflakeDialect {}),
         Box::new(SQLiteDialect {}),
     ]);
     for sql in [
@@ -22211,6 +22210,16 @@ fn parse_quoted_placeholders_roundtrip() {
         expr_from_projection(only(&select.projection)),
         &Expr::value(Value::Placeholder(r#":"a b c""#.to_string()))
     );
+    let snowflake = TestedDialects::new(vec![Box::new(SnowflakeDialect {})]);
+    snowflake.verified_stmt("SELECT :x");
+    for placeholder in ["`a`", r#""a""#, "` a`", r#""a b c""#, r#""a""b""#] {
+        assert_eq!(
+            snowflake
+                .parse_sql_statements(&format!("SELECT :{placeholder}"))
+                .unwrap_err(),
+            ParserError::ParserError(format!("Expected: placeholder, found: {placeholder}")),
+        );
+    }
     let ansi = TestedDialects::new(vec![Box::new(AnsiDialect {})]);
     for sql in [
         "SELECT @x",
@@ -23739,7 +23748,8 @@ fn parse_trailing_end_keyword_is_not_silently_dropped() {
 
 #[test]
 fn parse_national_character_string_types() {
-    let dialects = all_dialects();
+    let dialects = all_dialects_where(|dialect| !dialect.is::<SnowflakeDialect>());
+    let snowflake = TestedDialects::new(vec![Box::new(SnowflakeDialect {})]);
     for data_type in [
         "NATIONAL CHARACTER",
         "NATIONAL CHARACTER(4)",
@@ -23754,6 +23764,18 @@ fn parse_national_character_string_types() {
     ] {
         dialects.verified_stmt(&format!("CREATE TABLE t (c {data_type})"));
         dialects.verified_expr(&format!("CAST('ab' AS {data_type})"));
+        let canonical_type = match data_type {
+            "NCHAR VARYING(4)" => "NVARCHAR(4)",
+            other => other,
+        };
+        snowflake.one_statement_parses_to(
+            &format!("CREATE TABLE t (c {data_type})"),
+            &format!("CREATE TABLE t (c {canonical_type})"),
+        );
+        snowflake.expr_parses_to(
+            &format!("CAST('ab' AS {data_type})"),
+            &format!("CAST('ab' AS {canonical_type})"),
+        );
     }
 
     dialects.verified_stmt("SELECT national FROM t");
@@ -23775,7 +23797,10 @@ fn parse_national_character_string_types() {
 
 #[test]
 fn parse_create_procedure_string_body() {
-    match verified_stmt("CREATE PROCEDURE p (a INT) LANGUAGE sql AS 'INSERT INTO t VALUES (a)'") {
+    let dialects = all_dialects_where(|dialect| !dialect.is::<SnowflakeDialect>());
+    match dialects
+        .verified_stmt("CREATE PROCEDURE p (a INT) LANGUAGE sql AS 'INSERT INTO t VALUES (a)'")
+    {
         Statement::CreateProcedure {
             language,
             body: CreateProcedureBody::AsString { body, link_symbol },
@@ -23794,8 +23819,8 @@ fn parse_create_procedure_string_body() {
         stmt => panic!("unexpected statement: {stmt:?}"),
     }
 
-    verified_stmt("CREATE PROCEDURE p () LANGUAGE C AS 'MODULE_PATHNAME', 'p_wrapper'");
-    one_statement_parses_to(
+    dialects.verified_stmt("CREATE PROCEDURE p () LANGUAGE C AS 'MODULE_PATHNAME', 'p_wrapper'");
+    dialects.one_statement_parses_to(
         "CREATE PROCEDURE p () AS 'SELECT 1' LANGUAGE sql",
         "CREATE PROCEDURE p () LANGUAGE sql AS 'SELECT 1'",
     );
@@ -23829,7 +23854,7 @@ $$"#,
         ),
     ] {
         assert_eq!(
-            parse_sql_statements(sql).unwrap_err(),
+            dialects.parse_sql_statements(sql).unwrap_err(),
             ParserError::ParserError(err.to_string()),
             "{sql}"
         );
