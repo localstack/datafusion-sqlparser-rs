@@ -32,7 +32,6 @@ use core::iter;
 use crate::tokenizer::Span;
 
 use super::{
-    AlterView, AlterViewOperation, CreateUserMapping, DropRule, RefreshMaterializedView, UserMappingUser,
     comments, dcl::SecondaryRoles, value::ValueWithSpan, AccessExpr, AlterColumnOperation,
     AlterGenericOption, AlterIndexOperation, AlterTableOperation, AlterTrigger,
     AlterTriggerOperation, AlterView, AlterViewOperation, Analyze, Array, Assignment,
