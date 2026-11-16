@@ -7268,13 +7268,15 @@ impl<'a> Parser<'a> {
                 clone_comment = Some(self.parse_signed_option_value()?);
             } else if source.is_none() && self.parse_keyword(Keyword::WAREHOUSE) {
                 self.expect_token(&Token::Eq)?;
-                warehouse = Some(
-                    if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
+                warehouse = if self.parse_keyword(Keyword::NULL) {
+                    None
+                } else {
+                    Some(if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
                         Ident::new(self.parse_literal_string()?)
                     } else {
                         self.parse_identifier()?
-                    },
-                );
+                    })
+                };
             } else if source.is_none() && self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
                 schedule = if self.parse_keyword(Keyword::NULL) {
