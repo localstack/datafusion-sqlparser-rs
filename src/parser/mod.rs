@@ -15397,9 +15397,11 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::ALL)?;
         let token = self.next_token();
         let user_class = match token.token {
-            Token::Word(ref word) if word.quote_style.is_none()
-                && (word.value.eq_ignore_ascii_case("PERSON")
-                    || word.value.eq_ignore_ascii_case("SERVICE")) => {
+            Token::Word(ref word)
+                if word.quote_style.is_none()
+                    && (word.value.eq_ignore_ascii_case("PERSON")
+                        || word.value.eq_ignore_ascii_case("SERVICE")) =>
+            {
                 Ident::new(word.value.to_uppercase())
             }
             _ => return self.expected("PERSON or SERVICE", token),
@@ -15480,7 +15482,11 @@ impl<'a> Parser<'a> {
             let policy = self.parse_object_name(false)?;
             let user_class = self.parse_account_policy_user_class()?;
             let force = self.parse_keyword(Keyword::FORCE);
-            AlterAccountOperation::SetSessionPolicy { policy, force, user_class }
+            AlterAccountOperation::SetSessionPolicy {
+                policy,
+                force,
+                user_class,
+            }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::SET) {
             let extended = if policy_kind == UserPolicyKind::Password {
                 self.try_parse(|parser| {
@@ -15499,7 +15505,11 @@ impl<'a> Parser<'a> {
                     } else {
                         parser.parse_keyword(Keyword::FORCE)
                     };
-                    Ok(AlterAccountOperation::SetAuthenticationPolicy { policy, force, user_class })
+                    Ok(AlterAccountOperation::SetAuthenticationPolicy {
+                        policy,
+                        force,
+                        user_class,
+                    })
                 })
                 .ok()
             } else {
@@ -15515,7 +15525,10 @@ impl<'a> Parser<'a> {
                 }
             }
         } else if let Some(policy_kind) = self.maybe_parse_policy_kind_clause(Keyword::UNSET) {
-            if matches!(policy_kind, UserPolicyKind::Session | UserPolicyKind::Authentication) {
+            if matches!(
+                policy_kind,
+                UserPolicyKind::Session | UserPolicyKind::Authentication
+            ) {
                 if let Some(user_class) = self.parse_account_policy_user_class()? {
                     if policy_kind == UserPolicyKind::Session {
                         AlterAccountOperation::UnsetSessionPolicy { user_class }
@@ -17239,11 +17252,15 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let ident = match next_token.token {
-                    Token::Word(w) if w.quote_style.is_none() => Ok(w.into_ident(next_token.span)),
+                    Token::Word(w)
+                        if w.quote_style.is_none() || !dialect_of!(self is SnowflakeDialect) =>
+                    {
+                        Ok(w.into_ident(next_token.span))
+                    }
                     Token::Number(w, false) => Ok(Ident::with_span(next_token.span, w)),
                     _ => self.expected("placeholder", next_token),
                 }?;
-                Ok(Value::Placeholder(format!("{tok}{}", ident.value))
+                Ok(Value::Placeholder(format!("{tok}{ident}"))
                     .with_span(Span::new(span.start, ident.span.end)))
             }
             unexpected => self.expected(
@@ -17363,6 +17380,13 @@ impl<'a> Parser<'a> {
     /// Parse the body of a `CREATE FUNCTION` specified as a string.
     /// e.g. `CREATE FUNCTION ... AS $$ body $$`.
     fn parse_create_function_body_string(&mut self) -> Result<CreateFunctionBody, ParserError> {
+        let (body, link_symbol) = self.parse_definition_string()?;
+        Ok(CreateFunctionBody::AsBeforeOptions { body, link_symbol })
+    }
+
+    /// Parse a definition string and the link symbol that may follow it,
+    /// e.g. `$$ body $$` or `'obj_file', 'link_symbol'`.
+    fn parse_definition_string(&mut self) -> Result<(Expr, Option<Expr>), ParserError> {
         let parse_string_expr = |parser: &mut Parser| -> Result<Expr, ParserError> {
             let peek_token = parser.peek_token();
             let span = peek_token.span;
@@ -17378,14 +17402,13 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(CreateFunctionBody::AsBeforeOptions {
-            body: parse_string_expr(self)?,
-            link_symbol: if self.consume_token(&Token::Comma) {
-                Some(parse_string_expr(self)?)
-            } else {
-                None
-            },
-        })
+        let body = parse_string_expr(self)?;
+        let link_symbol = if self.consume_token(&Token::Comma) {
+            Some(parse_string_expr(self)?)
+        } else {
+            None
+        };
+        Ok((body, link_symbol))
     }
 
     fn parse_release_directive_scheduling(&mut self) -> Result<Vec<SqlOption>, ParserError> {
@@ -17707,7 +17730,7 @@ impl<'a> Parser<'a> {
                 Keyword::NVARCHAR => {
                     Ok(DataType::Nvarchar(self.parse_optional_character_length()?))
                 }
-                Keyword::NCHAR => {
+                Keyword::NCHAR if dialect_of!(self is SnowflakeDialect) => {
                     if self.parse_keyword(Keyword::VARYING) {
                         Ok(DataType::Nvarchar(self.parse_optional_character_length()?))
                     } else {
@@ -17740,6 +17763,39 @@ impl<'a> Parser<'a> {
                         Ok(DataType::CharLargeObject(self.parse_optional_precision()?))
                     } else {
                         Ok(DataType::Char(self.parse_optional_character_length()?))
+                    }
+                }
+                Keyword::NATIONAL if self.peek_keyword(Keyword::CHARACTER) => {
+                    let _ = self.parse_keyword(Keyword::CHARACTER);
+                    if self.parse_keyword(Keyword::VARYING) {
+                        Ok(DataType::NationalCharacterVarying(
+                            self.parse_optional_character_length()?,
+                        ))
+                    } else {
+                        Ok(DataType::NationalCharacter(
+                            self.parse_optional_character_length()?,
+                        ))
+                    }
+                }
+                Keyword::NATIONAL if self.peek_keyword(Keyword::CHAR) => {
+                    let _ = self.parse_keyword(Keyword::CHAR);
+                    if self.parse_keyword(Keyword::VARYING) {
+                        Ok(DataType::NationalCharVarying(
+                            self.parse_optional_character_length()?,
+                        ))
+                    } else {
+                        Ok(DataType::NationalChar(
+                            self.parse_optional_character_length()?,
+                        ))
+                    }
+                }
+                Keyword::NCHAR => {
+                    if self.parse_keyword(Keyword::VARYING) {
+                        Ok(DataType::NcharVarying(
+                            self.parse_optional_character_length()?,
+                        ))
+                    } else {
+                        Ok(DataType::Nchar(self.parse_optional_character_length()?))
                     }
                 }
                 Keyword::CLOB => Ok(DataType::Clob(self.parse_optional_precision()?)),
@@ -21928,16 +21984,15 @@ impl<'a> Parser<'a> {
                 let join_constraint = self.parse_join_constraint(natural)?;
                 let first = if matches!(
                     join_constraint,
-                    JoinConstraint::On(_) | JoinConstraint::Using(_) | JoinConstraint::UsingAlias(..)
+                    JoinConstraint::On(_)
+                        | JoinConstraint::Using(_)
+                        | JoinConstraint::UsingAlias(..)
                 ) && self.parse_keyword(Keyword::FIRST)
                 {
                     self.expect_token(&Token::LParen)?;
                     let alias = self.parse_identifier()?;
                     if !self.consume_token(&Token::RParen) {
-                        return self.expected(
-                            ") after FIRST operand",
-                            self.peek_token(),
-                        );
+                        return self.expected(") after FIRST operand", self.peek_token());
                     }
                     Some(alias)
                 } else {
@@ -22585,11 +22640,13 @@ impl<'a> Parser<'a> {
             Keyword::ROW,
             Keyword::SYSTEM,
             Keyword::BLOCK,
+            Keyword::RESERVOIR,
         ]) {
             Some(Keyword::BERNOULLI) => Some(TableSampleMethod::Bernoulli),
             Some(Keyword::ROW) => Some(TableSampleMethod::Row),
             Some(Keyword::SYSTEM) => Some(TableSampleMethod::System),
             Some(Keyword::BLOCK) => Some(TableSampleMethod::Block),
+            Some(Keyword::RESERVOIR) => Some(TableSampleMethod::Reservoir),
             _ => None,
         };
 
@@ -23194,7 +23251,8 @@ impl<'a> Parser<'a> {
             } else if self.peek_keyword(Keyword::AT) || self.peek_keyword(Keyword::BEFORE) {
                 let func_name = self.parse_object_name(true)?;
                 let func = self.parse_function(func_name)?;
-                if self.peek_keyword(Keyword::END) && self.peek_nth_token(1).token == Token::LParen {
+                if self.peek_keyword(Keyword::END) && self.peek_nth_token(1).token == Token::LParen
+                {
                     let end_name = self.parse_object_name(true)?;
                     self.parse_function(end_name)?;
                 }
@@ -27626,7 +27684,7 @@ impl<'a> Parser<'a> {
             let _ = self.parse_keyword(Keyword::NULL);
         }
 
-        let language = if self.parse_keyword(Keyword::LANGUAGE) {
+        let mut language = if self.parse_keyword(Keyword::LANGUAGE) {
             Some(self.parse_identifier()?)
         } else {
             None
@@ -27684,7 +27742,23 @@ impl<'a> Parser<'a> {
             Some(statements) => CreateProcedureBody::BeginAtomic(statements),
             None => {
                 self.expect_keyword_is(Keyword::AS)?;
-                CreateProcedureBody::As(self.parse_procedure_body()?)
+                if !dialect_of!(self is SnowflakeDialect)
+                    && matches!(
+                        self.peek_token_ref().token,
+                        Token::SingleQuotedString(_)
+                            | Token::DollarQuotedString(_)
+                            | Token::EscapedStringLiteral(_)
+                            | Token::UnicodeStringLiteral(_)
+                    )
+                {
+                    let (body, link_symbol) = self.parse_definition_string()?;
+                    if language.is_none() && self.parse_keyword(Keyword::LANGUAGE) {
+                        language = Some(self.parse_identifier()?);
+                    }
+                    CreateProcedureBody::AsString { body, link_symbol }
+                } else {
+                    CreateProcedureBody::As(self.parse_procedure_body()?)
+                }
             }
         };
 
@@ -28604,16 +28678,13 @@ impl<'a> Parser<'a> {
                     && self.consume_token(&Token::LParen)
                 {
                     let name = match self.peek_tokens_with_location::<2>() {
-                        [
-                            TokenWithSpan {
-                                token: Token::Word(prefix),
-                                span: prefix_span,
-                            },
-                            TokenWithSpan {
-                                token: Token::SingleQuotedString(value),
-                                span,
-                            },
-                        ] if prefix.quote_style.is_none()
+                        [TokenWithSpan {
+                            token: Token::Word(prefix),
+                            span: prefix_span,
+                        }, TokenWithSpan {
+                            token: Token::SingleQuotedString(value),
+                            span,
+                        }] if prefix.quote_style.is_none()
                             && prefix.value.eq_ignore_ascii_case("E")
                             && prefix_span.end == span.start =>
                         {
@@ -29076,6 +29147,43 @@ mod tests {
                     unit: None
                 }))
             );
+        }
+
+        #[test]
+        fn test_ansii_national_character_string_types() {
+            // National character string types: <https://jakewheat.github.io/sql-overview/sql-2016-foundation-grammar.html#national-character-string-type>
+            let dialect =
+                TestedDialects::new(vec![Box::new(GenericDialect {}), Box::new(AnsiDialect {})]);
+            let length = Some(CharacterLength::IntegerLength {
+                length: 20,
+                unit: None,
+            });
+
+            test_parse_data_type!(
+                dialect,
+                "NATIONAL CHARACTER",
+                DataType::NationalCharacter(None)
+            );
+            test_parse_data_type!(
+                dialect,
+                "NATIONAL CHARACTER(20)",
+                DataType::NationalCharacter(length)
+            );
+            test_parse_data_type!(
+                dialect,
+                "NATIONAL CHARACTER VARYING(20)",
+                DataType::NationalCharacterVarying(length)
+            );
+            test_parse_data_type!(dialect, "NATIONAL CHAR", DataType::NationalChar(None));
+            test_parse_data_type!(dialect, "NATIONAL CHAR(20)", DataType::NationalChar(length));
+            test_parse_data_type!(
+                dialect,
+                "NATIONAL CHAR VARYING(20)",
+                DataType::NationalCharVarying(length)
+            );
+            test_parse_data_type!(dialect, "NCHAR", DataType::Nchar(None));
+            test_parse_data_type!(dialect, "NCHAR(20)", DataType::Nchar(length));
+            test_parse_data_type!(dialect, "NCHAR VARYING(20)", DataType::NcharVarying(length));
         }
 
         #[test]

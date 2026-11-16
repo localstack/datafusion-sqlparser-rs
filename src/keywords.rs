@@ -1043,6 +1043,7 @@ define_keywords!(
     REPOSITORY,
     REQUIRE,
     RESAMPLE,
+    RESERVOIR,
     RESET,
     RESOLVE,
     RESOURCE,

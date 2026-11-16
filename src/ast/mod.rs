@@ -8955,6 +8955,13 @@ impl fmt::Display for Statement {
 
                 match body {
                     CreateProcedureBody::As(body) => write!(f, " AS {body}"),
+                    CreateProcedureBody::AsString { body, link_symbol } => {
+                        write!(f, " AS {body}")?;
+                        if let Some(link_symbol) = link_symbol {
+                            write!(f, ", {link_symbol}")?;
+                        }
+                        Ok(())
+                    }
                     CreateProcedureBody::BeginAtomic(BeginEndStatements { statements, .. }) => {
                         format_begin_atomic(f, statements)
                     }
@@ -16691,6 +16698,15 @@ pub enum CreateFunctionBody {
 pub enum CreateProcedureBody {
     /// Statements after `AS`.
     As(ConditionalStatements),
+    /// A definition string after `AS`, e.g. `AS $$ body $$` or `AS 'obj_file', 'link_symbol'`.
+    ///
+    /// [PostgreSQL]: https://www.postgresql.org/docs/current/sql-createprocedure.html
+    AsString {
+        /// The definition.
+        body: Expr,
+        /// The symbol to link when the definition names a shared library file.
+        link_symbol: Option<Expr>,
+    },
     /// SQL-standard body enclosed by `BEGIN ATOMIC` and `END`.
     ///
     /// [PostgreSQL]: https://www.postgresql.org/docs/current/sql-createprocedure.html
@@ -18186,7 +18202,11 @@ impl fmt::Display for AlterAccountOperation {
             AlterAccountOperation::SetPasswordPolicyForce { policy } => {
                 write!(f, "SET PASSWORD POLICY {policy} FORCE")
             }
-            AlterAccountOperation::SetSessionPolicy { policy, force, user_class } => {
+            AlterAccountOperation::SetSessionPolicy {
+                policy,
+                force,
+                user_class,
+            } => {
                 write!(f, "SET SESSION POLICY {policy}")?;
                 if let Some(user_class) = user_class {
                     write!(f, " FOR ALL {user_class} USERS")?;
@@ -18196,7 +18216,11 @@ impl fmt::Display for AlterAccountOperation {
                 }
                 Ok(())
             }
-            AlterAccountOperation::SetAuthenticationPolicy { policy, force, user_class } => {
+            AlterAccountOperation::SetAuthenticationPolicy {
+                policy,
+                force,
+                user_class,
+            } => {
                 write!(f, "SET AUTHENTICATION POLICY {policy}")?;
                 if let Some(user_class) = user_class {
                     write!(f, " FOR ALL {user_class} USERS")?;

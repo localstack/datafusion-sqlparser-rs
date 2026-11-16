@@ -1378,6 +1378,12 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Returns true if a dollar-quote opening tag with no matching closing tag, such as
+    /// `$a$` in `SELECT $a$ x`, is a word rather than an unterminated dollar-quoted string.
+    fn supports_unterminated_dollar_tag_as_word(&self) -> bool {
+        false
+    }
+
     /// Returns true if this dialect accepts an `INTO <var> [, ...]` tail after
     /// a procedure call, e.g. `CALL p(1) INTO :ret` in Snowflake scripting.
     fn supports_call_into(&self) -> bool {
