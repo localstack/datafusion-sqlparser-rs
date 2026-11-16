@@ -21933,7 +21933,12 @@ impl<'a> Parser<'a> {
                 {
                     self.expect_token(&Token::LParen)?;
                     let alias = self.parse_identifier()?;
-                    self.expect_token(&Token::RParen)?;
+                    if !self.consume_token(&Token::RParen) {
+                        return self.expected(
+                            ") after FIRST operand",
+                            self.peek_token(),
+                        );
+                    }
                     Some(alias)
                 } else {
                     None
