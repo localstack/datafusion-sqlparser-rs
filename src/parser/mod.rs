@@ -14676,7 +14676,7 @@ impl<'a> Parser<'a> {
                 Keyword::NVARCHAR => {
                     Ok(DataType::Nvarchar(self.parse_optional_character_length()?))
                 }
-                Keyword::NCHAR => {
+                Keyword::NCHAR if dialect_of!(self is SnowflakeDialect) => {
                     if self.parse_keyword(Keyword::VARYING) {
                         Ok(DataType::Nvarchar(self.parse_optional_character_length()?))
                     } else {
