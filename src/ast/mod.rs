@@ -18347,7 +18347,11 @@ impl fmt::Display for AlterAccountOperation {
             AlterAccountOperation::SetPasswordPolicyForce { policy } => {
                 write!(f, "SET PASSWORD POLICY {policy} FORCE")
             }
-            AlterAccountOperation::SetSessionPolicy { policy, force, user_class } => {
+            AlterAccountOperation::SetSessionPolicy {
+                policy,
+                force,
+                user_class,
+            } => {
                 write!(f, "SET SESSION POLICY {policy}")?;
                 if let Some(user_class) = user_class {
                     write!(f, " FOR ALL {user_class} USERS")?;
@@ -18357,7 +18361,11 @@ impl fmt::Display for AlterAccountOperation {
                 }
                 Ok(())
             }
-            AlterAccountOperation::SetAuthenticationPolicy { policy, force, user_class } => {
+            AlterAccountOperation::SetAuthenticationPolicy {
+                policy,
+                force,
+                user_class,
+            } => {
                 write!(f, "SET AUTHENTICATION POLICY {policy}")?;
                 if let Some(user_class) = user_class {
                     write!(f, " FOR ALL {user_class} USERS")?;
