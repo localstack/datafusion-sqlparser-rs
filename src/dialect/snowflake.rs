@@ -6593,8 +6593,12 @@ fn parse_alter_masking_policy(parser: &mut Parser) -> Result<Statement, ParserEr
         }
     } else if parser.parse_keywords(&[Keyword::SET, Keyword::COMMENT]) {
         parser.expect_token(&Token::Eq)?;
-        AlterMaskingPolicyOperation::SetComment {
-            comment: parser.parse_comment_value()?,
+        if parser.parse_keyword(Keyword::NULL) {
+            AlterMaskingPolicyOperation::UnsetComment
+        } else {
+            AlterMaskingPolicyOperation::SetComment {
+                comment: parser.parse_comment_value()?,
+            }
         }
     } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
         AlterMaskingPolicyOperation::UnsetComment
