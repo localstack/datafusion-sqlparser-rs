@@ -5782,18 +5782,42 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
             aws_secret_key,
         }
     } else if parser.parse_keyword(Keyword::SET) {
-        if parser.parse_keyword(Keyword::COMMENT) {
-            parser.expect_token(&Token::Eq)?;
-            AlterExternalVolumeOperation::SetComment(parser.parse_literal_string()?)
-        } else {
-            parser.expect_keyword(Keyword::ALLOW_WRITES)?;
-            parser.expect_token(&Token::Eq)?;
-            if parser.parse_keyword(Keyword::TRUE) {
-                AlterExternalVolumeOperation::SetAllowWrites(true)
+        let mut allow_writes = None;
+        let mut comment = None;
+        loop {
+            if parser.parse_keyword(Keyword::COMMENT) {
+                parser.expect_token(&Token::Eq)?;
+                comment = Some(parser.parse_literal_string()?);
             } else {
-                parser.expect_keyword(Keyword::FALSE)?;
-                AlterExternalVolumeOperation::SetAllowWrites(false)
+                parser.expect_keyword(Keyword::ALLOW_WRITES)?;
+                parser.expect_token(&Token::Eq)?;
+                allow_writes = Some(parser.parse_expr()?);
             }
+            if parser.consume_token(&Token::Comma) {
+                continue;
+            }
+            if !parser.peek_keyword(Keyword::COMMENT) && !parser.peek_keyword(Keyword::ALLOW_WRITES) {
+                break;
+            }
+        }
+        let allow_writes = match allow_writes {
+            Some(Expr::Value(ValueWithSpan {
+                value: Value::Boolean(value),
+                ..
+            })) => Some(value),
+            None => None,
+            Some(_) => return parser.expected("TRUE or FALSE", parser.peek_token()),
+        };
+        match (allow_writes, comment) {
+            (Some(allow_writes), Some(comment)) => {
+                AlterExternalVolumeOperation::SetProperties {
+                    allow_writes,
+                    comment,
+                }
+            }
+            (Some(value), None) => AlterExternalVolumeOperation::SetAllowWrites(value),
+            (None, Some(value)) => AlterExternalVolumeOperation::SetComment(value),
+            (None, None) => return parser.expected("COMMENT or ALLOW_WRITES", parser.peek_token()),
         }
     } else if parser.parse_keyword(Keyword::REMOVE) {
         parser.expect_keyword(Keyword::STORAGE_LOCATION)?;

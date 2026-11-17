@@ -17829,6 +17829,13 @@ pub enum AlterExternalVolumeOperation {
     SetAllowWrites(bool),
     /// `SET COMMENT = '<string_literal>'`
     SetComment(String),
+    #[doc = "`SET ALLOW_WRITES = TRUE|FALSE COMMENT = '<string_literal>'`"]
+    SetProperties {
+        #[doc = "The final ALLOW_WRITES assignment."]
+        allow_writes: bool,
+        #[doc = "The final COMMENT assignment."]
+        comment: String,
+    },
     /// `REMOVE STORAGE_LOCATION '<name>'`
     RemoveStorageLocation(String),
     #[doc = "`UPDATE STORAGE_LOCATION = '<name>' CREDENTIALS = (...)`"]
@@ -17857,6 +17864,17 @@ impl fmt::Display for AlterExternalVolumeOperation {
             }
             AlterExternalVolumeOperation::SetComment(comment) => {
                 write!(f, "SET COMMENT = '{}'", value::escape_single_quote_string(comment))
+            }
+            AlterExternalVolumeOperation::SetProperties {
+                allow_writes,
+                comment,
+            } => {
+                write!(
+                    f,
+                    "SET ALLOW_WRITES = {} COMMENT = '{}'",
+                    if *allow_writes { "TRUE" } else { "FALSE" },
+                    value::escape_single_quote_string(comment)
+                )
             }
             AlterExternalVolumeOperation::RemoveStorageLocation(name) => {
                 write!(
