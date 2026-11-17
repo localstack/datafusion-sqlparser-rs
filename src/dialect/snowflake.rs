@@ -3169,6 +3169,9 @@ fn parse_create_external_function(
     parser.expect_keyword(Keyword::RETURNS)?;
     let return_type = Some(FunctionReturnType::DataType(parser.parse_data_type()?));
     let return_not_null = parser.parse_keywords(&[Keyword::NOT, Keyword::NULL]);
+    if !return_not_null {
+        let _ = parser.parse_keyword(Keyword::NULL);
+    }
 
     let called_on_null =
         if parser.parse_keywords(&[Keyword::CALLED, Keyword::ON, Keyword::NULL, Keyword::INPUT]) {
