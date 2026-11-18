@@ -2619,6 +2619,10 @@ pub enum BackupSetTargetKind {
     Table,
     /// `FOR DYNAMIC TABLE <table>`
     DynamicTable,
+    /// `FOR ICEBERG TABLE <table>`
+    IcebergTable,
+    /// `FOR DYNAMIC ICEBERG TABLE <table>`
+    DynamicIcebergTable,
     /// `FOR SCHEMA <schema>`
     Schema,
     /// `FOR DATABASE <database>`
@@ -2630,6 +2634,8 @@ impl fmt::Display for BackupSetTargetKind {
         f.write_str(match self {
             BackupSetTargetKind::Table => "TABLE",
             BackupSetTargetKind::DynamicTable => "DYNAMIC TABLE",
+            BackupSetTargetKind::IcebergTable => "ICEBERG TABLE",
+            BackupSetTargetKind::DynamicIcebergTable => "DYNAMIC ICEBERG TABLE",
             BackupSetTargetKind::Schema => "SCHEMA",
             BackupSetTargetKind::Database => "DATABASE",
         })
