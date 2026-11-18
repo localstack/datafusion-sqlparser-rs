@@ -28428,6 +28428,7 @@ impl<'a> Parser<'a> {
             Some(Keyword::ACCOUNT)
                 if self.peek_keywords(&[Keyword::STARTS, Keyword::WITH])
                     | self.peek_keywords(&[Keyword::ROOT, Keyword::ONLY])
+                    | self.peek_keyword(Keyword::ON)
                     | self.peek_keyword(Keyword::LIMIT) =>
             {
                 (Some(ShowStatementInParentType::Account), None)
