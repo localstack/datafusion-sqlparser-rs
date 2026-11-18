@@ -975,10 +975,14 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] [SECURE] EXTERNAL FUNCTION
             if parser.parse_keywords(&[Keyword::SECURE, Keyword::EXTERNAL, Keyword::FUNCTION]) {
-                return Some(parse_create_external_function(or_replace, true, parser));
+                return Some(parse_create_external_function(
+                    or_replace, or_alter, true, parser,
+                ));
             }
             if parser.parse_keywords(&[Keyword::EXTERNAL, Keyword::FUNCTION]) {
-                return Some(parse_create_external_function(or_replace, false, parser));
+                return Some(parse_create_external_function(
+                    or_replace, or_alter, false, parser,
+                ));
             }
 
             // CREATE [OR REPLACE] EXTERNAL VOLUME
@@ -3170,6 +3174,7 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
 /// Parse `CREATE [OR REPLACE] [SECURE] EXTERNAL FUNCTION` after its keywords.
 fn parse_create_external_function(
     or_replace: bool,
+    or_alter: bool,
     secure: bool,
     parser: &mut Parser,
 ) -> Result<Statement, ParserError> {
@@ -3298,7 +3303,7 @@ fn parse_create_external_function(
 
     Ok(CreateFunction {
         data_metric: false,
-        or_alter: false,
+        or_alter,
         or_replace,
         temporary: false,
         secure,
