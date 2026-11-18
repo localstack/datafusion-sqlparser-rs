@@ -18540,12 +18540,8 @@ impl<'a> Parser<'a> {
         // Snowflake accepts an empty column list — `RETURNS TABLE()` — meaning the
         // result columns are determined at run time. Bare `RETURNS TABLE` without
         // parentheses remains a syntax error (handled by the caller).
-        let type_only = matches!(
-            self.peek_nth_token_ref(1).token,
-            Token::Comma | Token::RParen | Token::LParen
-        );
-        let columns = if type_only {
-            self.parse_comma_separated0(
+        if let Ok(columns) = self.try_parse(|parser| {
+            let columns = parser.parse_comma_separated0(
                 |parser| {
                     Ok(ColumnDef {
                         name: Ident::new(""),
@@ -18554,10 +18550,14 @@ impl<'a> Parser<'a> {
                     })
                 },
                 Token::RParen,
-            )?
-        } else {
-            self.parse_comma_separated0(Parser::parse_returns_table_column, Token::RParen)?
-        };
+            )?;
+            parser.expect_token(&Token::RParen)?;
+            Ok(columns)
+        }) {
+            return Ok(columns);
+        }
+        let columns =
+            self.parse_comma_separated0(Parser::parse_returns_table_column, Token::RParen)?;
         self.expect_token(&Token::RParen)?;
         Ok(columns)
     }
