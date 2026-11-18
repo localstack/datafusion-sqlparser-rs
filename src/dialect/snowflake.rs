@@ -9005,7 +9005,16 @@ fn parse_alter_external_access_integration(parser: &mut Parser) -> Result<Statem
             "COMMENT" => {
                 parser.next_token();
                 parser.expect_token(&Token::Eq)?;
-                comment = Some(parser.parse_literal_string()?);
+                comment = Some(if parser.parse_keyword(Keyword::NULL) {
+                    None
+                } else {
+                    let unquoted = matches!(
+                        parser.peek_token().token,
+                        Token::Word(word) if word.quote_style.is_none()
+                    );
+                    let value = parser.parse_literal_string()?;
+                    Some(if unquoted { value.to_uppercase() } else { value })
+                });
             }
             _ => {
                 set_invalid.push(Ident::new(word.value.clone()));
