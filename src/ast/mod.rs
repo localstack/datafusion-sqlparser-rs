@@ -5843,9 +5843,9 @@ pub enum Statement {
         /// Optional `WHEN <expr>` clause.
         when_condition: Option<Expr>,
         /// Optional `SUSPEND_TASK_AFTER_NUM_FAILURES = <num>` clause.
-        suspend_task_after_num_failures: Option<u64>,
+        suspend_task_after_num_failures: Option<String>,
         /// Optional task execution timeout in milliseconds.
-        user_task_timeout_ms: Option<u64>,
+        user_task_timeout_ms: Option<String>,
         /// Optional initial size for a serverless task's managed warehouse.
         user_task_managed_initial_warehouse_size: Option<String>,
         /// Optional minimum interval between triggered task executions.
@@ -5865,7 +5865,7 @@ pub enum Statement {
         /// Whether task runs may overlap.
         allow_overlapping_execution: Option<bool>,
         /// Optional number of automatic retry attempts.
-        task_auto_retry_attempts: Option<u64>,
+        task_auto_retry_attempts: Option<String>,
         /// Optional `COMMENT = '<string>'` clause.
         comment: Option<String>,
         /// Session parameters applied while the task body executes.

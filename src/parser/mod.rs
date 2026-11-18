@@ -7047,8 +7047,8 @@ impl<'a> Parser<'a> {
         let mut after: Vec<ObjectName> = Vec::new();
         let mut finalize: Option<ObjectName> = None;
         let mut when_condition: Option<Expr> = None;
-        let mut suspend_task_after_num_failures: Option<u64> = None;
-        let mut user_task_timeout_ms: Option<u64> = None;
+        let mut suspend_task_after_num_failures: Option<String> = None;
+        let mut user_task_timeout_ms: Option<String> = None;
         let mut user_task_managed_initial_warehouse_size: Option<String> = None;
         let mut user_task_minimum_trigger_interval_in_seconds: Option<String> = None;
         let mut target_completion_interval: Option<String> = None;
@@ -7059,7 +7059,7 @@ impl<'a> Parser<'a> {
         let mut log_level: Option<String> = None;
         let mut allow_overlapping_execution: Option<bool> = None;
         let mut overlap_policy: Option<String> = None;
-        let mut task_auto_retry_attempts: Option<u64> = None;
+        let mut task_auto_retry_attempts: Option<String> = None;
         let mut comment: Option<String> = None;
         let mut session_parameters = KeyValueOptions {
             delimiter: KeyValueOptionsDelimiter::Space,
@@ -7121,10 +7121,10 @@ impl<'a> Parser<'a> {
                 when_condition = Some(self.parse_expr()?);
             } else if self.parse_keyword(Keyword::SUSPEND_TASK_AFTER_NUM_FAILURES) {
                 self.expect_token(&Token::Eq)?;
-                suspend_task_after_num_failures = self.parse_nullable_literal_uint()?;
+                suspend_task_after_num_failures = self.parse_nullable_task_numeric()?;
             } else if self.parse_keyword(Keyword::USER_TASK_TIMEOUT_MS) {
                 self.expect_token(&Token::Eq)?;
-                user_task_timeout_ms = self.parse_nullable_literal_uint()?;
+                user_task_timeout_ms = self.parse_nullable_task_numeric()?;
             } else if self.parse_keyword(Keyword::USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE) {
                 self.expect_token(&Token::Eq)?;
                 user_task_managed_initial_warehouse_size = Some(self.parse_literal_string()?);
@@ -7186,7 +7186,7 @@ impl<'a> Parser<'a> {
                 );
             } else if self.parse_keyword(Keyword::TASK_AUTO_RETRY_ATTEMPTS) {
                 self.expect_token(&Token::Eq)?;
-                task_auto_retry_attempts = self.parse_nullable_literal_uint()?;
+                task_auto_retry_attempts = self.parse_nullable_task_numeric()?;
             } else if self.parse_keyword(Keyword::COMMENT) {
                 self.expect_token(&Token::Eq)?;
                 comment = Some(self.parse_literal_string()?);
@@ -17677,11 +17677,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_nullable_literal_uint(&mut self) -> Result<Option<u64>, ParserError> {
+    fn parse_nullable_task_numeric(&mut self) -> Result<Option<String>, ParserError> {
         if self.parse_keyword(Keyword::NULL) {
             Ok(None)
         } else {
-            self.parse_literal_uint().map(Some)
+            self.parse_expr().map(|expr| Some(expr.to_string()))
         }
     }
 
