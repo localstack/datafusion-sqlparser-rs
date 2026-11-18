@@ -6263,6 +6263,13 @@ impl<'a> Parser<'a> {
             self.parse_create_external_table(or_replace).map(Into::into)
         } else if self.parse_keywords(&[Keyword::SECURE, Keyword::FUNCTION]) {
             self.parse_create_function(or_alter, or_replace, temporary, true, false)
+        } else if self.parse_keywords(&[
+            Keyword::SECURE,
+            Keyword::DATA,
+            Keyword::METRIC,
+            Keyword::FUNCTION,
+        ]) {
+            self.parse_create_function(or_alter, or_replace, temporary, true, true)
         } else if self.parse_keywords(&[Keyword::DATA, Keyword::METRIC, Keyword::FUNCTION]) {
             self.parse_create_function(or_alter, or_replace, temporary, false, true)
         } else if self.parse_keyword(Keyword::FUNCTION) {
