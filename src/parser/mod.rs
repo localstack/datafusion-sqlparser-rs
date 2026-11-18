@@ -9370,7 +9370,11 @@ impl<'a> Parser<'a> {
         let name = self.parse_object_name(false)?;
         let comment = if self.parse_keyword(Keyword::COMMENT) {
             self.expect_token(&Token::Eq)?;
-            Some(self.parse_literal_string()?)
+            if self.parse_keyword(Keyword::NULL) {
+                None
+            } else {
+                Some(self.parse_literal_string()?)
+            }
         } else {
             None
         };
