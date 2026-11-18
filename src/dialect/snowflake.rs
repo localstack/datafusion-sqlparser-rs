@@ -7615,7 +7615,11 @@ fn parse_create_backup_set(
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     parser.expect_keyword_is(Keyword::FOR)?;
-    let target_kind = if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+    let target_kind = if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::ICEBERG, Keyword::TABLE]) {
+        BackupSetTargetKind::DynamicIcebergTable
+    } else if parser.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE]) {
+        BackupSetTargetKind::IcebergTable
+    } else if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
         BackupSetTargetKind::DynamicTable
     } else if parser.parse_keyword(Keyword::TABLE) {
         BackupSetTargetKind::Table
@@ -7625,7 +7629,7 @@ fn parse_create_backup_set(
         BackupSetTargetKind::Database
     } else {
         return parser.expected_ref(
-            "TABLE, DYNAMIC TABLE, SCHEMA or DATABASE",
+            "TABLE, DYNAMIC TABLE, ICEBERG TABLE, DYNAMIC ICEBERG TABLE, SCHEMA or DATABASE",
             parser.peek_token_ref(),
         );
     };
