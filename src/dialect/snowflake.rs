@@ -3117,11 +3117,25 @@ fn parse_alter_external_table(parser: &mut Parser) -> Result<Statement, ParserEr
         let location = parser.parse_literal_string()?;
         AlterTableOperation::DropExternalPartition { location }
     } else if parser.parse_keywords(&[Keyword::SET, Keyword::AUTO_REFRESH]) {
-        let _ = parser.consume_token(&Token::Eq);
-        let value = parser.parse_keyword(Keyword::TRUE);
-        if !value {
-            parser.expect_keyword_is(Keyword::FALSE)?;
-        }
+        let value = loop {
+            let _ = parser.consume_token(&Token::Eq);
+            let value_token = parser.peek_token().clone();
+            let value = parser.parse_expr()?;
+            if parser.consume_token(&Token::Comma) {
+                parser.expect_keyword_is(Keyword::AUTO_REFRESH)?;
+                continue;
+            }
+            if parser.parse_keyword(Keyword::AUTO_REFRESH) {
+                continue;
+            }
+            match value {
+                Expr::Value(ValueWithSpan {
+                    value: Value::Boolean(value),
+                    ..
+                }) => break value,
+                _ => return parser.expected("TRUE or FALSE", value_token),
+            }
+        };
         AlterTableOperation::SetAutoRefresh { value }
     } else {
         return parser.expected_ref(
