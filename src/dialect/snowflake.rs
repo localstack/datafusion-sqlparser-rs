@@ -4970,7 +4970,13 @@ pub fn parse_copy_into(parser: &mut Parser) -> Result<Statement, ParserError> {
 pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserError> {
     let into = parse_at_stage_name(parser)?;
     parser.expect_keyword_is(Keyword::FROM)?;
-    let from_stage = parse_at_stage_name(parser)?;
+    let (from_stage, from_query) = if parser.consume_token(&Token::LParen) {
+        let query = parser.parse_query()?;
+        parser.expect_token(&Token::RParen)?;
+        (None, Some(query))
+    } else {
+        (Some(parse_at_stage_name(parser)?), None)
+    };
 
     let mut files: Vec<ValueWithSpan> = vec![];
     let mut pattern = None;
@@ -5027,7 +5033,7 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
         kind: CopyIntoSnowflakeKind::Files,
         into,
         into_columns: None,
-        from_obj: Some(from_stage),
+        from_obj: from_stage,
         from_obj_alias: None,
         from_obj_args: None,
         stage_params: StageParamsObject {
@@ -5049,7 +5055,7 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
             credentials_specified: false,
         },
         from_transformations: None,
-        from_query: None,
+        from_query,
         files: if files.is_empty() { None } else { Some(files) },
         pattern,
         file_format: KeyValueOptions {
