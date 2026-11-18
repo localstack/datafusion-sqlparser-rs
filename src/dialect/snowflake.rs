@@ -174,15 +174,6 @@ impl SnowflakeDialect {
             }
         }
 
-        // Snowflake anonymous procedure: `WITH <name> AS PROCEDURE ...`. Every
-        // other `WITH` (ordinary CTE) fails the `AS PROCEDURE` probe and falls
-        // through to the standard query parser.
-        if parser.peek_keyword(Keyword::WITH) {
-            if let Ok(Some(stmt)) = parser.maybe_parse(parse_with_procedure) {
-                return Some(Ok(stmt));
-            }
-        }
-
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::DYNAMIC, Keyword::TABLE]) {
             // ALTER DYNAMIC TABLE
             return Some(parse_alter_dynamic_table(parser));
@@ -1294,9 +1285,14 @@ impl SnowflakeDialect {
                 false
             };
 
-            // `SCOPED` marks a temporary whose lifetime is the creating scope;
-            // Snowflake only ever writes it as `SCOPED TEMPORARY`, so it must be
-            // followed by TEMP/TEMPORARY and maps to a plain temporary.
+            let procedure_scope_keyword =
+                (parser.peek_keywords(&[Keyword::PROCEDURE, Keyword::SCOPED, Keyword::TEMP])
+                    || parser.peek_keywords(&[
+                        Keyword::PROCEDURE,
+                        Keyword::SCOPED,
+                        Keyword::TEMPORARY,
+                    ]))
+                    && parser.parse_keyword(Keyword::PROCEDURE);
             let scoped = parser.parse_keyword(Keyword::SCOPED);
 
             match parser.parse_one_of_keywords(&[
@@ -1398,6 +1394,8 @@ impl SnowflakeDialect {
                         or_alter,
                         global,
                         temporary,
+                        scoped,
+                        procedure_scope_keyword,
                         volatile,
                         transient,
                         iceberg,
@@ -2036,6 +2034,11 @@ impl Dialect for SnowflakeDialect {
     }
 
     fn parse_statement(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        if parser.peek_keyword(Keyword::WITH) {
+            if let Ok(Some(stmt)) = parser.maybe_parse(parse_with_procedure) {
+                return Some(Ok(stmt));
+            }
+        }
         if parser.parse_keyword(Keyword::BEGIN) {
             // Snowflake supports both `BEGIN TRANSACTION` and `BEGIN ... END` blocks.
             // If the next keyword indicates a transaction statement, let the
@@ -3663,6 +3666,8 @@ pub fn parse_create_table(
     or_alter: bool,
     global: Option<bool>,
     temporary: bool,
+    scoped: bool,
+    procedure_scope_keyword: bool,
     volatile: bool,
     transient: bool,
     iceberg: bool,
@@ -3679,6 +3684,7 @@ pub fn parse_create_table(
         .or_alter(or_alter)
         .if_not_exists(if_not_exists)
         .temporary(temporary)
+        .procedure_scope(scoped, procedure_scope_keyword)
         .transient(transient)
         .volatile(volatile)
         .iceberg(iceberg)
@@ -5837,7 +5843,8 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
             if parser.consume_token(&Token::Comma) {
                 continue;
             }
-            if !parser.peek_keyword(Keyword::COMMENT) && !parser.peek_keyword(Keyword::ALLOW_WRITES) {
+            if !parser.peek_keyword(Keyword::COMMENT) && !parser.peek_keyword(Keyword::ALLOW_WRITES)
+            {
                 break;
             }
         }
@@ -5850,12 +5857,10 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
             Some(_) => return parser.expected("TRUE or FALSE", parser.peek_token()),
         };
         match (allow_writes, comment) {
-            (Some(allow_writes), Some(comment)) => {
-                AlterExternalVolumeOperation::SetProperties {
-                    allow_writes,
-                    comment,
-                }
-            }
+            (Some(allow_writes), Some(comment)) => AlterExternalVolumeOperation::SetProperties {
+                allow_writes,
+                comment,
+            },
             (Some(value), None) => AlterExternalVolumeOperation::SetAllowWrites(value),
             (None, Some(value)) => AlterExternalVolumeOperation::SetComment(value),
             (None, None) => return parser.expected("COMMENT or ALLOW_WRITES", parser.peek_token()),
