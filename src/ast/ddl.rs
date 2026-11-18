@@ -2839,15 +2839,17 @@ pub enum AlterSnowflakeSecretOperation {
     /// `SET <option> = <value> [ ... ]` — the type-specific mutable options,
     /// captured generically as key-value options.
     Set(KeyValueOptions),
-    /// `UNSET COMMENT`
-    UnsetComment,
+    /// `UNSET <property> [, ...]`
+    Unset(Vec<Ident>),
 }
 
 impl fmt::Display for AlterSnowflakeSecretOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             AlterSnowflakeSecretOperation::Set(options) => write!(f, "SET {options}"),
-            AlterSnowflakeSecretOperation::UnsetComment => write!(f, "UNSET COMMENT"),
+            AlterSnowflakeSecretOperation::Unset(properties) => {
+                write!(f, "UNSET {}", display_comma_separated(properties))
+            }
         }
     }
 }

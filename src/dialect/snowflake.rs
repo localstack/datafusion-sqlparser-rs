@@ -8179,10 +8179,10 @@ fn parse_alter_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
             return parser.expected_ref("at least one option to SET", parser.peek_token_ref());
         }
         AlterSnowflakeSecretOperation::Set(options)
-    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
-        AlterSnowflakeSecretOperation::UnsetComment
+    } else if parser.parse_keyword(Keyword::UNSET) {
+        AlterSnowflakeSecretOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
     } else {
-        return parser.expected_ref("SET <options> or UNSET COMMENT", parser.peek_token_ref());
+        return parser.expected_ref("SET <options> or UNSET <properties>", parser.peek_token_ref());
     };
     Ok(Statement::AlterSnowflakeSecret {
         if_exists,
