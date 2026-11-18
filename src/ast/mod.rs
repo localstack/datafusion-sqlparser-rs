@@ -7689,8 +7689,8 @@ pub enum Statement {
         allowed_authentication_secrets: Option<ExternalAccessAllowedList>,
         /// `SET ENABLED = { TRUE | FALSE }`, if given.
         enabled: Option<bool>,
-        /// `SET COMMENT = '<string>'`, if given.
-        comment: Option<String>,
+        /// `SET COMMENT = '<string>' | NULL`, if given.
+        comment: Option<Option<String>>,
         /// `SET` property names not recognised for this object (routed to the UDF
         /// so it reproduces real Snowflake's `invalid property` reject verbatim).
         set_invalid: Vec<Ident>,
@@ -12028,7 +12028,14 @@ impl fmt::Display for Statement {
                     write!(f, " ENABLED = {}", if *enabled { "TRUE" } else { "FALSE" })?;
                 }
                 if let Some(comment) = comment {
-                    write!(f, " COMMENT = '{}'", value::escape_single_quote_string(comment))?;
+                    match comment {
+                        Some(comment) => write!(
+                            f,
+                            " COMMENT = '{}'",
+                            value::escape_single_quote_string(comment)
+                        )?,
+                        None => write!(f, " COMMENT = NULL")?,
+                    }
                 }
                 for prop in set_invalid {
                     write!(f, " {prop} = <invalid>")?;
