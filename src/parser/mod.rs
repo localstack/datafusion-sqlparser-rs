@@ -18240,7 +18240,7 @@ impl<'a> Parser<'a> {
         // parentheses remains a syntax error (handled by the caller).
         let type_only = matches!(
             self.peek_nth_token_ref(1).token,
-            Token::Comma | Token::RParen
+            Token::Comma | Token::RParen | Token::LParen
         );
         let columns = if type_only {
             self.parse_comma_separated0(
