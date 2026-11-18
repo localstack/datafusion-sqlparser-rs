@@ -6727,6 +6727,8 @@ pub enum Statement {
         with_retention_lock: bool,
         /// Policy name.
         name: ObjectName,
+        /// Optional inline tag assignments.
+        tags: Vec<Tag>,
         /// Space-separated property bag (`SCHEDULE`, `EXPIRE_AFTER_DAYS`,
         /// `COMMENT`).
         options: KeyValueOptions,
@@ -11067,20 +11069,22 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 with_retention_lock,
                 name,
+                tags,
                 options,
             } => {
                 write!(
                     f,
-                    "CREATE {or_replace}{or_alter}BACKUP POLICY {if_not_exists}{name}{retention}",
+                    "CREATE {or_replace}{or_alter}BACKUP POLICY {if_not_exists}{name}",
                     or_replace = if *or_replace { "OR REPLACE " } else { "" },
                     or_alter = if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
-                    retention = if *with_retention_lock {
-                        " WITH RETENTION LOCK"
-                    } else {
-                        ""
-                    },
                 )?;
+                if !tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
+                }
+                if *with_retention_lock {
+                    write!(f, " WITH RETENTION LOCK")?;
+                }
                 if !options.options.is_empty() {
                     write!(f, " {options}")?;
                 }
