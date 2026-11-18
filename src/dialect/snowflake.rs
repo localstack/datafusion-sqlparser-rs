@@ -5789,13 +5789,25 @@ fn parse_alter_external_volume(parser: &mut Parser) -> Result<Statement, ParserE
         parser.expect_keyword(Keyword::CREDENTIALS)?;
         parser.expect_token(&Token::Eq)?;
         parser.expect_token(&Token::LParen)?;
-        parser.expect_keyword(Keyword::AWS_KEY_ID)?;
+        let secret_first = parser.parse_keyword(Keyword::AWS_SECRET_KEY);
+        if !secret_first {
+            parser.expect_keyword(Keyword::AWS_KEY_ID)?;
+        }
         parser.expect_token(&Token::Eq)?;
-        let aws_key_id = parser.parse_literal_string()?;
-        parser.expect_keyword(Keyword::AWS_SECRET_KEY)?;
+        let first_credential = parser.parse_literal_string()?;
+        parser.expect_keyword(if secret_first {
+            Keyword::AWS_KEY_ID
+        } else {
+            Keyword::AWS_SECRET_KEY
+        })?;
         parser.expect_token(&Token::Eq)?;
-        let aws_secret_key = parser.parse_literal_string()?;
+        let second_credential = parser.parse_literal_string()?;
         parser.expect_token(&Token::RParen)?;
+        let (aws_key_id, aws_secret_key) = if secret_first {
+            (second_credential, first_credential)
+        } else {
+            (first_credential, second_credential)
+        };
         AlterExternalVolumeOperation::UpdateStorageLocationCredentials {
             name,
             aws_key_id,
