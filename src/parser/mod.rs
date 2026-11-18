@@ -10908,8 +10908,7 @@ impl<'a> Parser<'a> {
             return self.parse_expr();
         }
         self.expect_token(&Token::LParen)?;
-        self.expect_keyword_is(Keyword::SHOW)?;
-        let show = self.parse_show()?;
+        let show = self.parse_statement()?;
         self.expect_token(&Token::RParen)?;
         Ok(Expr::Subquery(Box::new(Query {
             with: None,
