@@ -4978,12 +4978,13 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
         (Some(parse_at_stage_name(parser)?), None)
     };
 
-    let mut files: Vec<ValueWithSpan> = vec![];
+    let mut files: Option<Vec<ValueWithSpan>> = None;
     let mut pattern = None;
     let mut copy_options = Vec::new();
 
     loop {
         if parser.parse_keyword(Keyword::FILES) {
+            let files = files.get_or_insert_with(Vec::new);
             parser.expect_token(&Token::Eq)?;
             parser.expect_token(&Token::LParen)?;
             while parser.peek_token_ref().token != Token::RParen {
@@ -5056,7 +5057,7 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
         },
         from_transformations: None,
         from_query,
-        files: if files.is_empty() { None } else { Some(files) },
+        files,
         pattern,
         file_format: KeyValueOptions {
             options: vec![],
