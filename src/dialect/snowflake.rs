@@ -2954,10 +2954,8 @@ fn parse_with_procedure(parser: &mut Parser) -> Result<Statement, ParserError> {
 /// Parse snowflake alter materialized view.
 /// <https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view>
 ///
-/// Every clause except `RENAME TO` is an accept-and-no-op downstream; only the
-/// object identity and, for `RENAME TO`, the new name carry meaning. The
-/// operation is tagged [`AlterTableType::MaterializedView`] so the emulator can
-/// route it to the view machinery.
+/// The operation is tagged [`AlterTableType::MaterializedView`] so the emulator
+/// can route it to the view machinery.
 fn parse_alter_materialized_view(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(true)?;
@@ -2976,11 +2974,17 @@ fn parse_alter_materialized_view(parser: &mut Parser) -> Result<Statement, Parse
     } else if parser.parse_keywords(&[Keyword::DROP, Keyword::CLUSTERING, Keyword::KEY]) {
         AlterTableOperation::DropClusteringKey
     } else if parser.parse_keyword(Keyword::SUSPEND) {
-        let _ = parser.parse_keyword(Keyword::RECLUSTER);
-        AlterTableOperation::Suspend
+        if parser.parse_keyword(Keyword::RECLUSTER) {
+            AlterTableOperation::SuspendRecluster
+        } else {
+            AlterTableOperation::Suspend
+        }
     } else if parser.parse_keyword(Keyword::RESUME) {
-        let _ = parser.parse_keyword(Keyword::RECLUSTER);
-        AlterTableOperation::Resume
+        if parser.parse_keyword(Keyword::RECLUSTER) {
+            AlterTableOperation::ResumeRecluster
+        } else {
+            AlterTableOperation::Resume
+        }
     } else if parser.parse_keyword(Keyword::SET) {
         AlterTableOperation::SetOptionsParens {
             options: parse_alter_materialized_view_properties(parser, false)?,
