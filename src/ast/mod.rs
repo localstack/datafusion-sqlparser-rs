@@ -17823,8 +17823,13 @@ pub enum AlterStreamlitOperation {
     Commit,
     /// `ABORT`
     Abort,
-    /// `PUSH [ TO '<git_branch_uri>' ]`
-    Push(Option<String>),
+    /// `PUSH [ TO '<git_branch_uri>' ] [ <options> ]`
+    Push {
+        /// Target Git branch URI.
+        to: Option<String>,
+        /// Credentials, author identity, and commit comment.
+        options: Vec<SqlOption>,
+    },
     /// `PULL`
     Pull,
     /// `SET <property> = <value> [ ... ]`
@@ -17842,9 +17847,15 @@ impl fmt::Display for AlterStreamlitOperation {
             }
             AlterStreamlitOperation::Commit => write!(f, "COMMIT"),
             AlterStreamlitOperation::Abort => write!(f, "ABORT"),
-            AlterStreamlitOperation::Push(None) => write!(f, "PUSH"),
-            AlterStreamlitOperation::Push(Some(uri)) => {
-                write!(f, "PUSH TO '{}'", value::escape_single_quote_string(uri))
+            AlterStreamlitOperation::Push { to, options } => {
+                write!(f, "PUSH")?;
+                if let Some(uri) = to {
+                    write!(f, " TO '{}'", value::escape_single_quote_string(uri))?;
+                }
+                for option in options {
+                    write!(f, " {option}")?;
+                }
+                Ok(())
             }
             AlterStreamlitOperation::Pull => write!(f, "PULL"),
             AlterStreamlitOperation::Set(options) => {
