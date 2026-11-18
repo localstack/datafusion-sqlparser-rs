@@ -73,6 +73,10 @@ pub struct CreateTableBuilder {
     pub or_alter: bool,
     /// Whether the table is `TEMPORARY`.
     pub temporary: bool,
+    /// Invocation-lifetime `SCOPED` modifier.
+    pub procedure_scoped: bool,
+    /// Explicit `PROCEDURE` before `SCOPED`.
+    pub procedure_scope_keyword: bool,
     /// Whether the table is `UNLOGGED`.
     pub unlogged: bool,
     /// Whether the table is `EXTERNAL`.
@@ -253,6 +257,8 @@ impl CreateTableBuilder {
             or_replace: false,
             or_alter: false,
             temporary: false,
+            procedure_scoped: false,
+            procedure_scope_keyword: false,
             unlogged: false,
             external: false,
             global: None,
@@ -353,6 +359,13 @@ impl CreateTableBuilder {
     /// Mark the table as `TEMPORARY`.
     pub fn temporary(mut self, temporary: bool) -> Self {
         self.temporary = temporary;
+        self
+    }
+
+    /// Set the scoped-lifetime modifier and its explicit PROCEDURE spelling.
+    pub fn procedure_scope(mut self, scoped: bool, explicit_keyword: bool) -> Self {
+        self.procedure_scoped = scoped;
+        self.procedure_scope_keyword = explicit_keyword;
         self
     }
     /// Mark the table as `UNLOGGED`.
@@ -772,6 +785,8 @@ impl CreateTableBuilder {
             or_replace: self.or_replace,
             or_alter: self.or_alter,
             temporary: self.temporary,
+            procedure_scoped: self.procedure_scoped,
+            procedure_scope_keyword: self.procedure_scope_keyword,
             unlogged: self.unlogged,
             external: self.external,
             global: self.global,
@@ -888,6 +903,8 @@ impl From<CreateTable> for CreateTableBuilder {
             or_replace: table.or_replace,
             or_alter: table.or_alter,
             temporary: table.temporary,
+            procedure_scoped: table.procedure_scoped,
+            procedure_scope_keyword: table.procedure_scope_keyword,
             unlogged: table.unlogged,
             external: table.external,
             global: table.global,

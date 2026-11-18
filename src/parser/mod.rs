@@ -5495,7 +5495,7 @@ impl<'a> Parser<'a> {
     /// Return true if the next tokens exactly `expected`
     ///
     /// Does not advance the current token.
-    fn peek_keywords(&mut self, expected: &[Keyword]) -> bool {
+    pub(crate) fn peek_keywords(&mut self, expected: &[Keyword]) -> bool {
         let index = self.index;
         let matched = self.parse_keywords(expected);
         self.index = index;
@@ -6199,8 +6199,10 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        // Snowflake `SCOPED TEMPORARY` — a scope-lifetime temporary; the modifier
-        // is only ever written before TEMP/TEMPORARY and maps to a plain temporary.
+        let procedure_scope_keyword =
+            (self.peek_keywords(&[Keyword::PROCEDURE, Keyword::SCOPED, Keyword::TEMP])
+                || self.peek_keywords(&[Keyword::PROCEDURE, Keyword::SCOPED, Keyword::TEMPORARY]))
+                && self.parse_keyword(Keyword::PROCEDURE);
         let scoped = self.parse_one_of_keywords(&[Keyword::SCOPED]).is_some();
         let temporary = self
             .parse_one_of_keywords(&[Keyword::TEMP, Keyword::TEMPORARY])
@@ -6235,7 +6237,15 @@ impl<'a> Parser<'a> {
             self.parse_create_text_search().map(Into::into)
         } else if self.parse_keyword(Keyword::TABLE) {
             self.parse_create_table(
-                or_replace, temporary, unlogged, global, transient, volatile, multiset,
+                or_replace,
+                temporary,
+                unlogged,
+                global,
+                transient,
+                volatile,
+                multiset,
+                scoped,
+                procedure_scope_keyword,
             )
             .map(Into::into)
         } else if self.peek_keyword(Keyword::MATERIALIZED)
@@ -7271,11 +7281,13 @@ impl<'a> Parser<'a> {
                 warehouse = if self.parse_keyword(Keyword::NULL) {
                     None
                 } else {
-                    Some(if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
-                        Ident::new(self.parse_literal_string()?)
-                    } else {
-                        self.parse_identifier()?
-                    })
+                    Some(
+                        if matches!(self.peek_token().token, Token::DollarQuotedString(_)) {
+                            Ident::new(self.parse_literal_string()?)
+                        } else {
+                            self.parse_identifier()?
+                        },
+                    )
                 };
             } else if source.is_none() && self.parse_keyword(Keyword::SCHEDULE) {
                 self.expect_token(&Token::Eq)?;
@@ -11491,6 +11503,8 @@ impl<'a> Parser<'a> {
         transient: bool,
         volatile: bool,
         multiset: Option<bool>,
+        scoped: bool,
+        procedure_scope_keyword: bool,
     ) -> Result<CreateTable, ParserError> {
         let allow_unquoted_hyphen = dialect_of!(self is BigQueryDialect);
         let if_not_exists = self.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
@@ -11668,6 +11682,7 @@ impl<'a> Parser<'a> {
 
         Ok(CreateTableBuilder::new(table_name)
             .temporary(temporary)
+            .procedure_scope(scoped, procedure_scope_keyword)
             .unlogged(unlogged)
             .columns(columns)
             .constraints(constraints)

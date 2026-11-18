@@ -49,7 +49,7 @@ fn test_snowflake_create_table() {
 #[test]
 fn parse_sf_create_scoped_temporary() {
     // Snowpark emits `CREATE SCOPED TEMPORARY …` for its session-scoped temps.
-    // `SCOPED` maps to a plain temporary and drops from the canonical DDL.
+    // Tables retain SCOPED for invocation-lifetime execution.
     match snowflake().one_statement_parses_to(
         "CREATE SCOPED TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE = CSV",
         "CREATE TEMPORARY FILE FORMAT IF NOT EXISTS ff TYPE=CSV",
@@ -60,9 +60,18 @@ fn parse_sf_create_scoped_temporary() {
 
     match snowflake().one_statement_parses_to(
         "CREATE SCOPED TEMPORARY TABLE t (a INT)",
-        "CREATE TEMPORARY TABLE t (a INT)",
+        "CREATE SCOPED TEMPORARY TABLE t (a INT)",
     ) {
-        Statement::CreateTable(CreateTable { temporary, .. }) => assert!(temporary),
+        Statement::CreateTable(CreateTable {
+            temporary,
+            procedure_scoped,
+            procedure_scope_keyword,
+            ..
+        }) => {
+            assert!(temporary);
+            assert!(procedure_scoped);
+            assert!(!procedure_scope_keyword);
+        }
         _ => unreachable!(),
     }
 

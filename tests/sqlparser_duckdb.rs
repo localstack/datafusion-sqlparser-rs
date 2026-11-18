@@ -704,6 +704,8 @@ fn test_duckdb_union_datatype() {
             or_replace: Default::default(),
             or_alter: Default::default(),
             temporary: Default::default(),
+            procedure_scoped: false,
+            procedure_scope_keyword: false,
             unlogged: Default::default(),
             external: Default::default(),
             global: Default::default(),
