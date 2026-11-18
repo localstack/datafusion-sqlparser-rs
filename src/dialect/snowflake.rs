@@ -3374,21 +3374,24 @@ fn parse_external_function_compression(
     parser: &mut Parser,
 ) -> Result<ExternalFunctionCompression, ParserError> {
     let token = parser.next_token();
-    match &token.token {
-        Token::Word(word) if word.value.eq_ignore_ascii_case("NONE") => {
-            Ok(ExternalFunctionCompression::None)
-        }
-        Token::Word(word) if word.value.eq_ignore_ascii_case("GZIP") => {
-            Ok(ExternalFunctionCompression::Gzip)
-        }
-        Token::Word(word) if word.value.eq_ignore_ascii_case("DEFLATE") => {
-            Ok(ExternalFunctionCompression::Deflate)
-        }
-        Token::Word(word) if word.value.eq_ignore_ascii_case("AUTO") => {
-            Ok(ExternalFunctionCompression::Auto)
-        }
-        _ => parser.expected("NONE, GZIP, DEFLATE, or AUTO", token),
-    }
+    let (value, quoted) = match &token.token {
+        Token::Word(word) => (word.value.as_str(), word.quote_style.is_some()),
+        Token::SingleQuotedString(value) => (value.as_str(), true),
+        Token::DollarQuotedString(value) if value.tag.is_none() => (value.value.as_str(), true),
+        _ => return parser.expected("NONE, GZIP, DEFLATE, or AUTO", token),
+    };
+    let compression = match value.to_ascii_uppercase().as_str() {
+        "NONE" => ExternalFunctionCompression::None,
+        "GZIP" => ExternalFunctionCompression::Gzip,
+        "DEFLATE" => ExternalFunctionCompression::Deflate,
+        "AUTO" => ExternalFunctionCompression::Auto,
+        _ => return parser.expected("NONE, GZIP, DEFLATE, or AUTO", token),
+    };
+    Ok(if quoted || (compression == ExternalFunctionCompression::Auto && value != "AUTO") {
+        ExternalFunctionCompression::Literal(value.to_owned())
+    } else {
+        compression
+    })
 }
 
 /// Parse a Snowflake `CREATE [OR REPLACE] EXTERNAL TABLE` statement. The

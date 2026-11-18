@@ -5970,15 +5970,28 @@ pub enum ExternalFunctionCompression {
     Deflate,
     /// Compression selected automatically.
     Auto,
+    /// A case-preserving compression declaration.
+    Literal(String),
+}
+
+impl ExternalFunctionCompression {
+    /// The compression declaration without SQL quoting.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::None => "NONE",
+            Self::Gzip => "GZIP",
+            Self::Deflate => "DEFLATE",
+            Self::Auto => "AUTO",
+            Self::Literal(value) => value,
+        }
+    }
 }
 
 impl fmt::Display for ExternalFunctionCompression {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::None => write!(f, "NONE"),
-            Self::Gzip => write!(f, "GZIP"),
-            Self::Deflate => write!(f, "DEFLATE"),
-            Self::Auto => write!(f, "AUTO"),
+            Self::Literal(value) => write!(f, "'{}'", escape_single_quote_string(value)),
+            Self::None | Self::Gzip | Self::Deflate | Self::Auto => f.write_str(self.as_str()),
         }
     }
 }
