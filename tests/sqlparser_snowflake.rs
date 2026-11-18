@@ -10898,6 +10898,10 @@ fn parse_sf_create_external_function_clauses() {
             "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api COMPRESSION = {compression} AS 'https://example.com/f'"
         ));
     }
+    snowflake().one_statement_parses_to(
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api COMPRESSION = INVALID AS 'https://example.com/f'",
+        "CREATE EXTERNAL FUNCTION f() RETURNS INT API_INTEGRATION = api COMPRESSION = 'INVALID' AS 'https://example.com/f'",
+    );
 }
 
 #[test]

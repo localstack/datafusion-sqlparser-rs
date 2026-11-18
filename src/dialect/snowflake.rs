@@ -3381,14 +3381,14 @@ fn parse_external_function_compression(
         Token::Word(word) => (word.value.as_str(), word.quote_style.is_some()),
         Token::SingleQuotedString(value) => (value.as_str(), true),
         Token::DollarQuotedString(value) if value.tag.is_none() => (value.value.as_str(), true),
-        _ => return parser.expected("NONE, GZIP, DEFLATE, or AUTO", token),
+        _ => return parser.expected("compression value", token),
     };
     let compression = match value.to_ascii_uppercase().as_str() {
         "NONE" => ExternalFunctionCompression::None,
         "GZIP" => ExternalFunctionCompression::Gzip,
         "DEFLATE" => ExternalFunctionCompression::Deflate,
         "AUTO" => ExternalFunctionCompression::Auto,
-        _ => return parser.expected("NONE, GZIP, DEFLATE, or AUTO", token),
+        _ => return Ok(ExternalFunctionCompression::Literal(value.to_owned())),
     };
     Ok(if quoted || (compression == ExternalFunctionCompression::Auto && value != "AUTO") {
         ExternalFunctionCompression::Literal(value.to_owned())
