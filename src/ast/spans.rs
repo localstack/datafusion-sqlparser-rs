@@ -860,11 +860,13 @@ impl Spanned for CreateTable {
             or_replace: _, // bool
             or_alter: _,   // bool
             temporary: _,  // bool
-            unlogged: _,   // bool
-            external: _,   // bool
-            global: _,     // bool
-            dynamic: _,    // bool
-            hybrid: _,     // bool, Snowflake specific
+            procedure_scoped: _,
+            procedure_scope_keyword: _,
+            unlogged: _, // bool
+            external: _, // bool
+            global: _,   // bool
+            dynamic: _,  // bool
+            hybrid: _,   // bool, Snowflake specific
             interactive: _,
             if_not_exists: _, // bool
             transient: _,     // bool

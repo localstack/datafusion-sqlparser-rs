@@ -7713,6 +7713,8 @@ fn parse_trigger_related_functions() {
             or_replace: false,
             or_alter: false,
             temporary: false,
+            procedure_scoped: false,
+            procedure_scope_keyword: false,
             unlogged: false,
             external: false,
             global: None,

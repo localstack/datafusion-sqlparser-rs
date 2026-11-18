@@ -5019,6 +5019,10 @@ pub struct CreateTable {
     pub or_alter: bool,
     /// `TEMP` or `TEMPORARY` clause
     pub temporary: bool,
+    /// Invocation-lifetime `SCOPED` modifier.
+    pub procedure_scoped: bool,
+    /// Explicit `PROCEDURE` before `SCOPED`.
+    pub procedure_scope_keyword: bool,
     /// `UNLOGGED` clause
     pub unlogged: bool,
     /// `EXTERNAL` clause
@@ -5291,7 +5295,7 @@ impl fmt::Display for CreateTable {
         //   `CREATE TABLE t (a INT) AS SELECT a from t2`
         write!(
             f,
-            "CREATE {or_alter}{or_replace}{external}{global}{multiset}{temporary}{unlogged}{transient}{volatile}{dynamic}{hybrid}{interactive}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
+            "CREATE {or_alter}{or_replace}{external}{global}{multiset}{procedure_scope}{temporary}{unlogged}{transient}{volatile}{dynamic}{hybrid}{interactive}{iceberg}{snapshot}TABLE {if_not_exists}{name}",
             or_alter = if self.or_alter { "OR ALTER " } else { "" },
             or_replace = if self.or_replace { "OR REPLACE " } else { "" },
             external = if self.external { "EXTERNAL " } else { "" },
@@ -5311,6 +5315,7 @@ impl fmt::Display for CreateTable {
                 .map(|m| if m { "MULTISET " } else { "SET " })
                 .unwrap_or(""),
             temporary = if self.temporary { "TEMPORARY " } else { "" },
+            procedure_scope = if self.procedure_scope_keyword { "PROCEDURE SCOPED " } else if self.procedure_scoped { "SCOPED " } else { "" },
             unlogged = if self.unlogged { "UNLOGGED " } else { "" },
             transient = if self.transient { "TRANSIENT " } else { "" },
             volatile = if self.volatile { "VOLATILE " } else { "" },
