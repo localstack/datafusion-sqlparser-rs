@@ -6998,6 +6998,8 @@ pub enum Statement {
         name: ObjectName,
         /// All secret options (`TYPE`, credentials, `COMMENT`, …).
         options: KeyValueOptions,
+        /// Tag assignments.
+        tags: Vec<Tag>,
     },
     /// ```sql
     /// CREATE [ OR REPLACE ] GIT REPOSITORY [ IF NOT EXISTS ] <name> <properties>
@@ -11342,6 +11344,7 @@ impl fmt::Display for Statement {
                 if_not_exists,
                 name,
                 options,
+                tags,
             } => {
                 write!(
                     f,
@@ -11351,6 +11354,9 @@ impl fmt::Display for Statement {
                 )?;
                 if !options.options.is_empty() {
                     write!(f, " {options}")?;
+                }
+                if !tags.is_empty() {
+                    write!(f, " WITH TAG ({})", display_comma_separated(tags))?;
                 }
                 Ok(())
             }
