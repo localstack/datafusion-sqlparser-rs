@@ -8153,7 +8153,10 @@ fn parse_alter_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> 
         } else {
             None
         };
-        AlterStreamlitOperation::Push(to)
+        AlterStreamlitOperation::Push {
+            to,
+            options: parse_streamlit_options(parser)?,
+        }
     } else if parse_bare_word(parser, "PULL") {
         AlterStreamlitOperation::Pull
     } else {
