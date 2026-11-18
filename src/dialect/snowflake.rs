@@ -8200,6 +8200,34 @@ fn parse_drop_streamlit(parser: &mut Parser) -> Result<Statement, ParserError> {
 fn parse_alter_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
     let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    if (parser.peek_keyword(Keyword::SET) || parser.peek_keyword(Keyword::UNSET))
+        && matches!(
+            parser.peek_nth_token(1).token,
+            Token::Word(ref word) if word.keyword == Keyword::TAG
+        )
+    {
+        let unset = parser.parse_keyword(Keyword::UNSET);
+        if !unset {
+            parser.expect_keyword(Keyword::SET)?;
+        }
+        parser.expect_keyword(Keyword::TAG)?;
+        let (set_tags, unset_tags) = if unset {
+            (
+                Vec::new(),
+                parser.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+            )
+        } else {
+            (parser.parse_comma_separated(Parser::parse_tag)?, Vec::new())
+        };
+        return Ok(Statement::SetTags {
+            object_type: ObjectType::Secret,
+            object_name: name,
+            if_exists,
+            unset,
+            set_tags,
+            unset_tags,
+        });
+    }
     let operation = if parser.parse_keyword(Keyword::SET) {
         let options = parser.parse_key_value_options(false, &[], false)?;
         if options.options.is_empty() {

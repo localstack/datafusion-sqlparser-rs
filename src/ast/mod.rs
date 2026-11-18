@@ -14951,6 +14951,8 @@ pub enum ObjectType {
     Sequence,
     /// A stage.
     Stage,
+    #[doc = "A Snowflake secret."]
+    Secret,
     /// A type definition.
     Type,
     /// A user.
@@ -14997,6 +14999,7 @@ impl fmt::Display for ObjectType {
             ObjectType::ApplicationRole => "APPLICATION ROLE",
             ObjectType::Sequence => "SEQUENCE",
             ObjectType::Stage => "STAGE",
+            ObjectType::Secret => "SECRET",
             ObjectType::Type => "TYPE",
             ObjectType::User => "USER",
             ObjectType::Stream => "STREAM",
