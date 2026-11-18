@@ -6990,6 +6990,8 @@ pub enum Statement {
     CreateSnowflakeSecret {
         /// `OR REPLACE` flag.
         or_replace: bool,
+        /// `OR ALTER` flag.
+        or_alter: bool,
         /// `IF NOT EXISTS` flag.
         if_not_exists: bool,
         /// Secret name.
@@ -11336,6 +11338,7 @@ impl fmt::Display for Statement {
             }
             Statement::CreateSnowflakeSecret {
                 or_replace,
+                or_alter,
                 if_not_exists,
                 name,
                 options,
@@ -11343,7 +11346,7 @@ impl fmt::Display for Statement {
                 write!(
                     f,
                     "CREATE {or_replace}SECRET {if_not_exists}{name}",
-                    or_replace = if *or_replace { "OR REPLACE " } else { "" },
+                    or_replace = if *or_replace { "OR REPLACE " } else if *or_alter { "OR ALTER " } else { "" },
                     if_not_exists = if *if_not_exists { "IF NOT EXISTS " } else { "" },
                 )?;
                 if !options.options.is_empty() {
