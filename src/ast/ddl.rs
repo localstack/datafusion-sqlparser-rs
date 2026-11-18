@@ -2561,6 +2561,10 @@ impl fmt::Display for AlterDataMovementRuleOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum AlterBackupPolicyOperation {
+    /// `SET TAG <tag> = '<value>' [, ...]`.
+    SetTags(Vec<Tag>),
+    /// `UNSET TAG <tag> [, ...]`.
+    UnsetTags(Vec<ObjectName>),
     /// `SET <prop> = <value> [, <prop> = <value> ...]` (comma-separated).
     Set(KeyValueOptions),
     /// `UNSET <prop> [, <prop> ...]` (comma-separated property names).
@@ -2800,6 +2804,8 @@ impl fmt::Display for AlterBackupSetOperation {
 impl fmt::Display for AlterBackupPolicyOperation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::SetTags(tags) => write!(f, "SET TAG {}", display_comma_separated(tags)),
+            Self::UnsetTags(tags) => write!(f, "UNSET TAG {}", display_comma_separated(tags)),
             AlterBackupPolicyOperation::Set(options) => write!(f, "SET {options}"),
             AlterBackupPolicyOperation::Unset(props) => {
                 write!(f, "UNSET {}", display_comma_separated(props))
