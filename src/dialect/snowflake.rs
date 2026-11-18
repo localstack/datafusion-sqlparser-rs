@@ -7392,6 +7392,16 @@ fn parse_create_backup_policy(
 ) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
+    let tags = if parser.parse_keywords(&[Keyword::WITH, Keyword::TAG])
+        || parser.parse_keyword(Keyword::TAG)
+    {
+        parser.expect_token(&Token::LParen)?;
+        let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+        parser.expect_token(&Token::RParen)?;
+        tags
+    } else {
+        Vec::new()
+    };
     let with_retention_lock =
         parser.parse_keywords(&[Keyword::WITH, Keyword::RETENTION, Keyword::LOCK]);
     let options = parser.parse_key_value_options(false, &[], false)?;
@@ -7401,6 +7411,7 @@ fn parse_create_backup_policy(
         if_not_exists,
         with_retention_lock,
         name,
+        tags,
         options,
     })
 }
@@ -7816,6 +7827,12 @@ fn parse_alter_backup_policy(parser: &mut Parser) -> Result<Statement, ParserErr
         AlterBackupPolicyOperation::RenameTo {
             new_name: parser.parse_object_name(false)?,
         }
+    } else if parser.parse_keywords(&[Keyword::SET, Keyword::TAG]) {
+        AlterBackupPolicyOperation::SetTags(parser.parse_comma_separated(Parser::parse_tag)?)
+    } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::TAG]) {
+        AlterBackupPolicyOperation::UnsetTags(
+            parser.parse_comma_separated(|parser| parser.parse_object_name(false))?,
+        )
     } else if parser.parse_keyword(Keyword::SET) {
         AlterBackupPolicyOperation::Set(parser.parse_key_value_options(false, &[], false)?)
     } else if parser.parse_keyword(Keyword::UNSET) {
