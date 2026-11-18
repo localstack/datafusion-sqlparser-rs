@@ -1197,7 +1197,7 @@ impl SnowflakeDialect {
 
             // CREATE [OR REPLACE] SECRET
             if parser.parse_keyword(Keyword::SECRET) {
-                return Some(parse_create_secret(or_replace, parser));
+                return Some(parse_create_secret(or_replace, or_alter, parser));
             }
 
             if parser.parse_keywords(&[Keyword::GIT, Keyword::REPOSITORY]) {
@@ -8011,12 +8011,17 @@ fn parse_show_network_rules(parser: &mut Parser) -> Result<Statement, ParserErro
 /// `API_AUTHENTICATION`, `OAUTH_SCOPES`, `OAUTH_REFRESH_TOKEN`,
 /// `ALGORITHM`, `COMMENT`, …) are captured generically as key-value options,
 /// so the parser stays agnostic to the per-type property set.
-fn parse_create_secret(or_replace: bool, parser: &mut Parser) -> Result<Statement, ParserError> {
+fn parse_create_secret(
+    or_replace: bool,
+    or_alter: bool,
+    parser: &mut Parser,
+) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     let options = parser.parse_key_value_options(false, &[], false)?;
     Ok(Statement::CreateSnowflakeSecret {
         or_replace,
+        or_alter,
         if_not_exists,
         name,
         options,
