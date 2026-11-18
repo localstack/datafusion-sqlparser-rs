@@ -8023,13 +8023,22 @@ fn parse_create_secret(
 ) -> Result<Statement, ParserError> {
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
-    let options = parser.parse_key_value_options(false, &[], false)?;
+    let options = parser.parse_key_value_options(false, &[Keyword::WITH, Keyword::TAG], false)?;
+    let tags = if !or_alter && parser.parse_keywords(&[Keyword::WITH, Keyword::TAG]) {
+        parser.expect_token(&Token::LParen)?;
+        let tags = parser.parse_comma_separated(Parser::parse_tag)?;
+        parser.expect_token(&Token::RParen)?;
+        tags
+    } else {
+        Vec::new()
+    };
     Ok(Statement::CreateSnowflakeSecret {
         or_replace,
         or_alter,
         if_not_exists,
         name,
         options,
+        tags,
     })
 }
 
