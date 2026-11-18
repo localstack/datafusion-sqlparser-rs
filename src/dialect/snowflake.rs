@@ -5077,7 +5077,9 @@ pub fn parse_copy_files_into(parser: &mut Parser) -> Result<Statement, ParserErr
 /// stage references on both sides.
 fn parse_at_stage_name(parser: &mut Parser) -> Result<ObjectName, ParserError> {
     match &parser.peek_token_ref().token {
-        Token::AtSign | Token::Placeholder(_) => parse_snowflake_stage_name(parser),
+        Token::AtSign | Token::Placeholder(_) | Token::SingleQuotedString(_) => {
+            parse_snowflake_stage_name(parser)
+        }
         _ => parser.expected_ref(
             "a stage location starting with '@'",
             parser.peek_token_ref(),
