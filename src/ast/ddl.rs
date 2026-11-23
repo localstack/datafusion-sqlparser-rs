@@ -8566,13 +8566,14 @@ pub enum AlterFunctionAction {
 
 impl fmt::Display for AlterFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("ALTER ")?;
         let if_exists = if self.if_exists { "IF EXISTS " } else { "" };
         match &self.signature {
             AlterFunctionSignature::Function(function) => {
-                write!(f, "ALTER FUNCTION {if_exists}{function} ")?;
+                write!(f, "FUNCTION {if_exists}{function} ")?;
             }
             AlterFunctionSignature::Aggregate(signature) => {
-                write!(f, "ALTER AGGREGATE {if_exists}{signature} ")?;
+                write!(f, "AGGREGATE {if_exists}{signature} ")?;
             }
         }
         write!(f, "{}", self.operation)

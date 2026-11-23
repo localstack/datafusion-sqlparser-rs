@@ -14307,6 +14307,7 @@ fn parse_alter_aggregate_signatures() {
                     name: ObjectName::from(Ident::new("agg")),
                     args,
                 }),
+                if_exists: false,
                 operation: AlterFunctionOperation::RenameTo {
                     new_name: Ident::new("other"),
                 },
@@ -14396,6 +14397,7 @@ fn parse_current_role_system_user_current_schema() {
         assert_eq!(
             &Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new(name)]),
+                from_first: None,
                 uses_odbc_syntax: false,
                 parameters: FunctionArguments::None,
                 args: FunctionArguments::None,
@@ -14412,6 +14414,7 @@ fn parse_current_role_system_user_current_schema() {
     assert_eq!(
         &Expr::Function(Function {
             name: ObjectName::from(vec![Ident::new("current_schema")]),
+            from_first: None,
             uses_odbc_syntax: false,
             parameters: FunctionArguments::None,
             args: FunctionArguments::List(FunctionArgumentList {
