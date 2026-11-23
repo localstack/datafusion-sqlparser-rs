@@ -285,6 +285,7 @@ impl Spanned for Values {
 /// - [Statement::CreateExtension]
 /// - [Statement::CreateCollation]
 /// - [Statement::AlterCollation]
+/// - [Statement::AlterExtension]
 /// - [Statement::Fetch]
 /// - [Statement::Flush]
 /// - [Statement::Discard]
@@ -401,7 +402,7 @@ impl Spanned for Statement {
             } => union_spans(
                 core::iter::once(name.span())
                     .chain(core::iter::once(module_name.span))
-                    .chain(module_args.iter().map(|i| i.span)),
+                    .chain(module_args.iter().map(|arg| arg.span)),
             ),
             Statement::CreateIndex(create_index) => create_index.span(),
             Statement::CreateRole(create_role) => create_role.span(),
@@ -439,6 +440,7 @@ impl Spanned for Statement {
             Statement::AlterFunction { .. } => Span::empty(),
             Statement::AlterType { .. } => Span::empty(),
             Statement::AlterCollation { .. } => Span::empty(),
+            Statement::AlterExtension { .. } => Span::empty(),
             Statement::AlterOperator { .. } => Span::empty(),
             Statement::AlterOperatorFamily { .. } => Span::empty(),
             Statement::AlterOperatorClass { .. } => Span::empty(),
@@ -894,6 +896,7 @@ impl Spanned for CreateTable {
             inherits: _,     // todo, PostgreSQL specific
             partition_of,
             for_values,
+            of_type,
             copy_grants: _,                     // bool
             enable_schema_evolution: _,         // bool
             error_logging: _,                   // bool
@@ -961,7 +964,8 @@ impl Spanned for CreateTable {
                 }))
                 .chain(clone.iter().map(|i| i.span()))
                 .chain(partition_of.iter().map(|i| i.span()))
-                .chain(for_values.iter().map(|i| i.span())),
+                .chain(for_values.iter().map(|i| i.span()))
+                .chain(of_type.iter().map(|i| i.span())),
         )
     }
 }
@@ -1034,6 +1038,7 @@ impl Spanned for CreateIndex {
     fn span(&self) -> Span {
         let CreateIndex {
             name,
+            only: _, // bool
             table_name,
             using: _,
             columns,
@@ -1328,6 +1333,7 @@ impl Spanned for AlterColumnOperation {
                 Span::empty()
             }
             AlterColumnOperation::AddGenerated { .. } => Span::empty(),
+            AlterColumnOperation::DropExpression { .. } => Span::empty(),
             AlterColumnOperation::SetMaskingPolicy { .. } => Span::empty(),
             AlterColumnOperation::UnsetMaskingPolicy
             | AlterColumnOperation::SetPrivacyDomain { .. }
@@ -1826,6 +1832,7 @@ impl Spanned for AlterTableOperation {
             AlterTableOperation::Inherit { parent } | AlterTableOperation::NoInherit { parent } => {
                 parent.span()
             }
+            AlterTableOperation::SetSchema { schema_name } => schema_name.span(),
             AlterTableOperation::SetOptionsParens { options } => {
                 union_spans(options.iter().map(|i| i.span()))
             }
@@ -1921,6 +1928,7 @@ impl Spanned for AlterIndexOperation {
     fn span(&self) -> Span {
         match self {
             AlterIndexOperation::RenameIndex { index_name } => index_name.span(),
+            AlterIndexOperation::AttachPartition { index_name } => index_name.span(),
         }
     }
 }

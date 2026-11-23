@@ -64,18 +64,19 @@ pub use self::dcl::{
     RoleOption, SecondaryRoles, SetConfigValue, Use,
 };
 pub use self::ddl::{
-    AggregateModifyKind, Alignment, AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation,
-    AlterBackupSetOperation, AlterCollation, AlterCollationOperation, AlterColumnOperation,
-    AlterConnectorOwner, AlterDataMovementPolicyOperation, AlterDataMovementRuleOperation,
-    AlterFunction, AlterFunctionAction, AlterFunctionKind, AlterFunctionOperation,
-    AlterGenericOption, AlterIndexOperation, AlterMaintenancePolicyOperation,
-    AlterMaskingPolicyOperation, AlterNetworkRuleOperation, AlterOperator, AlterOperatorClass,
-    AlterOperatorClassOperation, AlterOperatorFamily, AlterOperatorFamilyOperation,
-    AlterOperatorOperation, AlterPasswordPolicyOperation, AlterPolicy, AlterPolicyOperation,
-    AlterProcedure, AlterProcedureOperation, AlterRowAccessPolicyOperation, AlterSchema,
-    AlterSchemaOperation, AlterSemanticViewOperation, AlterSessionPolicyOperation,
-    AlterSnowflakeSecretOperation, AlterTable, AlterTableAlgorithm, AlterTableLock,
-    AlterTableOperation, AlterTableType, AlterTagOperation, AlterTextSearch,
+    AggregateArgs, AggregateModifyKind, AggregateSignature, Alignment,
+    AlterAuthenticationPolicyOperation, AlterBackupPolicyOperation, AlterBackupSetOperation,
+    AlterCollation, AlterCollationOperation, AlterColumnOperation, AlterConnectorOwner,
+    AlterDataMovementPolicyOperation, AlterDataMovementRuleOperation, AlterExtension,
+    AlterExtensionMember, AlterExtensionOperation, AlterFunction, AlterFunctionAction,
+    AlterFunctionOperation, AlterFunctionSignature, AlterGenericOption, AlterIndexOperation,
+    AlterMaintenancePolicyOperation, AlterMaskingPolicyOperation, AlterNetworkRuleOperation,
+    AlterOperator, AlterOperatorClass, AlterOperatorClassOperation, AlterOperatorFamily,
+    AlterOperatorFamilyOperation, AlterOperatorOperation, AlterPasswordPolicyOperation,
+    AlterPolicy, AlterPolicyOperation, AlterProcedure, AlterProcedureOperation,
+    AlterRowAccessPolicyOperation, AlterSchema, AlterSchemaOperation, AlterSemanticViewOperation,
+    AlterSessionPolicyOperation, AlterSnowflakeSecretOperation, AlterTable, AlterTableAlgorithm,
+    AlterTableLock, AlterTableOperation, AlterTableType, AlterTagOperation, AlterTextSearch,
     AlterTextSearchOperation, AlterTextSearchOption, AlterTrigger, AlterTriggerOperation,
     AlterType, AlterTypeAddValue, AlterTypeAddValuePosition, AlterTypeOperation, AlterTypeRename,
     AlterTypeRenameValue, AlterView, AlterViewOperation, BackupPolicyPhase, BackupSetTargetKind,
@@ -103,7 +104,7 @@ pub use self::ddl::{
     TextSearchObjectType, TriggerObjectKind, Truncate, UserDefinedTypeCompositeAttributeDef,
     UserDefinedTypeInternalLength, UserDefinedTypeRangeOption, UserDefinedTypeRepresentation,
     UserDefinedTypeSqlDefinitionOption, UserDefinedTypeStorage, UserMappingUser, ViewColumnDef,
-    WithData,
+    VirtualTableModuleArgument, WithData,
 };
 pub use self::dml::{
     Delete, Insert, InsertOverriding, Merge, MergeAction, MergeClause, MergeClauseKind,
@@ -4261,7 +4262,7 @@ pub enum Statement {
         /// Module name used by the virtual table.
         module_name: Ident,
         /// Arguments passed to the module.
-        module_args: Vec<Ident>,
+        module_args: Vec<VirtualTableModuleArgument>,
     },
     /// ```sql
     /// `CREATE INDEX`
@@ -4436,6 +4437,11 @@ pub enum Statement {
     /// ```
     /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-altercollation.html)
     AlterCollation(AlterCollation),
+    /// ```sql
+    /// ALTER EXTENSION
+    /// ```
+    /// See [PostgreSQL](https://www.postgresql.org/docs/current/sql-alterextension.html)
+    AlterExtension(AlterExtension),
     /// ```sql
     /// ALTER OPERATOR
     /// ```
@@ -9182,6 +9188,7 @@ impl fmt::Display for Statement {
                 write!(f, "{name} {operation}")
             }
             Statement::AlterCollation(alter_collation) => write!(f, "{alter_collation}"),
+            Statement::AlterExtension(alter_extension) => write!(f, "{alter_extension}"),
             Statement::AlterOperator(alter_operator) => write!(f, "{alter_operator}"),
             Statement::AlterOperatorFamily(alter_operator_family) => {
                 write!(f, "{alter_operator_family}")
@@ -9287,13 +9294,14 @@ impl fmt::Display for Statement {
             Statement::DropFunction(drop_function) => write!(f, "{drop_function}"),
             Statement::DropDomain(DropDomain {
                 if_exists,
-                name,
+                names,
                 drop_behavior,
             }) => {
                 write!(
                     f,
-                    "DROP DOMAIN{} {name}",
+                    "DROP DOMAIN{} {}",
                     if *if_exists { " IF EXISTS" } else { "" },
+                    display_comma_separated(names),
                 )?;
                 if let Some(op) = drop_behavior {
                     write!(f, " {op}")?;
@@ -12732,6 +12740,8 @@ pub enum Privileges {
     All {
         /// Optional keyword from the spec, ignored in practice
         with_privileges_keyword: bool,
+        /// Optional list of columns, as in PostgreSQL `GRANT ALL (col) ON t`.
+        columns: Option<Vec<Ident>>,
     },
     /// Specific privileges (e.g. `SELECT`, `INSERT`)
     Actions(Vec<Action>),
@@ -12742,15 +12752,18 @@ impl fmt::Display for Privileges {
         match self {
             Privileges::All {
                 with_privileges_keyword,
+                columns,
             } => {
+                use crate::ast::ddl::display_option;
                 write!(
                     f,
-                    "ALL{}",
+                    "ALL{}{}",
                     if *with_privileges_keyword {
                         " PRIVILEGES"
                     } else {
                         ""
-                    }
+                    },
+                    display_option(" (", ")", &columns.as_deref().map(display_comma_separated))
                 )
             }
             Privileges::Actions(actions) => {
@@ -14235,8 +14248,8 @@ impl fmt::Display for CloseCursor {
 pub struct DropDomain {
     /// Whether to drop the domain if it exists
     pub if_exists: bool,
-    /// The name of the domain to drop
-    pub name: ObjectName,
+    /// The names of the domains to drop
+    pub names: Vec<ObjectName>,
     /// The behavior to apply when dropping the domain
     pub drop_behavior: Option<DropBehavior>,
 }
@@ -20648,6 +20661,12 @@ impl From<AlterType> for Statement {
 impl From<AlterCollation> for Statement {
     fn from(a: AlterCollation) -> Self {
         Self::AlterCollation(a)
+    }
+}
+
+impl From<AlterExtension> for Statement {
+    fn from(a: AlterExtension) -> Self {
+        Self::AlterExtension(a)
     }
 }
 

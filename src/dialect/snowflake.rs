@@ -3402,11 +3402,13 @@ fn parse_external_function_compression(
         "AUTO" => ExternalFunctionCompression::Auto,
         _ => return Ok(ExternalFunctionCompression::Literal(value.to_owned())),
     };
-    Ok(if quoted || (compression == ExternalFunctionCompression::Auto && value != "AUTO") {
-        ExternalFunctionCompression::Literal(value.to_owned())
-    } else {
-        compression
-    })
+    Ok(
+        if quoted || (compression == ExternalFunctionCompression::Auto && value != "AUTO") {
+            ExternalFunctionCompression::Literal(value.to_owned())
+        } else {
+            compression
+        },
+    )
 }
 
 /// Parse a Snowflake `CREATE [OR REPLACE] EXTERNAL TABLE` statement. The
@@ -7677,24 +7679,25 @@ fn parse_create_backup_set(
     let if_not_exists = parser.parse_keywords(&[Keyword::IF, Keyword::NOT, Keyword::EXISTS]);
     let name = parser.parse_object_name(false)?;
     parser.expect_keyword_is(Keyword::FOR)?;
-    let target_kind = if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::ICEBERG, Keyword::TABLE]) {
-        BackupSetTargetKind::DynamicIcebergTable
-    } else if parser.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE]) {
-        BackupSetTargetKind::IcebergTable
-    } else if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
-        BackupSetTargetKind::DynamicTable
-    } else if parser.parse_keyword(Keyword::TABLE) {
-        BackupSetTargetKind::Table
-    } else if parser.parse_keyword(Keyword::SCHEMA) {
-        BackupSetTargetKind::Schema
-    } else if parser.parse_keyword(Keyword::DATABASE) {
-        BackupSetTargetKind::Database
-    } else {
-        return parser.expected_ref(
-            "TABLE, DYNAMIC TABLE, ICEBERG TABLE, DYNAMIC ICEBERG TABLE, SCHEMA or DATABASE",
-            parser.peek_token_ref(),
-        );
-    };
+    let target_kind =
+        if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::ICEBERG, Keyword::TABLE]) {
+            BackupSetTargetKind::DynamicIcebergTable
+        } else if parser.parse_keywords(&[Keyword::ICEBERG, Keyword::TABLE]) {
+            BackupSetTargetKind::IcebergTable
+        } else if parser.parse_keywords(&[Keyword::DYNAMIC, Keyword::TABLE]) {
+            BackupSetTargetKind::DynamicTable
+        } else if parser.parse_keyword(Keyword::TABLE) {
+            BackupSetTargetKind::Table
+        } else if parser.parse_keyword(Keyword::SCHEMA) {
+            BackupSetTargetKind::Schema
+        } else if parser.parse_keyword(Keyword::DATABASE) {
+            BackupSetTargetKind::Database
+        } else {
+            return parser.expected_ref(
+                "TABLE, DYNAMIC TABLE, ICEBERG TABLE, DYNAMIC ICEBERG TABLE, SCHEMA or DATABASE",
+                parser.peek_token_ref(),
+            );
+        };
     let target = parser.parse_object_name(false)?;
     let mut backup_policy = None;
     let mut with_tags = None;
@@ -8308,9 +8311,14 @@ fn parse_alter_secret(parser: &mut Parser) -> Result<Statement, ParserError> {
         }
         AlterSnowflakeSecretOperation::Set(options)
     } else if parser.parse_keyword(Keyword::UNSET) {
-        AlterSnowflakeSecretOperation::Unset(parser.parse_comma_separated(Parser::parse_identifier)?)
+        AlterSnowflakeSecretOperation::Unset(
+            parser.parse_comma_separated(Parser::parse_identifier)?,
+        )
     } else {
-        return parser.expected_ref("SET <options> or UNSET <properties>", parser.peek_token_ref());
+        return parser.expected_ref(
+            "SET <options> or UNSET <properties>",
+            parser.peek_token_ref(),
+        );
     };
     Ok(Statement::AlterSnowflakeSecret {
         if_exists,
@@ -9155,7 +9163,11 @@ fn parse_alter_external_access_integration(parser: &mut Parser) -> Result<Statem
                         Token::Word(word) if word.quote_style.is_none()
                     );
                     let value = parser.parse_literal_string()?;
-                    Some(if unquoted { value.to_uppercase() } else { value })
+                    Some(if unquoted {
+                        value.to_uppercase()
+                    } else {
+                        value
+                    })
                 });
             }
             _ => {

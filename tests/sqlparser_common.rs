@@ -4497,6 +4497,7 @@ fn parse_create_table() {
                                     include: vec![],
                                     index_options: vec![],
                                     characteristics: None,
+                                    on_conflict: None,
                                     comment: None,
                                 }),
                             },
@@ -4516,6 +4517,7 @@ fn parse_create_table() {
                                     index_options: vec![],
                                     characteristics: None,
                                     nulls_distinct: NullsDistinctOption::None,
+                                    on_conflict: None,
                                     comment: None,
                                 }),
                             },
@@ -4526,6 +4528,7 @@ fn parse_create_table() {
                                     expr: Box::new(verified_expr("constrained > 0")),
                                     no_inherit: false,
                                     enforced: None,
+                                    on_conflict: None,
                                     comment: None,
                                 }),
                             },
@@ -4873,6 +4876,7 @@ fn parse_create_table_column_constraint_characteristics() {
                                 index_options: vec![],
                                 characteristics: expected_value,
                                 nulls_distinct: NullsDistinctOption::None,
+                                on_conflict: None,
                                 comment: None,
                             })
                         }]
@@ -10718,6 +10722,7 @@ fn test_create_index_with_using_function() {
     match verified_stmt(sql) {
         Statement::CreateIndex(CreateIndex {
             name: Some(name),
+            only: false,
             table_name,
             using,
             columns,
@@ -10775,6 +10780,7 @@ fn test_create_index_with_with_clause() {
     match dialects.verified_stmt(sql) {
         Statement::CreateIndex(CreateIndex {
             name: Some(name),
+            only: false,
             table_name,
             using: None,
             columns,
@@ -11034,7 +11040,8 @@ fn parse_grant() {
         Statement::Grant(Grant { privileges, .. }) => {
             assert_eq!(
                 Privileges::All {
-                    with_privileges_keyword: true
+                    with_privileges_keyword: true,
+                    columns: None,
                 },
                 privileges
             );
@@ -11052,6 +11059,7 @@ fn parse_grant() {
             (
                 Privileges::All {
                     with_privileges_keyword,
+                    columns: None,
                 },
                 Some(GrantObjects::Schemas(schemas)),
             ) => {
@@ -11169,7 +11177,8 @@ fn test_revoke() {
             assert!(!caller);
             assert_eq!(
                 Privileges::All {
-                    with_privileges_keyword: true
+                    with_privileges_keyword: true,
+                    columns: None,
                 },
                 privileges
             );
@@ -11198,7 +11207,8 @@ fn test_revoke_with_cascade() {
             assert!(!caller);
             assert_eq!(
                 Privileges::All {
-                    with_privileges_keyword: true
+                    with_privileges_keyword: true,
+                    columns: None,
                 },
                 privileges
             );
@@ -16343,7 +16353,7 @@ fn parse_alter_trigger_spans() {
 
 #[test]
 fn parse_alter_rejects_missing_or_unknown_object_type() {
-    let objects = "one of VIEW or MATERIALIZED VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or FOREIGN TABLE or SCHEMA or USER or OPERATOR";
+    let objects = "one of VIEW or MATERIALIZED VIEW or TYPE or COLLATION or TABLE or INDEX or FUNCTION or AGGREGATE or ROLE or POLICY or TRIGGER or CONNECTOR or ICEBERG or FOREIGN TABLE or SCHEMA or USER or OPERATOR or EXTENSION";
     for (sql, found) in [
         ("ALTER", "EOF"),
         ("ALTER 1", "1"),
@@ -23859,4 +23869,85 @@ $$"#,
             "{sql}"
         );
     }
+}
+
+#[test]
+fn parse_only_table_name() {
+    let dialects = TestedDialects::new(vec![Box::new(GenericDialect {})]);
+    for (sql, expected_name, expected_alias) in [
+        ("SELECT * FROM only", "only", None),
+        ("SELECT * FROM only;", "only", None),
+        ("SELECT * FROM only t", "only", Some("t")),
+        ("SELECT * FROM only AS t", "only", Some("t")),
+        ("SELECT * FROM ONLY t", "ONLY", Some("t")),
+        ("SELECT * FROM only.t", "only.t", None),
+    ] {
+        let select = dialects.verified_only_select_with_canonical(sql, sql.trim_end_matches(';'));
+        let TableFactor::Table {
+            name,
+            alias,
+            inheritance,
+            ..
+        } = &select.from[0].relation
+        else {
+            panic!("expected a table: {select:?}");
+        };
+        assert_eq!(name.to_string(), expected_name);
+        assert_eq!(
+            alias.as_ref().map(|a| a.name.value.as_str()),
+            expected_alias
+        );
+        assert_eq!(*inheritance, None);
+    }
+
+    for sql in [
+        "SELECT * FROM only WHERE id = 1",
+        "SELECT * FROM only ORDER BY id",
+        "SELECT * FROM only LIMIT 1",
+        "SELECT * FROM only JOIN other ON only.id = other.id",
+        "SELECT * FROM only, other",
+        "SELECT * FROM only UNION SELECT * FROM other",
+        "SELECT * FROM other JOIN only ON other.id = only.id",
+        "SELECT * FROM (SELECT * FROM only) AS t",
+        "UPDATE only SET id = 1",
+        "UPDATE only AS t SET id = 1",
+        "DELETE FROM only",
+        "DELETE FROM only WHERE id = 1",
+    ] {
+        dialects.verified_stmt(sql);
+    }
+}
+
+#[test]
+fn parse_grant_revoke_all_privileges_columns() {
+    match verified_stmt("GRANT ALL PRIVILEGES (id) ON t TO r") {
+        Statement::Grant(Grant { privileges, .. }) => assert_eq!(
+            privileges,
+            Privileges::All {
+                with_privileges_keyword: true,
+                columns: Some(vec![Ident::new("id")]),
+            }
+        ),
+        _ => unreachable!(),
+    }
+    match verified_stmt("REVOKE ALL (a, b) ON t FROM r") {
+        Statement::Revoke(Revoke { privileges, .. }) => assert_eq!(
+            privileges,
+            Privileges::All {
+                with_privileges_keyword: false,
+                columns: Some(vec![Ident::new("a"), Ident::new("b")]),
+            }
+        ),
+        _ => unreachable!(),
+    }
+
+    assert_eq!(
+        parse_sql_statements("GRANT ALL PRIVILEGES () ON t TO r").unwrap_err(),
+        ParserError::ParserError("Expected: identifier, found: )".to_string())
+    );
+}
+
+#[test]
+fn parse_pgq_keywords_as_identifiers() {
+    all_dialects().verified_stmt("SELECT edge.label AS property FROM graph AS edge");
 }

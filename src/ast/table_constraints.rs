@@ -22,6 +22,7 @@ use crate::ast::{
     ConstraintReferenceMatchKind, Expr, Ident, IndexColumn, IndexOption, IndexType,
     KeyOrIndexDisplay, NullsDistinctOption, ObjectName, ReferentialAction,
 };
+use crate::keywords::Keyword;
 use crate::tokenizer::Span;
 use core::fmt;
 
@@ -229,6 +230,9 @@ pub struct CheckConstraint {
     /// MySQL-specific `ENFORCED` / `NOT ENFORCED` flag.
     /// <https://dev.mysql.com/doc/refman/8.4/en/create-table.html>
     pub enforced: Option<bool>,
+    /// SQLite [conflict clause](https://www.sqlite.org/lang_conflict.html) such as
+    /// `ON CONFLICT FAIL`, which SQLite accepts on a table-level `CHECK` and ignores.
+    pub on_conflict: Option<Keyword>,
     /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
     /// `None` for inline constraints, whose `COMMENT` comments the column.
     pub comment: Option<String>,
@@ -248,6 +252,9 @@ impl fmt::Display for CheckConstraint {
         }
         if let Some(b) = self.enforced {
             write!(f, " {}", if b { "ENFORCED" } else { "NOT ENFORCED" })?;
+        }
+        if let Some(keyword) = &self.on_conflict {
+            write!(f, " ON CONFLICT {keyword:?}")?;
         }
         Ok(())
     }
@@ -549,6 +556,9 @@ pub struct PrimaryKeyConstraint {
     pub index_options: Vec<IndexOption>,
     /// Optional characteristics like `DEFERRABLE`.
     pub characteristics: Option<ConstraintCharacteristics>,
+    /// SQLite [conflict clause](https://www.sqlite.org/lang_conflict.html) such as
+    /// `ON CONFLICT REPLACE`. On a column it parses as [`crate::ast::ColumnOption::OnConflict`].
+    pub on_conflict: Option<Keyword>,
     /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
     pub comment: Option<String>,
 }
@@ -574,6 +584,9 @@ impl fmt::Display for PrimaryKeyConstraint {
         }
 
         write!(f, "{}", display_option_spaced(&self.characteristics))?;
+        if let Some(keyword) = &self.on_conflict {
+            write!(f, " ON CONFLICT {keyword:?}")?;
+        }
         Ok(())
     }
 }
@@ -623,6 +636,9 @@ pub struct UniqueConstraint {
     pub characteristics: Option<ConstraintCharacteristics>,
     /// Optional Postgres nulls handling: `[ NULLS [ NOT ] DISTINCT ]`
     pub nulls_distinct: NullsDistinctOption,
+    /// SQLite [conflict clause](https://www.sqlite.org/lang_conflict.html) such as
+    /// `ON CONFLICT REPLACE`. On a column it parses as [`crate::ast::ColumnOption::OnConflict`].
+    pub on_conflict: Option<Keyword>,
     /// Snowflake out-of-line constraint `COMMENT '<text>'` (no equals sign).
     pub comment: Option<String>,
 }
@@ -650,6 +666,9 @@ impl fmt::Display for UniqueConstraint {
         }
 
         write!(f, "{}", display_option_spaced(&self.characteristics))?;
+        if let Some(keyword) = &self.on_conflict {
+            write!(f, " ON CONFLICT {keyword:?}")?;
+        }
         Ok(())
     }
 }
