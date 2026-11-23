@@ -14610,3 +14610,50 @@ fn parse_alter_table_set_schema() {
         "sql parser error: Expected: identifier, found: EOF"
     );
 }
+
+#[test]
+fn alter_routine_signature_accessors() {
+    for (sql, count, expected) in [
+        (
+            "ALTER FUNCTION f RENAME TO g",
+            None,
+            "ALTER FUNCTION renamed RENAME TO g",
+        ),
+        (
+            "ALTER FUNCTION f(INT) RENAME TO g",
+            Some(1),
+            "ALTER FUNCTION renamed(BIGINT) RENAME TO g",
+        ),
+        (
+            "ALTER AGGREGATE f(*) RENAME TO g",
+            None,
+            "ALTER AGGREGATE renamed(*) RENAME TO g",
+        ),
+        (
+            "ALTER AGGREGATE f(INT ORDER BY TEXT) RENAME TO g",
+            Some(1),
+            "ALTER AGGREGATE renamed(BIGINT ORDER BY TEXT) RENAME TO g",
+        ),
+        (
+            "ALTER AGGREGATE f(ORDER BY TEXT) RENAME TO g",
+            Some(0),
+            "ALTER AGGREGATE renamed(ORDER BY TEXT) RENAME TO g",
+        ),
+    ] {
+        let Statement::AlterFunction(mut routine) = pg_and_generic().verified_stmt(sql) else {
+            panic!("expected ALTER routine");
+        };
+        assert_eq!(routine.signature.name(), &ObjectName::from(Ident::new("f")));
+        assert_eq!(routine.signature.args().map(<[_]>::len), count);
+        assert_eq!(routine.signature.args_mut().map(|args| args.len()), count);
+        *routine.signature.name_mut() = ObjectName::from(Ident::new("renamed"));
+        if let Some(argument) = routine
+            .signature
+            .args_mut()
+            .and_then(|args| args.first_mut())
+        {
+            argument.data_type = DataType::BigInt(None);
+        }
+        assert_eq!(routine.to_string(), expected);
+    }
+}

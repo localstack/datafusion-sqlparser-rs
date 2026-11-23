@@ -8484,6 +8484,46 @@ pub enum AlterFunctionSignature {
     Aggregate(AggregateSignature),
 }
 
+impl AlterFunctionSignature {
+    /// The name of the function or aggregate.
+    pub fn name(&self) -> &ObjectName {
+        match self {
+            Self::Function(function) => &function.name,
+            Self::Aggregate(aggregate) => &aggregate.name,
+        }
+    }
+
+    /// The mutable name of the function or aggregate.
+    pub fn name_mut(&mut self) -> &mut ObjectName {
+        match self {
+            Self::Function(function) => &mut function.name,
+            Self::Aggregate(aggregate) => &mut aggregate.name,
+        }
+    }
+
+    /// Direct arguments, excluding an aggregate's `ORDER BY` arguments.
+    pub fn args(&self) -> Option<&[OperateFunctionArg]> {
+        match self {
+            Self::Function(function) => function.args.as_deref(),
+            Self::Aggregate(aggregate) => match &aggregate.args {
+                AggregateArgs::Star => None,
+                AggregateArgs::List { args, .. } => Some(args),
+            },
+        }
+    }
+
+    /// Mutable direct arguments, excluding aggregate `ORDER BY` arguments.
+    pub fn args_mut(&mut self) -> Option<&mut Vec<OperateFunctionArg>> {
+        match self {
+            Self::Function(function) => function.args.as_mut(),
+            Self::Aggregate(aggregate) => match &mut aggregate.args {
+                AggregateArgs::Star => None,
+                AggregateArgs::List { args, .. } => Some(args),
+            },
+        }
+    }
+}
+
 impl fmt::Display for AlterFunctionSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
