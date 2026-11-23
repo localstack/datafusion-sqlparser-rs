@@ -22558,8 +22558,11 @@ impl<'a> Parser<'a> {
         let mut caller = self.parse_keyword(Keyword::CALLER);
         let privileges = if self.parse_keyword(Keyword::ALL) {
             caller |= self.parse_keyword(Keyword::CALLER);
+            let with_privileges_keyword = self.parse_keyword(Keyword::PRIVILEGES);
+            let columns = self.parse_parenthesized_column_list(Optional, false)?;
             Privileges::All {
-                with_privileges_keyword: self.parse_keyword(Keyword::PRIVILEGES),
+                with_privileges_keyword,
+                columns: (!columns.is_empty()).then_some(columns),
             }
         } else {
             let actions = self.parse_actions_list()?;
