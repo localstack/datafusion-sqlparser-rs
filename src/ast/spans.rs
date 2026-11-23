@@ -773,7 +773,7 @@ impl Spanned for Statement {
             Statement::FetchInto { .. } => Span::empty(),
             Statement::CallInto { .. } => Span::empty(),
             Statement::AlterProcedure { .. } => Span::empty(),
-            Statement::WithProcedure { .. } => Span::empty(),
+            Statement::WithProcedure { .. } | Statement::CortexSearch { .. } => Span::empty(),
         }
     }
 }

@@ -165,6 +165,9 @@ impl SnowflakeDialect {
     /// levels of nesting inside a PostgreSQL backend stack.
     #[inline(never)]
     fn parse_statement_tail(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+        if let Some(statement) = parse_cortex_search(parser) {
+            return Some(statement);
+        }
         // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
         // direction and no FROM/IN, so it can't go through the ISO parser.
         // Intercept only that shape; anything else falls through untouched.
@@ -7309,6 +7312,50 @@ fn consume_materialization_keyword(parser: &mut Parser) -> Result<(), ParserErro
     } else {
         parser.expected_ref("MATERIALIZATION", parser.peek_token_ref())
     }
+}
+
+fn parse_cortex_search(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let object = if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+        3
+    } else {
+        1
+    };
+    if !["CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE"]
+        .iter()
+        .any(|action| word_at(0, action))
+        || !word_at(object, "CORTEX")
+        || !word_at(object + 1, "SEARCH")
+        || !(word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"))
+    {
+        return None;
+    }
+    let mut parts = Vec::new();
+    while !matches!(parser.peek_token_ref().token, Token::EOF | Token::SemiColon) {
+        match parser.maybe_parse(|candidate| candidate.parse_value()) {
+            Ok(Some(mut value)) => {
+                if let Value::SingleQuotedString(source) = &mut value.value {
+                    *source = source.replace('\\', "\\\\");
+                }
+                parts.push(value.to_string());
+            }
+            Ok(None) => {
+                let token = parser.next_token();
+                parts.push(match token.token {
+                    Token::Word(word) => word.to_ident(token.span).to_string(),
+                    token => token.to_string(),
+                });
+            }
+            Err(error) => return Some(Err(error)),
+        }
+    }
+    Some(Ok(Statement::CortexSearch {
+        sql: parts.join(" "),
+    }))
 }
 
 /// Capture the remainder of an `ADD MATERIALIZATION <name> ...` clause opaquely,

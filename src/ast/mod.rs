@@ -4825,6 +4825,11 @@ pub enum Statement {
         /// Name filters and listing scope.
         show_options: ShowStatementOptions,
     },
+    /// Cortex Search DDL for the compatibility parser to validate and lower.
+    CortexSearch {
+        /// Token-rendered SQL, retaining literal values and identifier quoting.
+        sql: String,
+    },
     /// ```sql
     /// SHOW <variable>
     /// ```
@@ -9361,6 +9366,7 @@ impl fmt::Display for Statement {
                     write!(f, "UNSET ({})", display_comma_separated(names))
                 }
             }
+            Statement::CortexSearch { sql } => f.write_str(sql),
             Statement::ShowVariable { variable } => {
                 write!(f, "SHOW")?;
                 if !variable.is_empty() {
