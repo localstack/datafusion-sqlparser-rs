@@ -1620,6 +1620,20 @@ impl SnowflakeDialect {
             if parser.parse_keywords(&[Keyword::SESSION, Keyword::POLICIES]) {
                 return Some(parse_show_session_policies(parser));
             }
+            if parser.parse_keywords(&[
+                Keyword::MULTI,
+                Keyword::PARTY,
+                Keyword::APPROVAL,
+                Keyword::POLICIES,
+            ]) {
+                return Some(parser.parse_show_stmt_options().map(|show_options| {
+                    let on_account = parser.parse_keywords(&[Keyword::ON, Keyword::ACCOUNT]);
+                    Statement::ShowMultiPartyApprovalPolicies {
+                        show_options,
+                        on_account,
+                    }
+                }));
+            }
             if parser.parse_keywords(&[Keyword::AUTHENTICATION, Keyword::POLICIES]) {
                 return Some(parse_show_authentication_policies(parser));
             }
