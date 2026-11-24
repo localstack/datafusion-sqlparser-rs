@@ -24861,6 +24861,7 @@ impl<'a> Parser<'a> {
             "FEATURE POLICY",
             "MAINTENANCE POLICY",
             "MASKING POLICY",
+            "MULTI PARTY APPROVAL POLICY",
             "PACKAGES POLICY",
             "PASSWORD POLICY",
             "PRIVACY POLICY",
