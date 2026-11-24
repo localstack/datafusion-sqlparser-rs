@@ -6519,6 +6519,13 @@ pub enum Statement {
         /// `IN <scope>`); `None` for the plain catalog form.
         on_entity: Option<ShowPolicyEntity>,
     },
+    /// SHOW MULTI PARTY APPROVAL POLICIES with discovery or attachment scope.
+    ShowMultiPartyApprovalPolicies {
+        /// Discovery filters and namespace scope.
+        show_options: ShowStatementOptions,
+        /// Read account attachments instead of discovering policies.
+        on_account: bool,
+    },
     /// ```sql
     /// CREATE [OR REPLACE] FEATURE POLICY [IF NOT EXISTS] <name> <options>
     CreateFeaturePolicy {
@@ -11128,6 +11135,16 @@ impl fmt::Display for Statement {
             }
             Statement::DescribeSessionPolicy { name } => {
                 write!(f, "DESCRIBE SESSION POLICY {name}")
+            }
+            Statement::ShowMultiPartyApprovalPolicies {
+                show_options,
+                on_account,
+            } => {
+                write!(f, "SHOW MULTI PARTY APPROVAL POLICIES{show_options}")?;
+                if *on_account {
+                    write!(f, " ON ACCOUNT")?;
+                }
+                Ok(())
             }
             Statement::ShowSessionPolicies {
                 show_options,
