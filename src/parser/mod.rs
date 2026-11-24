@@ -24522,6 +24522,11 @@ impl<'a> Parser<'a> {
         ),
         ("MODELS", &["MODELS"], "MODEL"),
         (
+            "CORTEX EXTENSIONS",
+            &["CORTEX", "EXTENSIONS"],
+            "CORTEX_EXTENSION",
+        ),
+        (
             "CORTEX SEARCH SERVICES",
             &["CORTEX", "SEARCH", "SERVICES"],
             "CORTEX_SEARCH_SERVICE",
