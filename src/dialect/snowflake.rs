@@ -168,6 +168,9 @@ impl SnowflakeDialect {
         if let Some(statement) = parse_feature_ddl(parser) {
             return Some(statement);
         }
+        if let Some(statement) = parse_cortex_agent(parser) {
+            return Some(statement);
+        }
         // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
         // direction and no FROM/IN, so it can't go through the ISO parser.
         // Intercept only that shape; anything else falls through untouched.
@@ -7358,6 +7361,66 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     {
         return None;
     }
+    Some(parse_feature_sql(parser).map(|sql| {
+        if cortex_search {
+            Statement::CortexSearch { sql }
+        } else {
+            Statement::ExternalAgent { sql }
+        }
+    }))
+}
+
+fn parse_cortex_agent(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let mut object = if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+        3
+    } else if (word_at(0, "DESC") || word_at(0, "DESCRIBE"))
+        && word_at(1, "AS")
+        && word_at(2, "RESOURCE")
+    {
+        3
+    } else {
+        1
+    };
+    if word_at(0, "CREATE") {
+        while word_at(object, "TEMP") || word_at(object, "TEMPORARY") || word_at(object, "SECURE") {
+            object += 1;
+        }
+    }
+    let ddl = ["CREATE", "ALTER", "DROP", "UNDROP", "DESC", "DESCRIBE"]
+        .iter()
+        .any(|action| word_at(0, action))
+        && word_at(object, "AGENT");
+    let mut grant = false;
+    if word_at(0, "GRANT") || word_at(0, "REVOKE") {
+        let mut index = 1;
+        while !matches!(
+            parser.peek_nth_token_ref(index).token,
+            Token::EOF | Token::SemiColon
+        ) {
+            if word_at(index, "ON") {
+                grant = grant
+                    || word_at(index + 1, "AGENT")
+                    || ((word_at(1, "INHERITED") || word_at(2, "INHERITED"))
+                        && (word_at(index + 1, "ALL") || word_at(index + 1, "FUTURE"))
+                        && word_at(index + 2, "AGENTS")
+                        && word_at(index + 3, "IN"));
+                break;
+            }
+            index += 1;
+        }
+    }
+    if !ddl && !grant {
+        return None;
+    }
+    Some(parse_feature_sql(parser).map(|sql| Statement::CortexAgent { sql }))
+}
+
+fn parse_feature_sql(parser: &mut Parser) -> Result<String, ParserError> {
     let mut parts = Vec::new();
     while !matches!(parser.peek_token_ref().token, Token::EOF | Token::SemiColon) {
         match parser.maybe_parse(|candidate| candidate.parse_value()) {
@@ -7374,15 +7437,10 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
                     token => token.to_string(),
                 });
             }
-            Err(error) => return Some(Err(error)),
+            Err(error) => return Err(error),
         }
     }
-    let sql = parts.join(" ");
-    Some(Ok(if cortex_search {
-        Statement::CortexSearch { sql }
-    } else {
-        Statement::ExternalAgent { sql }
-    }))
+    Ok(parts.join(" "))
 }
 
 fn external_agent_grant(parser: &Parser) -> bool {
