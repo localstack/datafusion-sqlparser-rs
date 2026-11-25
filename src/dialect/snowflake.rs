@@ -1811,6 +1811,10 @@ impl SnowflakeDialect {
 }
 
 impl Dialect for SnowflakeDialect {
+    fn supports_qualified_dollar_variables(&self) -> bool {
+        true
+    }
+
     fn supports_insert_overwrite_deleting_where(&self) -> bool {
         true
     }
