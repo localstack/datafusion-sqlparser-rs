@@ -14894,6 +14894,8 @@ pub enum ObjectType {
     Tag,
     /// A row access policy (Snowflake).
     RowAccessPolicy,
+    #[doc = "A join policy (Snowflake)."]
+    JoinPolicy,
 }
 
 impl fmt::Display for ObjectType {
@@ -14928,6 +14930,7 @@ impl fmt::Display for ObjectType {
             ObjectType::Streamlit => "STREAMLIT",
             ObjectType::Tag => "TAG",
             ObjectType::RowAccessPolicy => "ROW ACCESS POLICY",
+            ObjectType::JoinPolicy => "JOIN POLICY",
         })
     }
 }

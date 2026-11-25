@@ -374,6 +374,13 @@ impl SnowflakeDialect {
             return Some(Ok(stmt));
         }
 
+        if let Ok(Some(stmt)) = parser.maybe_parse(|p| {
+            p.expect_keywords(&[Keyword::ALTER, Keyword::JOIN, Keyword::POLICY])?;
+            parse_alter_object_set_tags(p, ObjectType::JoinPolicy)
+        }) {
+            return Some(Ok(stmt));
+        }
+
         if parser.parse_keywords(&[Keyword::ALTER, Keyword::DATABASE]) {
             // ALTER DATABASE <name> { SET TAG | UNSET TAG }
             return Some(parse_alter_object_set_tags(parser, ObjectType::Database));
