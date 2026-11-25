@@ -1953,6 +1953,7 @@ impl Spanned for Insert {
             columns,
             by_name: _,   // bool
             overwrite: _, // bool
+            deleting_where,
             source,
             partitioned,
             after_columns,
@@ -1978,6 +1979,7 @@ impl Spanned for Insert {
                 .chain(core::iter::once(table.span()))
                 .chain(table_alias.iter().map(|k| k.alias.span))
                 .chain(columns.iter().map(|i| i.span()))
+                .chain(deleting_where.iter().map(Spanned::span))
                 .chain(source.as_ref().map(|q| q.span()))
                 .chain(assignments.iter().map(|i| i.span()))
                 .chain(partitioned.iter().flat_map(|i| i.iter().map(|k| k.span())))

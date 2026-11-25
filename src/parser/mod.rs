@@ -25417,7 +25417,14 @@ impl<'a> Parser<'a> {
 
             // `BY NAME` and `OVERRIDING { SYSTEM | USER } VALUE` are INSERT clauses, not table
             // aliases.
-            let table_alias = if self.dialect.supports_insert_table_alias()
+            let conditional_overwrite =
+                overwrite && self.dialect.supports_insert_overwrite_deleting_where();
+            let table_alias = if conditional_overwrite && self.parse_keyword(Keyword::AS) {
+                Some(TableAliasWithoutColumns {
+                    explicit: true,
+                    alias: self.parse_identifier()?,
+                })
+            } else if self.dialect.supports_insert_table_alias()
                 && !self.peek_keywords(&[Keyword::BY, Keyword::NAME])
                 && !self.peek_keywords(&[Keyword::OVERRIDING, Keyword::SYSTEM])
                 && !self.peek_keywords(&[Keyword::OVERRIDING, Keyword::USER])
@@ -25438,6 +25445,16 @@ impl<'a> Parser<'a> {
                             alias,
                         })
                 }
+            } else {
+                None
+            };
+
+            let deleting_where = if conditional_overwrite && self.parse_keyword(Keyword::DELETING) {
+                self.expect_keyword(Keyword::WHERE)?;
+                self.expect_token(&Token::LParen)?;
+                let predicate = self.parse_expr()?;
+                self.expect_token(&Token::RParen)?;
+                Some(predicate)
             } else {
                 None
             };
@@ -25589,6 +25606,7 @@ impl<'a> Parser<'a> {
                 ignore,
                 into,
                 overwrite,
+                deleting_where,
                 by_name,
                 partitioned,
                 columns,

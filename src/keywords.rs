@@ -377,6 +377,7 @@ define_keywords!(
     DELAY_KEY_WRITE,
     DELEGATED,
     DELETE,
+    DELETING,
     DELIMITED,
     DELIMITER,
     DELTA,

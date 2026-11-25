@@ -1801,6 +1801,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Whether INSERT OVERWRITE accepts an AS target alias and DELETING WHERE predicate.
+    fn supports_insert_overwrite_deleting_where(&self) -> bool {
+        false
+    }
+
     /// Returns true if the dialect accepts `VALUE` as a synonym of `VALUES`.
     ///
     /// [MySQL](https://dev.mysql.com/doc/refman/8.4/en/insert.html)

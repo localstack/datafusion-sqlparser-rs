@@ -1805,6 +1805,10 @@ impl SnowflakeDialect {
 }
 
 impl Dialect for SnowflakeDialect {
+    fn supports_insert_overwrite_deleting_where(&self) -> bool {
+        true
+    }
+
     fn supports_hash_comment(&self) -> bool {
         true
     }
@@ -5500,6 +5504,7 @@ fn parse_multi_table_insert(
         columns: vec![],
         by_name: false,
         overwrite,
+        deleting_where: None,
         source: Some(source),
         assignments: vec![],
         partitioned: None,
