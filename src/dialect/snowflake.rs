@@ -7404,18 +7404,24 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     let cortex_search = word_at(object, "CORTEX")
         && word_at(object + 1, "SEARCH")
         && (word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"));
+    let experiment = word_at(object, "EXPERIMENT")
+        || (word_at(0, "SHOW")
+            && (word_at(1, "EXPERIMENTS") || word_at(1, "RUNS") || word_at(1, "RUN")))
+        || experiment_grant(parser);
     if ![
         "CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE", "GRANT", "REVOKE",
     ]
     .iter()
     .any(|action| word_at(0, action))
-        || (!external_agent && !cortex_search && !external_agent_grant(parser))
+        || (!external_agent && !cortex_search && !experiment && !external_agent_grant(parser))
     {
         return None;
     }
     Some(parse_feature_sql(parser).map(|sql| {
         if cortex_search {
             Statement::CortexSearch { sql }
+        } else if experiment {
+            Statement::Experiment { sql }
         } else {
             Statement::ExternalAgent { sql }
         }
@@ -7493,6 +7499,28 @@ fn parse_feature_sql(parser: &mut Parser) -> Result<String, ParserError> {
         }
     }
     Ok(parts.join(" "))
+}
+
+fn experiment_grant(parser: &Parser) -> bool {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    if !word_at(0, "GRANT") && !word_at(0, "REVOKE") {
+        return false;
+    }
+    let mut offset = 1;
+    while !matches!(
+        parser.peek_nth_token_ref(offset).token,
+        Token::EOF | Token::SemiColon
+    ) {
+        if word_at(offset, "ON") {
+            return word_at(offset + 1, "EXPERIMENT");
+        }
+        offset += 1;
+    }
+    false
 }
 
 fn external_agent_grant(parser: &Parser) -> bool {
