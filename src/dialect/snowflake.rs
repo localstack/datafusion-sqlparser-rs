@@ -165,7 +165,7 @@ impl SnowflakeDialect {
     /// levels of nesting inside a PostgreSQL backend stack.
     #[inline(never)]
     fn parse_statement_tail(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
-        if let Some(statement) = parse_cortex_search(parser) {
+        if let Some(statement) = parse_feature_ddl(parser) {
             return Some(statement);
         }
         // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
@@ -7328,7 +7328,7 @@ fn consume_materialization_keyword(parser: &mut Parser) -> Result<(), ParserErro
     }
 }
 
-fn parse_cortex_search(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
     let word_at = |offset, expected: &str| {
         matches!(&parser.peek_nth_token_ref(offset).token,
             Token::Word(word) if word.quote_style.is_none()
@@ -7339,12 +7339,17 @@ fn parse_cortex_search(parser: &mut Parser) -> Option<Result<Statement, ParserEr
     } else {
         1
     };
-    if !["CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE"]
-        .iter()
-        .any(|action| word_at(0, action))
-        || !word_at(object, "CORTEX")
-        || !word_at(object + 1, "SEARCH")
-        || !(word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"))
+    let external_agent = word_at(object, "EXTERNAL")
+        && (word_at(object + 1, "AGENT") || word_at(object + 1, "AGENTS"));
+    let cortex_search = word_at(object, "CORTEX")
+        && word_at(object + 1, "SEARCH")
+        && (word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"));
+    if ![
+        "CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE", "GRANT", "REVOKE",
+    ]
+    .iter()
+    .any(|action| word_at(0, action))
+        || (!external_agent && !cortex_search && !external_agent_grant(parser))
     {
         return None;
     }
@@ -7367,9 +7372,40 @@ fn parse_cortex_search(parser: &mut Parser) -> Option<Result<Statement, ParserEr
             Err(error) => return Some(Err(error)),
         }
     }
-    Some(Ok(Statement::CortexSearch {
-        sql: parts.join(" "),
+    let sql = parts.join(" ");
+    Some(Ok(if cortex_search {
+        Statement::CortexSearch { sql }
+    } else {
+        Statement::ExternalAgent { sql }
     }))
+}
+
+fn external_agent_grant(parser: &Parser) -> bool {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    if !word_at(0, "GRANT") && !word_at(0, "REVOKE") {
+        return false;
+    }
+    let mut offset = 1;
+    while !matches!(
+        parser.peek_nth_token_ref(offset).token,
+        Token::EOF | Token::SemiColon
+    ) {
+        if word_at(offset, "ON") {
+            return word_at(offset + 1, "EXTERNAL") && word_at(offset + 2, "AGENT");
+        }
+        if word_at(offset, "CREATE")
+            && word_at(offset + 1, "EXTERNAL")
+            && word_at(offset + 2, "AGENT")
+        {
+            return true;
+        }
+        offset += 1;
+    }
+    false
 }
 
 /// Capture the remainder of an `ADD MATERIALIZATION <name> ...` clause opaquely,

@@ -4830,6 +4830,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// External Agent SQL retained for compatibility validation and body lowering.
+    ExternalAgent {
+        /// Token-rendered SQL, retaining literal values and identifier quoting.
+        sql: String,
+    },
     /// ```sql
     /// SHOW <variable>
     /// ```
@@ -9374,6 +9379,7 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::CortexSearch { sql } => f.write_str(sql),
+            Statement::ExternalAgent { sql } => f.write_str(sql),
             Statement::ShowVariable { variable } => {
                 write!(f, "SHOW")?;
                 if !variable.is_empty() {
