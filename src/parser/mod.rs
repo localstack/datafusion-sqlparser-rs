@@ -17511,7 +17511,20 @@ impl<'a> Parser<'a> {
                 ok_value(Value::UnicodeStringLiteral(s.to_string()))
             }
             Token::HexStringLiteral(ref s) => ok_value(Value::HexStringLiteral(s.to_string())),
-            Token::Placeholder(ref s) => ok_value(Value::Placeholder(s.to_string())),
+            Token::Placeholder(mut reference) => {
+                if self.dialect.supports_qualified_dollar_variables()
+                    && reference
+                        .strip_prefix('$')
+                        .and_then(|name| name.chars().next())
+                        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+                {
+                    while self.consume_token(&Token::Period) {
+                        reference.push('.');
+                        reference.push_str(&self.parse_identifier()?.to_string());
+                    }
+                }
+                ok_value(Value::Placeholder(reference))
+            }
             tok @ Token::Colon | tok @ Token::AtSign => {
                 // 1. Not calling self.parse_identifier(false)?
                 //    because only in placeholder we want to check
@@ -21473,10 +21486,7 @@ impl<'a> Parser<'a> {
             && self.consume_token(&Token::LParen)
         {
             let vars = OneOrManyWithParens::Many(
-                self.parse_comma_separated(|parser: &mut Parser<'a>| parser.parse_identifier())?
-                    .into_iter()
-                    .map(|ident| ObjectName::from(vec![ident]))
-                    .collect(),
+                self.parse_comma_separated(|parser| parser.parse_object_name(false))?,
             );
             self.expect_token(&Token::RParen)?;
             vars

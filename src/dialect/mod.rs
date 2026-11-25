@@ -1378,6 +1378,11 @@ pub trait Dialect: Debug + Any {
         false
     }
 
+    /// Parse `$schema.name` as one variable reference rather than field access.
+    fn supports_qualified_dollar_variables(&self) -> bool {
+        false
+    }
+
     /// Returns true if a dollar-quote opening tag with no matching closing tag, such as
     /// `$a$` in `SELECT $a$ x`, is a word rather than an unterminated dollar-quoted string.
     fn supports_unterminated_dollar_tag_as_word(&self) -> bool {
