@@ -101,6 +101,8 @@ pub struct Insert {
     pub by_name: bool,
     /// Overwrite (Hive)
     pub overwrite: bool,
+    /// Predicate selecting existing rows for a conditional Snowflake overwrite.
+    pub deleting_where: Option<Expr>,
     /// A SQL query that specifies what to insert
     pub source: Option<Box<Query>>,
     /// MySQL `INSERT INTO ... SET`
@@ -230,6 +232,9 @@ impl Display for Insert {
             }
         }
 
+        if let Some(predicate) = &self.deleting_where {
+            write!(f, "DELETING WHERE ({predicate}) ")?;
+        }
         if !self.columns.is_empty() {
             write!(f, "({})", display_comma_separated(&self.columns))?;
             SpaceOrNewline.fmt(f)?;
