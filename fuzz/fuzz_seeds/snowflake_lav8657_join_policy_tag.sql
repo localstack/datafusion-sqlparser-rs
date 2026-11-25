@@ -1,0 +1,1 @@
+ALTER JOIN POLICY p SET TAG t = 'value';
