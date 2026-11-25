@@ -4830,6 +4830,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// Projection-policy compatibility SQL retained across scripting-body parsing.
+    ProjectionPolicy {
+        /// Token-rendered SQL retaining the policy object kind before lowering.
+        sql: String,
+    },
     /// Cortex Agent SQL retained for compatibility validation and body lowering.
     CortexAgent {
         /// Token-rendered SQL with literal values and identifier quoting preserved.
@@ -9383,9 +9388,10 @@ impl fmt::Display for Statement {
                     write!(f, "UNSET ({})", display_comma_separated(names))
                 }
             }
-            Statement::CortexSearch { sql } => f.write_str(sql),
-            Statement::CortexAgent { sql } => f.write_str(sql),
-            Statement::ExternalAgent { sql } => f.write_str(sql),
+            Statement::CortexSearch { sql }
+            | Statement::CortexAgent { sql }
+            | Statement::ProjectionPolicy { sql }
+            | Statement::ExternalAgent { sql } => f.write_str(sql),
             Statement::ShowVariable { variable } => {
                 write!(f, "SHOW")?;
                 if !variable.is_empty() {

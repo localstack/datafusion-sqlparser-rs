@@ -168,6 +168,9 @@ impl SnowflakeDialect {
         if let Some(statement) = parse_feature_ddl(parser) {
             return Some(statement);
         }
+        if let Some(statement) = parse_projection_policy(parser) {
+            return Some(statement);
+        }
         if let Some(statement) = parse_cortex_agent(parser) {
             return Some(statement);
         }
@@ -2498,7 +2501,7 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
 
     let operations = if parser.peek_keyword(Keyword::ALTER) || parser.peek_keyword(Keyword::MODIFY)
     {
-        parse_alter_dynamic_table_column_comments(parser)?
+        parse_alter_dynamic_table_columns(parser)?
     } else {
         let operation = if parser
             .peek_one_of_keywords(&[Keyword::ADD, Keyword::DROP])
@@ -2615,7 +2618,7 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
     }))
 }
 
-fn parse_alter_dynamic_table_column_comments(
+fn parse_alter_dynamic_table_columns(
     parser: &mut Parser,
 ) -> Result<Vec<AlterTableOperation>, ParserError> {
     let _ = parser.next_token(); // ALTER | MODIFY
@@ -2634,9 +2637,16 @@ fn parse_alter_dynamic_table_column_comments(
             AlterColumnOperation::Comment { comment }
         } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::COMMENT]) {
             AlterColumnOperation::UnsetComment
+        } else if parser.parse_keywords(&[Keyword::SET, Keyword::PROJECTION, Keyword::POLICY]) {
+            AlterColumnOperation::SetProjectionPolicy {
+                policy_name: parser.parse_object_name(false)?,
+                force: parser.parse_keyword(Keyword::FORCE),
+            }
+        } else if parser.parse_keywords(&[Keyword::UNSET, Keyword::PROJECTION, Keyword::POLICY]) {
+            AlterColumnOperation::UnsetProjectionPolicy
         } else {
             return parser.expected_ref(
-                "COMMENT or UNSET COMMENT after column name",
+                "COMMENT, UNSET COMMENT, SET PROJECTION POLICY or UNSET PROJECTION POLICY after column name",
                 parser.peek_token_ref(),
             );
         };
@@ -7334,6 +7344,37 @@ fn consume_materialization_keyword(parser: &mut Parser) -> Result<(), ParserErro
     } else {
         parser.expected_ref("MATERIALIZATION", parser.peek_token_ref())
     }
+}
+
+fn parse_projection_policy(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let object = if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+        3
+    } else {
+        1
+    };
+    let lifecycle = ["CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE"]
+        .iter()
+        .any(|verb| word_at(0, verb))
+        && word_at(object, "PROJECTION")
+        && (word_at(object + 1, "POLICY") || word_at(object + 1, "POLICIES"));
+    let grant = (word_at(0, "GRANT") || word_at(0, "REVOKE")) && {
+        let mut offset = 1;
+        while !matches!(parser.peek_nth_token_ref(offset).token, Token::EOF | Token::SemiColon)
+            && !word_at(offset, "ON")
+        {
+            offset += 1;
+        }
+        word_at(offset, "ON") && word_at(offset + 1, "PROJECTION") && word_at(offset + 2, "POLICY")
+    };
+    if !lifecycle && !grant {
+        return None;
+    }
+    Some(parse_feature_sql(parser).map(|sql| Statement::ProjectionPolicy { sql }))
 }
 
 fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
