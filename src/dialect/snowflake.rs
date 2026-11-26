@@ -66,6 +66,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 #[cfg(not(feature = "std"))]
 use alloc::{format, vec};
+use core::cell::RefCell;
 
 use super::keywords::RESERVED_FOR_IDENTIFIER;
 
@@ -179,6 +180,11 @@ impl SnowflakeDialect {
         }
         if let Some(statement) = parse_projection_policy(parser) {
             return Some(statement);
+        }
+        if parser.in_scripting_block() && static_join_policy_statement(parser) {
+            return Some(Ok(Statement::JoinPolicySql {
+                sql: capture_join_policy_sql(parser),
+            }));
         }
         if let Some(statement) = parse_cortex_agent(parser) {
             return Some(statement);
@@ -7480,6 +7486,164 @@ fn consume_materialization_keyword(parser: &mut Parser) -> Result<(), ParserErro
     }
 }
 
+/// The intent of an explicit join-policy clause, before compatibility lowering.
+pub enum JoinPolicyStatement {
+    /// A policy declaration or modification, or an explicit reference.
+    Use,
+    /// Policy metadata.
+    Read,
+    /// Policy removal or removal of a reference.
+    Remove,
+}
+
+/// Classify join-policy syntax from significant tokens of a single statement.
+/// `token_at` returns `Token::EOF` beyond the end of the input.
+pub fn join_policy_statement<'a>(token_at: impl Fn(usize) -> &'a Token) -> Option<JoinPolicyStatement> {
+    use JoinPolicyStatement::{Read, Remove, Use};
+
+    let word = |index, expected: &str| {
+        matches!(token_at(index), Token::Word(word)
+            if word.quote_style.is_none() && word.value.eq_ignore_ascii_case(expected))
+    };
+    let policy = |index| word(index, "JOIN") && word(index + 1, "POLICY");
+    let name_end = |mut index| {
+        let mut first_component = true;
+        loop {
+            let identifier_call = word(index, "IDENTIFIER") && *token_at(index + 1) == Token::LParen;
+            index += 1;
+            if identifier_call {
+                index += 1;
+                let mut depth = 1;
+                while depth != 0 {
+                    match token_at(index) {
+                        Token::LParen => depth += 1,
+                        Token::RParen => depth -= 1,
+                        Token::EOF | Token::SemiColon => return index,
+                        _ => {}
+                    }
+                    index += 1;
+                }
+            }
+            if *token_at(index) != Token::Period {
+                break;
+            }
+            if first_component && *token_at(index + 1) == Token::Period {
+                index += 1;
+            }
+            if !matches!(token_at(index + 1), Token::Word(_)) {
+                break;
+            }
+            index += 1;
+            first_component = false;
+        }
+        index
+    };
+    let if_exists = |index| index + if word(index, "IF") && word(index + 1, "EXISTS") { 2 } else { 0 };
+    let create = word(0, "CREATE");
+    let alter = word(0, "ALTER");
+    let grant = word(0, "GRANT");
+    let revoke = word(0, "REVOKE");
+    let mut kind = if create && word(1, "OR") && word(2, "REPLACE") { 3 } else { 1 };
+    if policy(kind) {
+        return if create {
+            Some(Use)
+        } else if alter {
+            Some(if word(name_end(if_exists(3)), "UNSET") { Remove } else { Use })
+        } else if word(0, "DROP") {
+            Some(Remove)
+        } else if word(0, "DESC") || word(0, "DESCRIBE") {
+            Some(Read)
+        } else {
+            None
+        };
+    }
+    if word(0, "SHOW") {
+        let kind = if word(1, "TERSE") { 2 } else { 1 };
+        return ((word(kind, "JOIN") && word(kind + 1, "POLICIES"))
+            || (word(kind, "GRANTS") && word(kind + 1, "ON") && policy(kind + 2)))
+            .then_some(Read);
+    }
+    if grant || revoke || word(0, "COMMENT") {
+        let on = (1..)
+            .take_while(|&index| !matches!(token_at(index), Token::EOF | Token::SemiColon))
+            .find(|&index| word(index, "ON"))?;
+        return policy(on + 1).then_some(if revoke { Remove } else { Use });
+    }
+    if !create && !alter {
+        return None;
+    }
+    let or_alter = create && word(kind, "OR") && word(kind + 1, "ALTER");
+    if create {
+        if or_alter {
+            kind += 2;
+        }
+        if word(kind, "PROCEDURE") && word(kind + 1, "SCOPED") {
+            kind += 1;
+        }
+        while [
+            "LOCAL",
+            "GLOBAL",
+            "SCOPED",
+            "TEMP",
+            "TEMPORARY",
+            "TRANSIENT",
+            "SECURE",
+            "VOLATILE",
+            "HYBRID",
+            "INTERACTIVE",
+            "FORCE",
+            "RECURSIVE",
+            "MATERIALIZED",
+        ]
+        .iter()
+        .any(|modifier| word(kind, modifier))
+        {
+            kind += 1;
+        }
+    }
+    if word(kind, "ICEBERG") && word(kind + 1, "TABLE") {
+        kind += 1;
+    }
+    if !(word(kind, "TABLE") || !or_alter && word(kind, "VIEW")) {
+        return None;
+    }
+    if alter {
+        let action = name_end(if_exists(kind + 1));
+        return if policy(action + 1) && word(action, "SET") {
+            Some(Use)
+        } else if policy(action + 1) && word(action, "UNSET") {
+            Some(Remove)
+        } else {
+            None
+        };
+    }
+
+    let name = kind + 1;
+    let name = if word(name, "IF") && word(name + 1, "NOT") && word(name + 2, "EXISTS") {
+        name + 3
+    } else {
+        name
+    };
+    let mut depth = 0;
+    for index in name_end(name).. {
+        match token_at(index) {
+            Token::EOF | Token::SemiColon => break,
+            Token::LParen => depth += 1,
+            Token::RParen => depth -= 1,
+            _ if depth == 0 => {
+                if word(index, "AS") || word(index, "CLONE") {
+                    break;
+                }
+                if policy(index) {
+                    return Some(Use);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn parse_mcp_server(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
     let word_at = |offset, expected: &str| {
         matches!(&parser.peek_nth_token_ref(offset).token,
@@ -7771,6 +7935,44 @@ fn parse_cortex_agent(parser: &mut Parser) -> Option<Result<Statement, ParserErr
         return None;
     }
     Some(parse_feature_sql(parser).map(|sql| Statement::CortexAgent { sql }))
+}
+
+fn static_join_policy_statement(parser: &Parser) -> bool {
+    let remaining = (parser.index()..)
+        .map(|index| &parser.token_at(index).token)
+        .take_while(|token| !matches!(token, Token::EOF))
+        .filter(|token| !matches!(token, Token::Whitespace(_)));
+    let lookahead = RefCell::new((Vec::new(), remaining));
+    join_policy_statement(|index| {
+        let (seen, remaining) = &mut *lookahead.borrow_mut();
+        if index >= seen.len() {
+            seen.extend(remaining.take(index + 1 - seen.len()));
+        }
+        seen.get(index).copied().unwrap_or(&Token::EOF)
+    })
+    .is_some()
+}
+
+fn capture_join_policy_sql(parser: &mut Parser) -> String {
+    let end = (parser.index()..)
+        .take_while(|&index| !matches!(parser.token_at(index).token, Token::EOF | Token::SemiColon))
+        .filter(|&index| !matches!(parser.token_at(index).token, Token::Whitespace(_)))
+        .last();
+    let mut sql = String::new();
+    while end.is_some_and(|index| parser.index() <= index) {
+        let Some(token) = parser.next_token_no_skip() else {
+            break;
+        };
+        let rendered = match &token.token {
+            Token::Word(word) => word.to_ident(token.span).to_string(),
+            Token::SingleQuotedString(value) => {
+                Value::SingleQuotedString(value.replace('\\', "\\\\")).to_string()
+            }
+            token => token.to_string(),
+        };
+        sql.push_str(&rendered);
+    }
+    sql
 }
 
 fn parse_dbt_project(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {

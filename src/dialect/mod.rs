@@ -52,6 +52,7 @@ pub use self::oracle::OracleDialect;
 pub use self::postgresql::PostgreSqlDialect;
 pub use self::redshift::RedshiftSqlDialect;
 pub use self::snowflake::parse_snowflake_stage_name;
+pub use self::snowflake::{join_policy_statement, JoinPolicyStatement};
 pub use self::snowflake::SnowflakeDialect;
 pub use self::spark::SparkSqlDialect;
 pub use self::sqlite::SQLiteDialect;

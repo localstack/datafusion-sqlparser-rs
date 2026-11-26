@@ -137,6 +137,10 @@ mod recursion {
             }
         }
 
+        pub fn remaining(&self) -> usize {
+            self.remaining_depth.get()
+        }
+
         /// Decreases the remaining depth by 1.
         ///
         /// Returns [`Err`] if the remaining depth falls to 0.
@@ -497,6 +501,10 @@ impl From<&ParserError> for ExprPrefixError {
 }
 
 impl<'a> Parser<'a> {
+    pub(crate) fn in_scripting_block(&self) -> bool {
+        self.block_counter.remaining() < MAX_SCRIPTING_BLOCK_DEPTH
+    }
+
     /// Create a parser for a [`Dialect`]
     ///
     /// See also [`Parser::parse_sql`]

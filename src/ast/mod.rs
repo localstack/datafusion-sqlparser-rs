@@ -4845,6 +4845,11 @@ pub enum Statement {
         /// Token-rendered SQL.
         sql: String,
     },
+    /// Join-policy syntax preserved for lowering Snowflake Scripting bodies.
+    JoinPolicySql {
+        /// Token-rendered SQL.
+        sql: String,
+    },
     /// Projection-policy compatibility SQL retained across scripting-body parsing.
     ProjectionPolicy {
         /// Token-rendered SQL retaining the policy object kind before lowering.
@@ -9441,6 +9446,7 @@ impl fmt::Display for Statement {
             | Statement::NetworkPolicy { sql }
             | Statement::PostgresInstance { sql }
             | Statement::RowAccessPolicySql { sql }
+            | Statement::JoinPolicySql { sql }
             | Statement::CortexAgent { sql }
             | Statement::ModelRegistry { sql }
             | Statement::Experiment { sql }
