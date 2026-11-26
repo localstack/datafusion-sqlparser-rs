@@ -4359,6 +4359,11 @@ pub fn parse_create_database(
                         ]);
                     }
                 }
+                Keyword::INCLUDE if builder.clone.is_some() => {
+                    parser.expect_keyword(Keyword::INTERNAL)?;
+                    parser.expect_keyword(Keyword::STAGES)?;
+                    builder.include_internal_stages = true;
+                }
                 Keyword::FROM => {
                     if parser.parse_keyword(Keyword::LISTING) {
                         let listing = if matches!(parser.peek_token().token, Token::Word(_)) {

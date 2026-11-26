@@ -5189,6 +5189,8 @@ pub enum Statement {
         clone: Option<ObjectName>,
         /// Whether cloning skips hybrid tables (`IGNORE HYBRID TABLES`).
         ignore_hybrid_tables: bool,
+        #[doc = "Whether the clone includes permanent named internal stages."]
+        include_internal_stages: bool,
         #[doc = "Historical anchor for a container clone."]
         clone_version: Option<TableVersion>,
         #[doc = "Whether the clone skips tables with insufficient data retention."]
@@ -5378,6 +5380,8 @@ pub enum Statement {
         ignore_insufficient_retention: bool,
         #[doc = "Whether the clone excludes hybrid tables."]
         ignore_hybrid_tables: bool,
+        #[doc = "Whether the clone includes permanent named internal stages."]
+        include_internal_stages: bool,
         /// Optional data retention time in days.
         data_retention_time_in_days: Option<u64>,
         /// Optional maximum data extension time in days.
@@ -8828,6 +8832,7 @@ impl fmt::Display for Statement {
                 clone_version,
                 ignore_insufficient_retention,
                 ignore_hybrid_tables,
+                include_internal_stages,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -8874,6 +8879,9 @@ impl fmt::Display for Statement {
                 }
                 if *ignore_hybrid_tables {
                     write!(f, " IGNORE HYBRID TABLES")?;
+                }
+                if *include_internal_stages {
+                    write!(f, " INCLUDE INTERNAL STAGES")?;
                 }
                 if let Some(share) = from_share {
                     write!(f, " FROM SHARE {share}")?;
@@ -9699,6 +9707,7 @@ impl fmt::Display for Statement {
                 default_collate_spec,
                 clone,
                 ignore_hybrid_tables,
+                include_internal_stages,
                 clone_version,
                 ignore_insufficient_retention,
                 comment,
@@ -9741,6 +9750,9 @@ impl fmt::Display for Statement {
 
                 if *ignore_hybrid_tables {
                     write!(f, " IGNORE HYBRID TABLES")?;
+                }
+                if *include_internal_stages {
+                    write!(f, " INCLUDE INTERNAL STAGES")?;
                 }
 
                 if let Some(tags) = with_tags {

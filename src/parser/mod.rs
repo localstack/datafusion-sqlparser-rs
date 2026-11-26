@@ -7671,6 +7671,9 @@ impl<'a> Parser<'a> {
             }
         }
 
+        let include_internal_stages = clone.is_some()
+            && self.parse_keywords(&[Keyword::INCLUDE, Keyword::INTERNAL, Keyword::STAGES]);
+
         // Snowflake also allows `WITH MANAGED ACCESS` after `CLONE <src>`.
         if !with_managed_access {
             with_managed_access =
@@ -7690,6 +7693,7 @@ impl<'a> Parser<'a> {
             default_collate_spec,
             clone,
             ignore_hybrid_tables,
+            include_internal_stages,
             clone_version,
             ignore_insufficient_retention,
             comment,
@@ -7780,6 +7784,7 @@ impl<'a> Parser<'a> {
             clone_version: None,
             ignore_insufficient_retention: false,
             ignore_hybrid_tables: false,
+            include_internal_stages: false,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             external_volume: None,

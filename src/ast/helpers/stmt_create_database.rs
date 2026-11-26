@@ -76,6 +76,8 @@ pub struct CreateDatabaseBuilder {
     pub ignore_insufficient_retention: bool,
     #[doc = "Whether the clone excludes hybrid tables."]
     pub ignore_hybrid_tables: bool,
+    #[doc = "Whether the clone includes permanent named internal stages."]
+    pub include_internal_stages: bool,
     /// Optional data retention time in days.
     pub data_retention_time_in_days: Option<u64>,
     /// Optional max data extension time in days.
@@ -138,6 +140,7 @@ impl CreateDatabaseBuilder {
             clone_version: None,
             ignore_insufficient_retention: false,
             ignore_hybrid_tables: false,
+            include_internal_stages: false,
             data_retention_time_in_days: None,
             max_data_extension_time_in_days: None,
             external_volume: None,
@@ -317,6 +320,7 @@ impl CreateDatabaseBuilder {
             clone_version: self.clone_version,
             ignore_insufficient_retention: self.ignore_insufficient_retention,
             ignore_hybrid_tables: self.ignore_hybrid_tables,
+            include_internal_stages: self.include_internal_stages,
             data_retention_time_in_days: self.data_retention_time_in_days,
             max_data_extension_time_in_days: self.max_data_extension_time_in_days,
             external_volume: self.external_volume,
@@ -356,6 +360,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 clone_version,
                 ignore_insufficient_retention,
                 ignore_hybrid_tables,
+                include_internal_stages,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
@@ -386,6 +391,7 @@ impl TryFrom<Statement> for CreateDatabaseBuilder {
                 clone_version,
                 ignore_insufficient_retention,
                 ignore_hybrid_tables,
+                include_internal_stages,
                 data_retention_time_in_days,
                 max_data_extension_time_in_days,
                 external_volume,
