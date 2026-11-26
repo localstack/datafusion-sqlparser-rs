@@ -168,6 +168,9 @@ impl SnowflakeDialect {
         if let Some(statement) = parse_feature_statement(parser) {
             return Some(statement);
         }
+        if let Some(statement) = parse_dbt_project(parser) {
+            return Some(statement);
+        }
         if let Some(statement) = parse_row_access_compat(parser) {
             return Some(statement);
         }
@@ -7725,6 +7728,43 @@ fn parse_cortex_agent(parser: &mut Parser) -> Option<Result<Statement, ParserErr
         return None;
     }
     Some(parse_feature_sql(parser).map(|sql| Statement::CortexAgent { sql }))
+}
+
+fn parse_dbt_project(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let object = if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+        3
+    } else {
+        1
+    };
+    let ddl = ["CREATE", "ALTER", "DROP", "DESC", "DESCRIBE", "EXECUTE"]
+        .iter()
+        .any(|verb| word_at(0, verb))
+        && word_at(object, "DBT")
+        && word_at(object + 1, "PROJECT");
+    let grant = if word_at(0, "GRANT") || word_at(0, "REVOKE") {
+        let mut offset = 1;
+        loop {
+            if matches!(
+                parser.peek_nth_token_ref(offset).token,
+                Token::EOF | Token::SemiColon
+            ) {
+                break false;
+            }
+            if word_at(offset, "ON") {
+                break word_at(offset + 1, "DBT") && word_at(offset + 2, "PROJECT");
+            }
+            offset += 1;
+        }
+    } else {
+        false
+    };
+    (ddl || grant)
+        .then(|| parse_feature_sql(parser).map(|sql| Statement::RowAccessPolicySql { sql }))
 }
 
 fn parse_feature_sql(parser: &mut Parser) -> Result<String, ParserError> {
