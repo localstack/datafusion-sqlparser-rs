@@ -7582,6 +7582,7 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     let cortex_search = word_at(object, "CORTEX")
         && word_at(object + 1, "SEARCH")
         && (word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"));
+    let dataset_version = word_at(0, "ALTER") && word_at(1, "DATASET");
     let listing = word_at(object, "LISTING")
         || word_at(object, "LISTINGS")
         || ((word_at(object, "EXTERNAL") || word_at(object, "ORGANIZATION"))
@@ -7602,11 +7603,15 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     .any(|action| word_at(0, action))
         || (!external_agent
             && !cortex_search
+            && !dataset_version
             && !listing
             && !experiment
             && !external_agent_grant(parser))
     {
         return None;
+    }
+    if dataset_version {
+        return Some(parse_dataset_version(parser));
     }
     Some(parse_feature_sql(parser).map(|sql| {
         if cortex_search {
@@ -7619,6 +7624,25 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
             Statement::ExternalAgent { sql }
         }
     }))
+}
+
+fn parse_dataset_version(parser: &mut Parser) -> Result<Statement, ParserError> {
+    parser.expect_keyword(Keyword::ALTER)?;
+    parser.next_token();
+    let if_exists = parser.parse_keywords(&[Keyword::IF, Keyword::EXISTS]);
+    let name = parser.parse_object_name(false)?;
+    if !parser.peek_keywords(&[Keyword::ADD, Keyword::VERSION])
+        && !parser.peek_keywords(&[Keyword::DROP, Keyword::VERSION])
+    {
+        return parser.expected_ref("ADD VERSION or DROP VERSION", parser.peek_token_ref());
+    }
+    let clause = parse_feature_sql(parser)?;
+    Ok(Statement::DatasetVersion {
+        sql: format!(
+            "ALTER DATASET {}{name} {clause}",
+            if if_exists { "IF EXISTS " } else { "" },
+        ),
+    })
 }
 
 fn parse_cortex_agent(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
