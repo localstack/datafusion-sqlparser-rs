@@ -1015,6 +1015,18 @@ impl<'a> Tokenizer<'a> {
         self
     }
 
+    /// Read the first token and its span without tokenizing the rest of the input.
+    pub fn tokenize_first(&self) -> Result<Option<TokenWithSpan>, TokenizerError> {
+        let mut state = State {
+            peekable: self.query.chars().peekable(),
+            line: 1,
+            col: 1,
+        };
+        let start = state.location();
+        let token = self.next_token(&mut state, None, None)?;
+        Ok(token.map(|token| TokenWithSpan::at(token, start, state.location())))
+    }
+
     /// Tokenize the statement and produce a vector of tokens
     pub fn tokenize(&mut self) -> Result<Vec<Token>, TokenizerError> {
         let twl = self.tokenize_with_location()?;
