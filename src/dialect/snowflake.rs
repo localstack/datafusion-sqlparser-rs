@@ -6428,7 +6428,7 @@ fn parse_alter_alert(parser: &mut Parser) -> Result<Statement, ParserError> {
         parser.expect_keyword_is(Keyword::SET)?;
         AlterAlertOperation::FromTemplate {
             template,
-            options: parser.parse_alert_template_options()?,
+            options: parser.parse_key_value_options(false, &[], false)?,
         }
     } else if parser.parse_keyword(Keyword::RESUME) {
         AlterAlertOperation::Resume
