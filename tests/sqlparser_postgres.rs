@@ -6823,6 +6823,7 @@ fn test_simple_postgres_insert_with_alias() {
             ],
             by_name: false,
             overwrite: false,
+            overwrite_using: None,
             deleting_where: None,
             source: Some(Box::new(Query {
                 with: None,
@@ -6906,6 +6907,7 @@ fn test_simple_postgres_insert_with_alias() {
             ],
             by_name: false,
             overwrite: false,
+            overwrite_using: None,
             deleting_where: None,
             source: Some(Box::new(Query {
                 with: None,
@@ -6991,6 +6993,7 @@ fn test_simple_insert_with_quoted_alias() {
             ],
             by_name: false,
             overwrite: false,
+            overwrite_using: None,
             deleting_where: None,
             source: Some(Box::new(Query {
                 with: None,

@@ -31,7 +31,7 @@ use crate::{
 
 use super::{
     display_comma_separated, helpers::attached_token::AttachedToken, query::InputFormatClause,
-    Assignment, Expr, FromTable, Ident, InsertAliases, MysqlInsertPriority, ObjectName, OnInsert,
+    Assignment, Cte, Expr, FromTable, Ident, InsertAliases, MysqlInsertPriority, ObjectName, OnInsert,
     OptimizerHint, OrderByExpr, Query, SelectInto, SelectItem, Setting, SqliteOnConflict,
     TableAliasWithoutColumns, TableFactor, TableObject, TableWithJoins, UpdateTableFromKind,
     Values,
@@ -101,6 +101,8 @@ pub struct Insert {
     pub by_name: bool,
     /// Overwrite (Hive)
     pub overwrite: bool,
+    /// Statement-local source relation shared by conditional overwrite consumers.
+    pub overwrite_using: Option<Cte>,
     /// Predicate selecting existing rows for a conditional Snowflake overwrite.
     pub deleting_where: Option<Expr>,
     /// A SQL query that specifies what to insert
@@ -232,6 +234,13 @@ impl Display for Insert {
             }
         }
 
+        if let Some(relation) = &self.overwrite_using {
+            write!(f, "USING ({}) ", relation.query)?;
+            if relation.alias.explicit {
+                write!(f, "AS ")?;
+            }
+            write!(f, "{} ", relation.alias.name)?;
+        }
         if let Some(predicate) = &self.deleting_where {
             write!(f, "DELETING WHERE ({predicate}) ")?;
         }
