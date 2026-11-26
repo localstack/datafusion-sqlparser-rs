@@ -168,6 +168,9 @@ impl SnowflakeDialect {
         if let Some(statement) = parse_feature_ddl(parser) {
             return Some(statement);
         }
+        if let Some(statement) = parse_row_access_compat(parser) {
+            return Some(statement);
+        }
         if let Some(statement) = parse_projection_policy(parser) {
             return Some(statement);
         }
@@ -3680,6 +3683,111 @@ fn parse_external_table_location(parser: &mut Parser) -> Result<String, ParserEr
         }
     }
     Ok(parts.join("."))
+}
+
+fn parse_row_access_compat(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let policy_at = |offset| {
+        word_at(offset, "ROW")
+            && word_at(offset + 1, "ACCESS")
+            && (word_at(offset + 2, "POLICY") || word_at(offset + 2, "POLICIES"))
+    };
+    let grant = word_at(0, "GRANT") || word_at(0, "REVOKE") || word_at(0, "COMMENT");
+    let create = word_at(0, "CREATE");
+    let alter = word_at(0, "ALTER");
+    if !grant && !create && !alter {
+        return None;
+    }
+    if alter && policy_at(1) {
+        let mut action = if word_at(4, "IF") { 6 } else { 4 };
+        action += 1;
+        while parser.peek_nth_token_ref(action).token == Token::Period {
+            action += 2;
+        }
+        return ((word_at(action, "SET") || word_at(action, "UNSET"))
+            && word_at(action + 1, "TAG"))
+        .then(|| parse_feature_sql(parser).map(|sql| Statement::RowAccessPolicySql { sql }));
+    }
+    let mut object = 1;
+    if word_at(object, "OR") {
+        object += 2;
+    }
+    while [
+        "TEMP",
+        "TEMPORARY",
+        "TRANSIENT",
+        "SECURE",
+        "MATERIALIZED",
+        "DYNAMIC",
+        "ICEBERG",
+        "EXTERNAL",
+        "HYBRID",
+        "INTERACTIVE",
+    ]
+    .iter()
+    .any(|modifier| word_at(object, modifier))
+    {
+        object += 1;
+    }
+    if !grant && !word_at(object, "TABLE") && !word_at(object, "VIEW") {
+        return None;
+    }
+    if create && !word_at(object, "VIEW") {
+        return None;
+    }
+    let removal_compat = word_at(object, "VIEW") || word_at(1, "DYNAMIC");
+    let mut index = object + 1;
+    if grant {
+        index = 1;
+    } else {
+        if word_at(index, "IF") {
+            index += if word_at(index + 1, "NOT") { 3 } else { 2 };
+        }
+        index += 1;
+        while parser.peek_nth_token_ref(index).token == Token::Period {
+            index += 2;
+        }
+    }
+    let mut depth = 0;
+    let recognized = loop {
+        match parser.peek_nth_token_ref(index).token {
+            Token::EOF | Token::SemiColon => break false,
+            Token::LParen => depth += 1,
+            Token::RParen => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 {
+            if grant && word_at(index, "ON") {
+                let object = index
+                    + if word_at(index + 1, "ALL") || word_at(index + 1, "FUTURE") {
+                        2
+                    } else {
+                        1
+                    };
+                break policy_at(object);
+            }
+            if create && (word_at(index, "AS") || word_at(index, "CLONE")) {
+                break false;
+            }
+            if (create && policy_at(index))
+                || (alter
+                    && (word_at(index, "ADD")
+                        || word_at(index, "SET")
+                        || (removal_compat && (word_at(index, "DROP") || word_at(index, "UNSET"))))
+                    && (policy_at(index + 1)
+                        || (word_at(index + 1, "ALL") && policy_at(index + 2))))
+            {
+                break true;
+            }
+        }
+        index += 1;
+    };
+    recognized
+        .then(|| parse_feature_sql(parser).map(|sql| Statement::RowAccessPolicySql { sql }))
 }
 
 /// Parse a parenthesised, comma-separated list of quoted staged file paths,

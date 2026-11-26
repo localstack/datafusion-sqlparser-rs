@@ -4830,6 +4830,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// Row-access compatibility SQL, retaining its intent inside static bodies.
+    RowAccessPolicySql {
+        /// Token-rendered SQL.
+        sql: String,
+    },
     /// Projection-policy compatibility SQL retained across scripting-body parsing.
     ProjectionPolicy {
         /// Token-rendered SQL retaining the policy object kind before lowering.
@@ -9399,6 +9404,7 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::CortexSearch { sql }
+            | Statement::RowAccessPolicySql { sql }
             | Statement::CortexAgent { sql }
             | Statement::Experiment { sql }
             | Statement::ProjectionPolicy { sql }
