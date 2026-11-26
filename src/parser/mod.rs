@@ -23937,7 +23937,9 @@ impl<'a> Parser<'a> {
 
     /// Parse a GRANT statement.
     pub fn parse_grant(&mut self) -> Result<Grant, ParserError> {
-        let (privileges, objects, caller) = self.parse_grant_deny_revoke_privileges_objects()?;
+        let (privileges, caller) = self.parse_grant_privileges()?;
+        let on_account = self.peek_keywords(&[Keyword::ON, Keyword::ACCOUNT, Keyword::TO]);
+        let objects = self.parse_grant_target_objects()?;
 
         self.expect_keyword_is(Keyword::TO)?;
         let grantees = self.parse_grantees()?;
@@ -23970,6 +23972,7 @@ impl<'a> Parser<'a> {
             caller,
             privileges,
             objects,
+            on_account,
             grantees,
             with_grant_option,
             as_grantor,
@@ -24130,6 +24133,11 @@ impl<'a> Parser<'a> {
     pub fn parse_grant_deny_revoke_privileges_objects(
         &mut self,
     ) -> Result<(Privileges, Option<GrantObjects>, bool), ParserError> {
+        let (privileges, caller) = self.parse_grant_privileges()?;
+        Ok((privileges, self.parse_grant_target_objects()?, caller))
+    }
+
+    fn parse_grant_privileges(&mut self) -> Result<(Privileges, bool), ParserError> {
         let mut caller = self.parse_keyword(Keyword::CALLER);
         let privileges = if self.parse_keyword(Keyword::ALL) {
             caller |= self.parse_keyword(Keyword::CALLER);
@@ -24143,7 +24151,10 @@ impl<'a> Parser<'a> {
             let actions = self.parse_actions_list()?;
             Privileges::Actions(actions)
         };
+        Ok((privileges, caller))
+    }
 
+    fn parse_grant_target_objects(&mut self) -> Result<Option<GrantObjects>, ParserError> {
         let objects = if self.parse_keyword(Keyword::ON) {
             if self.parse_keywords(&[Keyword::ALL, Keyword::TABLES, Keyword::IN, Keyword::SCHEMA]) {
                 Some(GrantObjects::AllTablesInSchema {
@@ -24493,7 +24504,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        Ok((privileges, objects, caller))
+        Ok(objects)
     }
 
     /// The plural-kind table for [`Self::parse_grant_extensible_objects`]:

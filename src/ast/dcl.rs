@@ -537,6 +537,9 @@ pub struct Grant {
     pub privileges: Privileges,
     /// Optional objects the privileges apply to.
     pub objects: Option<GrantObjects>,
+    /// The target was `ON ACCOUNT`, not a table named `ACCOUNT`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub on_account: bool,
     /// List of grantees receiving the privileges.
     pub grantees: Vec<Grantee>,
     /// Whether `WITH GRANT OPTION` is present.
@@ -565,7 +568,16 @@ impl fmt::Display for Grant {
             write!(f, "{}", self.privileges)?;
         }
         if let Some(ref objects) = self.objects {
-            write!(f, " ON {objects}")?;
+            let table_prefix = if !self.on_account
+                && matches!(objects, GrantObjects::Tables(names) if matches!(names.as_slice(), [name]
+                    if matches!(name.0.as_slice(), [part] if part.as_ident().is_some_and(|ident|
+                        ident.quote_style.is_none() && ident.value.eq_ignore_ascii_case("ACCOUNT")))))
+            {
+                "TABLE "
+            } else {
+                ""
+            };
+            write!(f, " ON {table_prefix}{objects}")?;
         }
         write!(f, " TO {}", display_comma_separated(&self.grantees))?;
         // Printed in the order the parser reads them, so the output re-parses.
