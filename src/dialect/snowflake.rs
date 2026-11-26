@@ -165,7 +165,7 @@ impl SnowflakeDialect {
     /// levels of nesting inside a PostgreSQL backend stack.
     #[inline(never)]
     fn parse_statement_tail(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
-        if let Some(statement) = parse_feature_ddl(parser) {
+        if let Some(statement) = parse_feature_statement(parser) {
             return Some(statement);
         }
         if let Some(statement) = parse_row_access_compat(parser) {
@@ -7571,7 +7571,7 @@ fn parse_model_registry(parser: &mut Parser) -> Option<Result<Statement, ParserE
     Some(Ok(Statement::ModelRegistry { sql }))
 }
 
-fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
     let word_at = |offset, expected: &str| {
         matches!(&parser.peek_nth_token_ref(offset).token,
             Token::Word(word) if word.quote_style.is_none()
@@ -7582,11 +7582,34 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     } else {
         1
     };
-    let external_agent = word_at(object, "EXTERNAL")
-        && (word_at(object + 1, "AGENT") || word_at(object + 1, "AGENTS"));
-    let cortex_search = word_at(object, "CORTEX")
+    let postgres = word_at(object, "POSTGRES")
+        && (word_at(object + 1, "INSTANCE") || word_at(object + 1, "INSTANCES"));
+    let grant = if word_at(0, "GRANT") || word_at(0, "REVOKE") {
+        let mut offset = 1;
+        while !matches!(
+            parser.peek_nth_token_ref(offset).token,
+            Token::EOF | Token::SemiColon
+        ) {
+            if word_at(offset, "ON") {
+                break;
+            }
+            offset += 1;
+        }
+        (word_at(offset + 1, "POSTGRES") && word_at(offset + 2, "INSTANCE"))
+            || (1..offset).any(|index| {
+                word_at(index, "CREATE")
+                    && word_at(index + 1, "POSTGRES")
+                    && word_at(index + 2, "INSTANCE")
+            })
+    } else {
+        false
+    };
+    let cortex = word_at(object, "CORTEX")
         && word_at(object + 1, "SEARCH")
         && (word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"));
+    let external_agent = word_at(object, "EXTERNAL")
+        && (word_at(object + 1, "AGENT") || word_at(object + 1, "AGENTS"));
+    let external_grant = external_agent_grant(parser);
     let dataset_version = word_at(0, "ALTER") && word_at(1, "DATASET");
     let listing = word_at(object, "LISTING")
         || word_at(object, "LISTINGS")
@@ -7606,12 +7629,14 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     ]
     .iter()
     .any(|action| word_at(0, action))
-        || (!external_agent
-            && !cortex_search
+        || (!postgres
+            && !grant
+            && !external_agent
+            && !external_grant
+            && !cortex
             && !dataset_version
             && !listing
-            && !experiment
-            && !external_agent_grant(parser))
+            && !experiment)
     {
         return None;
     }
@@ -7619,7 +7644,9 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
         return Some(parse_dataset_version(parser));
     }
     Some(parse_feature_sql(parser).map(|sql| {
-        if cortex_search {
+        if postgres || grant {
+            Statement::PostgresInstance { sql }
+        } else if cortex {
             Statement::CortexSearch { sql }
         } else if listing {
             Statement::Listing { sql }

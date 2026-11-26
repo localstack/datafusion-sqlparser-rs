@@ -4830,6 +4830,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// Preserves Postgres instance identity through nested compatibility lowering.
+    PostgresInstance {
+        /// Token-rendered SQL for the compatibility parser.
+        sql: String,
+    },
     /// Row-access compatibility SQL, retaining its intent inside static bodies.
     RowAccessPolicySql {
         /// Token-rendered SQL.
@@ -9422,6 +9427,7 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::CortexSearch { sql }
+            | Statement::PostgresInstance { sql }
             | Statement::RowAccessPolicySql { sql }
             | Statement::CortexAgent { sql }
             | Statement::ModelRegistry { sql }

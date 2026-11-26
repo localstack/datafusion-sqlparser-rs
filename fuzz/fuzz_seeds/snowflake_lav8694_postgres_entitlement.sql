@@ -1,0 +1,4 @@
+BEGIN
+ALTER POSTGRES INSTANCE pg_instance SET COMMENT = 'nested';
+GRANT USAGE ON POSTGRES INSTANCE pg_instance TO ROLE pg_reader;
+END;
