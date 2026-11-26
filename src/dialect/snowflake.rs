@@ -7844,7 +7844,8 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             && !network_policy
             && !dataset_version
             && !listing
-            && !experiment)
+            && !experiment
+            && !aggregation_policy_ddl(parser, object))
     {
         return None;
     }
@@ -8033,6 +8034,76 @@ fn parse_feature_sql(parser: &mut Parser) -> Result<String, ParserError> {
         }
     }
     Ok(parts.join(" "))
+}
+
+fn aggregation_policy_ddl(parser: &Parser, object: usize) -> bool {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    if word_at(0, "GRANT") || word_at(0, "REVOKE") {
+        let mut offset = 1;
+        while !matches!(parser.peek_nth_token_ref(offset).token, Token::EOF | Token::SemiColon) {
+            if word_at(offset, "ON") {
+                return word_at(offset + 1, "AGGREGATION") && word_at(offset + 2, "POLICY");
+            }
+            offset += 1;
+        }
+        return false;
+    }
+    if word_at(object, "AGGREGATION")
+        && (word_at(object + 1, "POLICY") || word_at(object + 1, "POLICIES"))
+    {
+        return true;
+    }
+    let mut relation = object;
+    while [
+        "SECURE", "TEMP", "TEMPORARY", "RECURSIVE", "MATERIALIZED", "VOLATILE", "DYNAMIC",
+        "ICEBERG",
+    ]
+    .iter()
+    .any(|modifier| word_at(relation, modifier))
+    {
+        relation += 1;
+    }
+    if word_at(0, "ALTER") && (word_at(relation, "TABLE") || word_at(relation, "VIEW")) {
+        let mut offset = relation + 1;
+        if word_at(offset, "IF") && word_at(offset + 1, "EXISTS") {
+            offset += 2;
+        }
+        for _ in 0..3 {
+            if !matches!(parser.peek_nth_token_ref(offset).token, Token::Word(_)) {
+                return false;
+            }
+            offset += 1;
+            if !matches!(parser.peek_nth_token_ref(offset).token, Token::Period) {
+                return (word_at(offset, "SET") || word_at(offset, "UNSET"))
+                    && word_at(offset + 1, "AGGREGATION")
+                    && word_at(offset + 2, "POLICY");
+            }
+            offset += 1;
+        }
+        return false;
+    }
+    if !(word_at(0, "CREATE") && word_at(relation, "VIEW")) {
+        return false;
+    }
+    let mut offset = relation + 1;
+    let mut depth = 0_i32;
+    loop {
+        match parser.peek_nth_token_ref(offset).token {
+            Token::EOF | Token::SemiColon => return false,
+            Token::LParen => depth += 1,
+            Token::RParen => depth -= 1,
+            _ if depth == 0 && word_at(offset, "AS") => return false,
+            _ if depth == 0
+                && word_at(offset, "AGGREGATION")
+                && word_at(offset + 1, "POLICY") => return true,
+            _ => {}
+        }
+        offset += 1;
+    }
 }
 
 fn listing_grant(parser: &Parser) -> bool {
