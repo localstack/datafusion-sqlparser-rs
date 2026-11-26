@@ -4119,9 +4119,11 @@ fn parse_grant() {
         as_grantor: _,
         granted_by,
         current_grants: _,
+        on_account,
     }) = stmt
     {
         assert!(!caller);
+        assert!(!on_account);
         assert_eq!(
             privileges,
             Privileges::All {
