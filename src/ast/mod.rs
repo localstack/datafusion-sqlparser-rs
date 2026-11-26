@@ -7111,6 +7111,11 @@ pub enum Statement {
         /// Dataset name.
         name: ObjectName,
     },
+    /// Dataset version DDL preserved for compatibility parsing in static SQL bodies.
+    DatasetVersion {
+        /// Original token-rendered SQL, including the version source query.
+        sql: String,
+    },
     /// DROP DATASET [IF EXISTS].
     DropDataset {
         /// Succeed for a missing dataset.
@@ -11458,6 +11463,7 @@ impl fmt::Display for Statement {
                 if *or_replace { "OR REPLACE " } else { "" },
                 if *if_not_exists { "IF NOT EXISTS " } else { "" },
             ),
+            Statement::DatasetVersion { sql } => f.write_str(sql),
             Statement::DropDataset { if_exists, name } => write!(
                 f, "DROP DATASET {}{name}", if *if_exists { "IF EXISTS " } else { "" },
             ),

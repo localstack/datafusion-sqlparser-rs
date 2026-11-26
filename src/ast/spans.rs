@@ -776,6 +776,7 @@ impl Spanned for Statement {
             Statement::AlterProcedure { .. } => Span::empty(),
             Statement::WithProcedure { .. }
             | Statement::CortexSearch { .. }
+            | Statement::DatasetVersion { .. }
             | Statement::RowAccessPolicySql { .. }
             | Statement::ProjectionPolicy { .. }
             | Statement::CortexAgent { .. }
