@@ -5636,6 +5636,7 @@ fn parse_multi_table_insert(
         columns: vec![],
         by_name: false,
         overwrite,
+        overwrite_using: None,
         deleting_where: None,
         source: Some(source),
         assignments: vec![],

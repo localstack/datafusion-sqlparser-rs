@@ -25459,6 +25459,28 @@ impl<'a> Parser<'a> {
                 None
             };
 
+            let overwrite_using = if conditional_overwrite && self.parse_keyword(Keyword::USING) {
+                self.expect_token(&Token::LParen)?;
+                let query = self.parse_query()?;
+                self.expect_token(&Token::RParen)?;
+                let explicit = self.parse_keyword(Keyword::AS);
+                let name = self.parse_identifier()?;
+                Some(Cte {
+                    alias: TableAlias {
+                        explicit,
+                        name,
+                        columns: vec![],
+                        at: None,
+                    },
+                    query,
+                    from: None,
+                    materialized: None,
+                    closing_paren_token: AttachedToken::empty(),
+                })
+            } else {
+                None
+            };
+
             let deleting_where = if conditional_overwrite && self.parse_keyword(Keyword::DELETING) {
                 self.expect_keyword(Keyword::WHERE)?;
                 self.expect_token(&Token::LParen)?;
@@ -25616,6 +25638,7 @@ impl<'a> Parser<'a> {
                 ignore,
                 into,
                 overwrite,
+                overwrite_using,
                 deleting_where,
                 by_name,
                 partitioned,
