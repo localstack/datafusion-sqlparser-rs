@@ -7580,7 +7580,11 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             Token::Word(word) if word.quote_style.is_none()
                 && word.value.eq_ignore_ascii_case(expected))
     };
-    let object = if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+    let object = if word_at(0, "CREATE")
+        && word_at(1, "OR")
+        && (word_at(2, "REPLACE")
+            || (word_at(2, "ALTER") && word_at(3, "NETWORK") && word_at(4, "POLICY")))
+    {
         3
     } else {
         1
@@ -7607,6 +7611,8 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
     } else {
         false
     };
+    let network_policy = word_at(object, "NETWORK")
+        && (word_at(object + 1, "POLICY") || word_at(object + 1, "POLICIES"));
     let cortex = word_at(object, "CORTEX")
         && word_at(object + 1, "SEARCH")
         && (word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"));
@@ -7637,6 +7643,7 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             && !external_agent
             && !external_grant
             && !cortex
+            && !network_policy
             && !dataset_version
             && !listing
             && !experiment)
@@ -7651,6 +7658,8 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             Statement::PostgresInstance { sql }
         } else if cortex {
             Statement::CortexSearch { sql }
+        } else if network_policy {
+            Statement::NetworkPolicy { sql }
         } else if listing {
             Statement::Listing { sql }
         } else if experiment {
