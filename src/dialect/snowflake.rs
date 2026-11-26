@@ -168,6 +168,9 @@ impl SnowflakeDialect {
         if let Some(statement) = parse_feature_statement(parser) {
             return Some(statement);
         }
+        if let Some(statement) = parse_mcp_server(parser) {
+            return Some(statement);
+        }
         if let Some(statement) = parse_dbt_project(parser) {
             return Some(statement);
         }
@@ -7475,6 +7478,37 @@ fn consume_materialization_keyword(parser: &mut Parser) -> Result<(), ParserErro
     } else {
         parser.expected_ref("MATERIALIZATION", parser.peek_token_ref())
     }
+}
+
+fn parse_mcp_server(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let object = if word_at(0, "GRANT") || word_at(0, "REVOKE") {
+        let mut offset = 1;
+        while !word_at(offset, "ON") {
+            if matches!(parser.peek_nth_token_ref(offset).token, Token::EOF | Token::SemiColon) {
+                return None;
+            }
+            offset += 1;
+        }
+        if word_at(offset + 1, "ALL") || word_at(offset + 1, "FUTURE") {
+            return None;
+        }
+        offset + 1
+    } else if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+        3
+    } else if ["CREATE", "DROP", "SHOW", "DESC", "DESCRIBE"].iter().any(|action| word_at(0, action)) {
+        1
+    } else {
+        return None;
+    };
+    if !word_at(object, "MCP") || !(word_at(object + 1, "SERVER") || word_at(object + 1, "SERVERS")) {
+        return None;
+    }
+    Some(parse_feature_sql(parser).map(|sql| Statement::McpServer { sql }))
 }
 
 fn parse_projection_policy(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {

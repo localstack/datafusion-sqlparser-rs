@@ -4830,6 +4830,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// MCP SQL retained for compatibility validation and lowering in scripting bodies.
+    McpServer {
+        /// Token-rendered SQL with literals and identifier quoting preserved.
+        sql: String,
+    },
     /// Preserves Postgres instance identity through nested compatibility lowering.
     PostgresInstance {
         /// Token-rendered SQL for the compatibility parser.
@@ -9432,6 +9437,7 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::CortexSearch { sql }
+            | Statement::McpServer { sql }
             | Statement::NetworkPolicy { sql }
             | Statement::PostgresInstance { sql }
             | Statement::RowAccessPolicySql { sql }
