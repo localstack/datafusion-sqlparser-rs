@@ -779,6 +779,7 @@ impl Spanned for Statement {
             | Statement::ProjectionPolicy { .. }
             | Statement::CortexAgent { .. }
             | Statement::ExternalAgent { .. }
+            | Statement::Listing { .. }
             | Statement::Experiment { .. } => Span::empty(),
         }
     }
