@@ -4850,6 +4850,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    #[doc = "Model registry DDL retained for compatibility validation and lowering."]
+    ModelRegistry {
+        #[doc = "Token-rendered SQL, preserving quoting and stage-path adjacency."]
+        sql: String,
+    },
     /// Listing SQL retained for compatibility validation and body lowering.
     Listing {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
@@ -9406,6 +9411,7 @@ impl fmt::Display for Statement {
             Statement::CortexSearch { sql }
             | Statement::RowAccessPolicySql { sql }
             | Statement::CortexAgent { sql }
+            | Statement::ModelRegistry { sql }
             | Statement::Experiment { sql }
             | Statement::ProjectionPolicy { sql }
             | Statement::Listing { sql }

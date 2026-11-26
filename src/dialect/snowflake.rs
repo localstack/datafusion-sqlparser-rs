@@ -177,6 +177,9 @@ impl SnowflakeDialect {
         if let Some(statement) = parse_cortex_agent(parser) {
             return Some(statement);
         }
+        if let Some(statement) = parse_model_registry(parser) {
+            return Some(statement);
+        }
         // Snowflake scripting `FETCH <cursor> INTO <var> [, ...]` has no
         // direction and no FROM/IN, so it can't go through the ISO parser.
         // Intercept only that shape; anything else falls through untouched.
@@ -7495,6 +7498,72 @@ fn parse_projection_policy(parser: &mut Parser) -> Option<Result<Statement, Pars
         return None;
     }
     Some(parse_feature_sql(parser).map(|sql| Statement::ProjectionPolicy { sql }))
+}
+
+fn parse_model_registry(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    let object = if word_at(0, "CREATE") && word_at(1, "OR") && word_at(2, "REPLACE") {
+        3
+    } else {
+        1
+    };
+    let ddl = ["CREATE", "ALTER", "DROP"]
+        .iter()
+        .any(|action| word_at(0, action))
+        && word_at(object, "MODEL")
+        && !word_at(object + 1, "MONITOR");
+    let grant = if word_at(0, "GRANT") || word_at(0, "REVOKE") {
+        let end = (1..).find(|&offset| {
+            matches!(
+                parser.peek_nth_token_ref(offset).token,
+                Token::EOF | Token::SemiColon
+            )
+        })?;
+        (1..end)
+            .find(|&offset| word_at(offset, "ON"))
+            .is_some_and(|on| word_at(on + 1, "MODEL") && !word_at(on + 2, "MONITOR"))
+    } else {
+        false
+    };
+    if !ddl && !grant {
+        return None;
+    }
+    let mut sql = String::new();
+    let mut previous_end = None;
+    while !matches!(parser.peek_token_ref().token, Token::EOF | Token::SemiColon) {
+        let start = parser.peek_token_ref().span.start;
+        if previous_end.is_some_and(|end| end != start) {
+            sql.push(' ');
+        }
+        let value = if matches!(parser.peek_token_ref().token, Token::Word(_)) {
+            Ok(None)
+        } else {
+            parser.maybe_parse(|candidate| candidate.parse_value())
+        };
+        let part = match value {
+            Ok(Some(mut value)) => {
+                if let Value::SingleQuotedString(source) = &mut value.value {
+                    *source = source.replace('\\', "\\\\");
+                }
+                value.to_string()
+            }
+            Ok(None) => {
+                let token = parser.next_token();
+                match token.token {
+                    Token::Word(word) => word.to_ident(token.span).to_string(),
+                    token => token.to_string(),
+                }
+            }
+            Err(error) => return Some(Err(error)),
+        };
+        sql.push_str(&part);
+        previous_end = Some(parser.get_current_token().span.end);
+    }
+    Some(Ok(Statement::ModelRegistry { sql }))
 }
 
 fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
