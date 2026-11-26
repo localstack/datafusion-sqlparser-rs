@@ -7404,6 +7404,15 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     let cortex_search = word_at(object, "CORTEX")
         && word_at(object + 1, "SEARCH")
         && (word_at(object + 2, "SERVICE") || word_at(object + 2, "SERVICES"));
+    let listing = word_at(object, "LISTING")
+        || word_at(object, "LISTINGS")
+        || ((word_at(object, "EXTERNAL") || word_at(object, "ORGANIZATION"))
+            && word_at(object + 1, "LISTING"))
+        || listing_grant(parser)
+        || (word_at(0, "ALTER")
+            && word_at(1, "APPLICATION")
+            && word_at(2, "SET")
+            && word_at(3, "SPECIFICATION"));
     let experiment = word_at(object, "EXPERIMENT")
         || (word_at(0, "SHOW")
             && (word_at(1, "EXPERIMENTS") || word_at(1, "RUNS") || word_at(1, "RUN")))
@@ -7413,13 +7422,19 @@ fn parse_feature_ddl(parser: &mut Parser) -> Option<Result<Statement, ParserErro
     ]
     .iter()
     .any(|action| word_at(0, action))
-        || (!external_agent && !cortex_search && !experiment && !external_agent_grant(parser))
+        || (!external_agent
+            && !cortex_search
+            && !listing
+            && !experiment
+            && !external_agent_grant(parser))
     {
         return None;
     }
     Some(parse_feature_sql(parser).map(|sql| {
         if cortex_search {
             Statement::CortexSearch { sql }
+        } else if listing {
+            Statement::Listing { sql }
         } else if experiment {
             Statement::Experiment { sql }
         } else {
@@ -7499,6 +7514,31 @@ fn parse_feature_sql(parser: &mut Parser) -> Result<String, ParserError> {
         }
     }
     Ok(parts.join(" "))
+}
+
+fn listing_grant(parser: &Parser) -> bool {
+    let word_at = |offset, expected: &str| {
+        matches!(&parser.peek_nth_token_ref(offset).token,
+            Token::Word(word) if word.quote_style.is_none()
+                && word.value.eq_ignore_ascii_case(expected))
+    };
+    if !word_at(0, "GRANT") && !word_at(0, "REVOKE") {
+        return false;
+    }
+    let mut offset = 1;
+    while !matches!(
+        parser.peek_nth_token_ref(offset).token,
+        Token::EOF | Token::SemiColon
+    ) {
+        if word_at(offset, "ON") {
+            return (word_at(offset + 1, "DATA")
+                && word_at(offset + 2, "EXCHANGE")
+                && word_at(offset + 3, "LISTING"))
+                || (word_at(1, "OWNERSHIP") && word_at(offset + 1, "LISTING"));
+        }
+        offset += 1;
+    }
+    false
 }
 
 fn experiment_grant(parser: &Parser) -> bool {

@@ -4845,6 +4845,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// Listing SQL retained for compatibility validation and body lowering.
+    Listing {
+        /// Token-rendered SQL, retaining literal values and identifier quoting.
+        sql: String,
+    },
     /// Experiment SQL retained for compatibility validation and body lowering.
     Experiment {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
@@ -9397,6 +9402,7 @@ impl fmt::Display for Statement {
             | Statement::CortexAgent { sql }
             | Statement::Experiment { sql }
             | Statement::ProjectionPolicy { sql }
+            | Statement::Listing { sql }
             | Statement::ExternalAgent { sql } => f.write_str(sql),
             Statement::ShowVariable { variable } => {
                 write!(f, "SHOW")?;
