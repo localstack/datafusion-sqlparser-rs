@@ -781,6 +781,7 @@ impl Spanned for Statement {
             | Statement::PostgresInstance { .. }
             | Statement::DatasetVersion { .. }
             | Statement::RowAccessPolicySql { .. }
+            | Statement::JoinPolicySql { .. }
             | Statement::ProjectionPolicy { .. }
             | Statement::CortexAgent { .. }
             | Statement::ExternalAgent { .. }
