@@ -3111,19 +3111,19 @@ fn parse_alter_materialized_view_property(
         _ => return parser.expected("a materialized view property name", key_token),
     };
 
+    if unset {
+        if key == "CONTACT" {
+            parser.parse_identifier()?;
+        }
+        return Ok(SqlOption::Ident(Ident::new(key).into()));
+    }
     let value = if key == "SECURE" {
-        Expr::Value(Value::Boolean(!unset).into())
+        Expr::Value(Value::Boolean(true).into())
     } else if key == "CONTACT" {
         let purpose = parser.parse_identifier()?;
-        if unset {
-            Expr::Value(Value::SingleQuotedString(purpose.value).into())
-        } else {
-            parser.expect_token(&Token::Eq)?;
-            let contact = parser.parse_object_name(false)?;
-            Expr::Value(Value::SingleQuotedString(format!("{}={contact}", purpose.value)).into())
-        }
-    } else if unset {
-        Expr::Value(Value::Null.into())
+        parser.expect_token(&Token::Eq)?;
+        let contact = parser.parse_object_name(false)?;
+        Expr::Value(Value::SingleQuotedString(format!("{}={contact}", purpose.value)).into())
     } else {
         parser.expect_token(&Token::Eq)?;
         parser.parse_expr()?
