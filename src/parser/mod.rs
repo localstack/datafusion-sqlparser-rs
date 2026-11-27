@@ -3191,13 +3191,26 @@ impl<'a> Parser<'a> {
     /// [ODBC Date, Time, and Timestamp Literals]:
     /// https://learn.microsoft.com/en-us/sql/odbc/reference/develop-app/date-time-and-timestamp-literals?view=sql-server-2017
     fn maybe_parse_odbc_body_datetime(&mut self) -> Result<Option<Expr>, ParserError> {
+        if self.dialect.supports_dictionary_syntax()
+            && self.peek_nth_token_ref(1).token == Token::Colon
+        {
+            return Ok(None);
+        }
+
         self.maybe_parse(|p| {
             let token = p.next_token().clone();
-            let word_string = token.token.to_string();
-            let data_type = match word_string.as_str() {
-                "t" => DataType::Time(None, TimezoneInfo::None),
-                "d" => DataType::Date,
-                "ts" => DataType::Timestamp(None, TimezoneInfo::None),
+            let marker = match &token.token {
+                Token::Word(word) if word.quote_style.is_none() => word.value.as_str(),
+                _ => "",
+            };
+            let data_type = match marker {
+                marker if marker.eq_ignore_ascii_case("t") => {
+                    DataType::Time(None, TimezoneInfo::None)
+                }
+                marker if marker.eq_ignore_ascii_case("d") => DataType::Date,
+                marker if marker.eq_ignore_ascii_case("ts") => {
+                    DataType::Timestamp(None, TimezoneInfo::None)
+                }
                 _ => return p.expected("ODBC datetime keyword (t, d, or ts)", token),
             };
             let value = p.parse_value()?;

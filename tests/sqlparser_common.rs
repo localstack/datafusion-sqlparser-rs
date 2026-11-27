@@ -15243,6 +15243,17 @@ fn test_dictionary_syntax() {
 
     check("{}", Expr::Dictionary(vec![]));
 
+    let dialects = all_dialects_where(|d| d.supports_dictionary_syntax());
+    for key in ["D", "T", "TS", "Ts", "d", "t", "ts"] {
+        for (input, canonical) in [("1", "1"), ("1,x:2", "1, x: 2")] {
+            let expr = dialects.expr_parses_to(
+                &format!("{{{key}:{input}}}"),
+                &format!("{{{key}: {canonical}}}"),
+            );
+            assert!(matches!(expr, Expr::Dictionary(_)), "{expr:?}");
+        }
+    }
+
     check(
         "{'Alberta': 'Edmonton', 'Manitoba': 'Winnipeg'}",
         Expr::Dictionary(vec![
