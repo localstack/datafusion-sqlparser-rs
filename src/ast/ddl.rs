@@ -7747,7 +7747,20 @@ impl fmt::Display for AlterTable {
         if let Some(cluster) = &self.on_cluster {
             write!(f, "ON CLUSTER {cluster} ")?;
         }
-        write!(f, "{}", display_comma_separated(&self.operations))?;
+        if let (Some(AlterTableType::Dynamic), [AlterTableOperation::ResetOptions { options }]) =
+            (&self.table_type, self.operations.as_slice())
+        {
+            let options: Vec<_> = options.iter().map(|option| {
+                match option.to_string().as_str() {
+                    "IMMUTABLE_WHERE" => "IMMUTABLE WHERE".to_string(),
+                    "DCM_PROJECT" => "DCM PROJECT".to_string(),
+                    name => name.to_string(),
+                }
+            }).collect();
+            write!(f, "UNSET {}", display_comma_separated(&options))?;
+        } else {
+            write!(f, "{}", display_comma_separated(&self.operations))?;
+        }
         if self.copy_session {
             write!(f, " COPY SESSION")?;
         }

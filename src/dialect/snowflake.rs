@@ -2603,11 +2603,17 @@ fn parse_alter_dynamic_table(parser: &mut Parser) -> Result<Statement, ParserErr
             AlterTableOperation::DropStorageLifecyclePolicy
         } else if parser.parse_keyword(Keyword::SET) {
             AlterTableOperation::SetOptionsParens {
-                options: parse_alter_dynamic_table_properties(parser, false)?,
+                options: parse_alter_dynamic_table_properties(parser, false)?
+                    .into_iter()
+                    .map(|(key, value)| SqlOption::KeyValue { key, value })
+                    .collect(),
             }
         } else if parser.parse_keyword(Keyword::UNSET) {
-            AlterTableOperation::SetOptionsParens {
-                options: parse_alter_dynamic_table_properties(parser, true)?,
+            AlterTableOperation::ResetOptions {
+                options: parse_alter_dynamic_table_properties(parser, true)?
+                    .into_iter()
+                    .map(|(key, _)| key)
+                    .collect(),
             }
         } else {
             return parser.expected_ref(
@@ -2715,7 +2721,7 @@ fn consumed_subquery(parser: &Parser, start: usize) -> bool {
 fn parse_alter_dynamic_table_properties(
     parser: &mut Parser,
     unset: bool,
-) -> Result<Vec<SqlOption>, ParserError> {
+) -> Result<Vec<(ObjectName, Expr)>, ParserError> {
     let mut options = vec![parse_alter_dynamic_table_property(parser, unset)?];
     loop {
         let _ = parser.consume_token(&Token::Comma);
@@ -2727,12 +2733,11 @@ fn parse_alter_dynamic_table_properties(
     Ok(options)
 }
 
-/// Parse one `ALTER DYNAMIC TABLE … SET/UNSET` property into an
-/// [`SqlOption::KeyValue`]. See [`parse_alter_dynamic_table_properties`].
+/// Parse one `ALTER DYNAMIC TABLE … SET/UNSET` property.
 fn parse_alter_dynamic_table_property(
     parser: &mut Parser,
     unset: bool,
-) -> Result<SqlOption, ParserError> {
+) -> Result<(ObjectName, Expr), ParserError> {
     let key_token = parser.next_token();
     let key = match &key_token.token {
         Token::Word(w) if w.quote_style.is_none() => w.value.to_uppercase(),
@@ -2762,10 +2767,7 @@ fn parse_alter_dynamic_table_property(
             }
             Value::SingleQuotedString(predicate.to_string())
         };
-        return Ok(SqlOption::KeyValue {
-            key: Ident::new("IMMUTABLE_WHERE").into(),
-            value: Expr::Value(value.into()),
-        });
+        return Ok((Ident::new("IMMUTABLE_WHERE").into(), Expr::Value(value.into())));
     }
 
     if unset {
@@ -2780,10 +2782,7 @@ fn parse_alter_dynamic_table_property(
             )
         {
             let _ = parser.next_token();
-            return Ok(SqlOption::KeyValue {
-                key: Ident::new("DCM_PROJECT").into(),
-                value: Expr::Value(Value::Null.into()),
-            });
+            return Ok((Ident::new("DCM_PROJECT").into(), Expr::Value(Value::Null.into())));
         }
         if !matches!(
             key.as_str(),
@@ -2801,10 +2800,7 @@ fn parse_alter_dynamic_table_property(
                 key_token,
             );
         }
-        return Ok(SqlOption::KeyValue {
-            key: Ident::new(key).into(),
-            value: Expr::Value(Value::Null.into()),
-        });
+        return Ok((Ident::new(key).into(), Expr::Value(Value::Null.into())));
     }
 
     if !matches!(
@@ -2859,10 +2855,7 @@ fn parse_alter_dynamic_table_property(
         }
         _ => return parser.expected("a property value", value_token),
     };
-    Ok(SqlOption::KeyValue {
-        key: Ident::new(key).into(),
-        value,
-    })
+    Ok((Ident::new(key).into(), value))
 }
 
 /// Parse Snowflake scripting `FETCH <cursor> INTO <var> [, <var> ...]`.
