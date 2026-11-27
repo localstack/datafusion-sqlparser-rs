@@ -7684,6 +7684,8 @@ pub enum AlterTableType {
     /// Foreign table type
     /// <https://www.postgresql.org/docs/current/sql-alterforeigntable.html>
     Foreign,
+    /// Ordinary view using the ALTER TABLE operation representation.
+    View,
     /// Materialized view type
     /// <https://docs.snowflake.com/en/sql-reference/sql/alter-materialized-view>
     MaterializedView,
@@ -7726,6 +7728,7 @@ impl fmt::Display for AlterTable {
             Some(AlterTableType::Dynamic) => write!(f, "ALTER DYNAMIC TABLE ")?,
             Some(AlterTableType::External) => write!(f, "ALTER EXTERNAL TABLE ")?,
             Some(AlterTableType::Foreign) => write!(f, "ALTER FOREIGN TABLE ")?,
+            Some(AlterTableType::View) => write!(f, "ALTER VIEW ")?,
             Some(AlterTableType::MaterializedView) => write!(f, "ALTER MATERIALIZED VIEW ")?,
             None => write!(f, "ALTER TABLE ")?,
         }
