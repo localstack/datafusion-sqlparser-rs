@@ -953,6 +953,7 @@ pub struct Tokenizer<'a> {
     /// If true (the default), the tokenizer will un-escape literal
     /// SQL strings See [`Tokenizer::with_unescape`] for more details.
     unescape: bool,
+    hash_comments: bool,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -977,6 +978,7 @@ impl<'a> Tokenizer<'a> {
             dialect,
             query,
             unescape: true,
+            hash_comments: dialect.supports_hash_comment(),
         }
     }
 
@@ -1012,6 +1014,12 @@ impl<'a> Tokenizer<'a> {
     /// ```
     pub fn with_unescape(mut self, unescape: bool) -> Self {
         self.unescape = unescape;
+        self
+    }
+
+    /// Disable `#` line comments without changing the other dialect rules.
+    pub fn without_hash_comments(mut self) -> Self {
+        self.hash_comments = false;
         self
     }
 
@@ -1998,7 +2006,7 @@ impl<'a> Tokenizer<'a> {
                 }
                 '{' => self.consume_and_return(chars, Token::LBrace),
                 '}' => self.consume_and_return(chars, Token::RBrace),
-                '#' if self.dialect.supports_hash_comment()
+                '#' if self.hash_comments
                     && (!self.dialect.requires_hash_comment_space()
                         || chars
                             .peekable
