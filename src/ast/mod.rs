@@ -13734,6 +13734,8 @@ pub enum GrantObjects {
     Sequences(Vec<ObjectName>),
     /// Grant privileges on specific tables
     Tables(Vec<ObjectName>),
+    /// Grant privileges on specific dynamic tables.
+    DynamicTables(Vec<ObjectName>),
     /// Grant privileges on specific views
     Views(Vec<ObjectName>),
     /// Grant privileges on specific materialized views
@@ -13828,6 +13830,9 @@ impl fmt::Display for GrantObjects {
             }
             GrantObjects::Tables(tables) => {
                 write!(f, "{}", display_comma_separated(tables))
+            }
+            GrantObjects::DynamicTables(tables) => {
+                write!(f, "DYNAMIC TABLE {}", display_comma_separated(tables))
             }
             GrantObjects::Views(views) => {
                 write!(f, "VIEW {}", display_comma_separated(views))
