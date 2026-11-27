@@ -4880,6 +4880,11 @@ pub enum Statement {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
         sql: String,
     },
+    /// Task SQL retained for compatibility validation and body lowering.
+    TaskOperation {
+        /// Token-rendered SQL, retaining identifier quoting.
+        sql: String,
+    },
     /// Experiment SQL retained for compatibility validation and body lowering.
     Experiment {
         /// Token-rendered SQL, retaining literal values and identifier quoting.
@@ -9449,6 +9454,7 @@ impl fmt::Display for Statement {
             | Statement::JoinPolicySql { sql }
             | Statement::CortexAgent { sql }
             | Statement::ModelRegistry { sql }
+            | Statement::TaskOperation { sql }
             | Statement::Experiment { sql }
             | Statement::ProjectionPolicy { sql }
             | Statement::Listing { sql }

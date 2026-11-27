@@ -787,6 +787,7 @@ impl Spanned for Statement {
             | Statement::ExternalAgent { .. }
             | Statement::ModelRegistry { .. }
             | Statement::Listing { .. }
+            | Statement::TaskOperation { .. }
             | Statement::Experiment { .. } => Span::empty(),
         }
     }

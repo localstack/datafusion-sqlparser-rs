@@ -7810,6 +7810,32 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
     let external_agent = word_at(object, "EXTERNAL")
         && (word_at(object + 1, "AGENT") || word_at(object + 1, "AGENTS"));
     let external_grant = external_agent_grant(parser);
+    let task_grant = (word_at(0, "GRANT") || word_at(0, "REVOKE")) && {
+        let mut offset = 1;
+        while !matches!(
+            parser.peek_nth_token_ref(offset).token,
+            Token::EOF | Token::SemiColon
+        ) && !word_at(offset, "ON")
+        {
+            offset += 1;
+        }
+        word_at(offset, "ON") && word_at(offset + 1, "TASK")
+    };
+    let task_alter = word_at(0, "ALTER") && word_at(1, "TASK") && {
+        let mut offset = if word_at(2, "IF") { 4 } else { 2 };
+        offset += 1;
+        while parser.peek_nth_token_ref(offset).token == Token::Period {
+            offset += 2;
+        }
+        (word_at(offset, "SET") || word_at(offset, "UNSET"))
+            && (word_at(offset + 1, "TAG")
+                || word_at(offset + 1, "CONTACT")
+                || word_at(offset + 1, "EXECUTE"))
+    };
+    let task_comment = word_at(0, "COMMENT") && {
+        let on = if word_at(1, "IF") { 3 } else { 1 };
+        word_at(on, "ON") && word_at(on + 1, "TASK")
+    };
     let dataset_version = word_at(0, "ALTER") && word_at(1, "DATASET");
     let listing = word_at(object, "LISTING")
         || word_at(object, "LISTINGS")
@@ -7825,7 +7851,7 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             && (word_at(1, "EXPERIMENTS") || word_at(1, "RUNS") || word_at(1, "RUN")))
         || experiment_grant(parser);
     if ![
-        "CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE", "GRANT", "REVOKE",
+        "CREATE", "ALTER", "DROP", "SHOW", "DESC", "DESCRIBE", "GRANT", "REVOKE", "COMMENT",
     ]
     .iter()
     .any(|action| word_at(0, action))
@@ -7838,6 +7864,9 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             && !dataset_version
             && !listing
             && !experiment
+            && !task_grant
+            && !task_alter
+            && !task_comment
             && !aggregation_policy_ddl(parser, object))
     {
         return None;
@@ -7854,6 +7883,8 @@ fn parse_feature_statement(parser: &mut Parser) -> Option<Result<Statement, Pars
             Statement::NetworkPolicy { sql }
         } else if listing {
             Statement::Listing { sql }
+        } else if task_grant || task_alter || task_comment {
+            Statement::TaskOperation { sql }
         } else if experiment {
             Statement::Experiment { sql }
         } else {
